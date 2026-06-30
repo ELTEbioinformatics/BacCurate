@@ -65,6 +65,8 @@ host-associated:animal host:urogenital tract:genital tract:uterus	uterus	UBERON:
 host-associated:animal host:circulatory system	circulatory system	UBERON:0001009
 host-associated:animal host:circulatory system:blood vessel	blood vessel	UBERON:0001981			A vessel through which blood circulates in the body.
 host-associated:animal host:nervous system	nervous system	UBERON:0001016
+host-associated:animal host:nervous system:eye	eye	UBERON:0000970
+host-associated:animal host:nervous system:eye:cornea	cornea	UBERON:0000964
 host-associated:animal host:liver	liver	UBERON:0002107
 host-associated:animal host:bone	bone	UBERON:0001474
 host-associated:animal host:synovial joint	synovial joint	UBERON:0002217
@@ -80,10 +82,7 @@ host-associated:animal host:bodily fluid:pus	pus	UBERON:0000177
 host-associated:animal host:bodily fluid:bile	bile	UBERON:0001970
 host-associated:animal host:feces	feces	ENVO:00002003;UBERON:0001988	rectum	stool
 host-associated:animal host:mucosa	mucosa	UBERON:0000344
-host-associated:animal host:eye	eye	UBERON:0000970
-host-associated:animal host:eye:cornea	cornea	UBERON:0000964
 host-associated:animal host:ear	ear	UBERON:0001690			Includes the outer-, middle- and inner ear, as well as the pinna.
-host-associated:animal host:wound	wound	PLANA:0002108;MONDO:0021178;NCIT:C3671			Includes skin- and soft tissue infection.
+host-associated:animal host:wound	wound	MONDO:0021178			Includes skin- and soft tissue infection.
 host-associated:animal host:ulcer	ulcer	MONDO:0043839
 host-associated:animal host:abscess	abscess	MONDO:0005227	pus
-
