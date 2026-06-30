@@ -1,0 +1,41 @@
+# Registry of target pathogen groups.
+#
+# Each key is the canonical short keyword used:
+#   - the CLI argument (`uv run baccurate abaumannii ecoli`),
+#   - the stem of the input files (data/raw/biosample_xml/<key>.xml, data/raw/id_lists/<key>.txt),
+#   - the value written to the `pathogen` column of the output tables.
+
+abaumannii:
+  scientific_name: Acinetobacter baumannii
+  ncbi_taxid: 470
+  rank: species
+
+ecoli:
+  scientific_name: Escherichia coli
+  ncbi_taxid: 562
+  rank: species
+
+kpneumoniae:
+  scientific_name: Klebsiella pneumoniae
+  ncbi_taxid: 573
+  rank: species
+
+saureus:
+  scientific_name: Staphylococcus aureus
+  ncbi_taxid: 1280
+  rank: species
+
+paeruginosa:
+  scientific_name: Pseudomonas aeruginosa
+  ncbi_taxid: 287
+  rank: species
+
+efaecium:
+  scientific_name: Enterococcus faecium
+  ncbi_taxid: 1352
+  rank: species
+
+enterobacter:
+  scientific_name: Enterobacter
+  ncbi_taxid: 547
+  rank: genus
