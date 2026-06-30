@@ -1,5 +1,5 @@
 # BacCurate
-**BacCurate** standardizes metadata for highly virulent and antibiotic-resistant
+[BacCurate](https://baccurate.org/) standardizes metadata for highly virulent and antibiotic-resistant
 bacterial pathogens into a searchable resource. This repository contains
 the source code that extracts and harmonizes the metadata from the
 [NCBI BioSample](https://www.ncbi.nlm.nih.gov/biosample) database.
@@ -19,14 +19,14 @@ the source code that extracts and harmonizes the metadata from the
 - Geographical location
 - Isolation source
 
-### [See the documentation about the standardization process here.](https://github.com/kadan02/BacCurate/tree/main/docs)
+### [See the documentation about the standardization process here.](https://github.com/ELTEbioinformatics/BacCurate/tree/main/docs)
 ## Installation
 Requires Python 3.12 or later.
 
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/kadan02/BacCurate.git
+git clone https://github.com/ELTEbioinformatics/BacCurate.git
 cd BacCurate
 ```
 
