@@ -711,8 +711,8 @@ class HostStandardizer:
             "host_sci_name",
             "host_score",
             "host_low_conf",
-            "host_attr",
-            "host_val",
+            "host_attr_orig",
+            "host_val_orig",
         ]
         overflow_header = ["accession", "attribute", "value", "package"]
 
@@ -741,8 +741,8 @@ class HostStandardizer:
                     continue
 
                 accession = row.get("accession", "")
-                attr_str = row.get("host_attr", "") or ""
-                val_str = row.get("host_val", "") or ""
+                attr_str = row.get("host_attr_orig", "") or ""
+                val_str = row.get("host_val_orig", "") or ""
                 package = row.get("package", "") or ""
 
                 match = self.classify_row(accession, attr_str, val_str)

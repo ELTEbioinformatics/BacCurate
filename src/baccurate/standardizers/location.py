@@ -461,8 +461,8 @@ class LocationStandardizer:
     ) -> None:
         output_header = [
             "accession",
-            "loc_attr",
-            "loc_val",
+            "loc_attr_orig",
+            "loc_val_orig",
             "loc_continent",
             "loc_UNregion",
             "loc_country",
@@ -489,8 +489,8 @@ class LocationStandardizer:
                         continue
 
                     accession = row.get("accession", "")
-                    attr_str = (row.get("loc_attr") or "").strip()
-                    val_str = (row.get("loc_val") or "").strip()
+                    attr_str = (row.get("loc_attr_orig") or "").strip()
+                    val_str = (row.get("loc_val_orig") or "").strip()
 
                     match = self.find_best_location(accession, attr_str, val_str)
 

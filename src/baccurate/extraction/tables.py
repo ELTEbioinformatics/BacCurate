@@ -7,12 +7,12 @@ from baccurate.extraction.classifiers import ATTRIBUTES, AttributeMatch
 
 # accession is the row key, not a stored field, so it leads the column list.
 COLUMNS = ["accession", "bioproject", "pathogen", "package", "date_category"] + [
-    f"{attribute}_{kind}" for attribute in ATTRIBUTES for kind in ("attr", "val")
+    f"{attribute}_{kind}_orig" for attribute in ATTRIBUTES for kind in ("attr", "val")
 ]
 
 # Columns holding multiple values, joined with '||' on write.
 LIST_COLUMNS = {"date_category"} | {
-    f"{attribute}_{kind}" for attribute in ATTRIBUTES for kind in ("attr", "val")
+    f"{attribute}_{kind}_orig" for attribute in ATTRIBUTES for kind in ("attr", "val")
 }
 
 REPORT_LABELS = {
@@ -47,8 +47,8 @@ class RecordTable:
         rec["package"] = package
         rec["bioproject"] = bioproject
         for match in matches:
-            rec[f"{match.attribute}_attr"].append(attr["attribute"] or "")
-            rec[f"{match.attribute}_val"].append(attr["value"])
+            rec[f"{match.attribute}_attr_orig"].append(attr["attribute"] or "")
+            rec[f"{match.attribute}_val_orig"].append(attr["value"])
             if match.attribute == "date":
                 rec["date_category"].append(match.category)
 

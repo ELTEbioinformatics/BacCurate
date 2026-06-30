@@ -84,8 +84,8 @@ def _iter_iso_for_host_retry(
                 continue
             yield (
                 row.get("accession", ""),
-                row.get("iso_attr", "") or "",
-                row.get("iso_val", "") or "",
+                row.get("iso_attr_orig", "") or "",
+                row.get("iso_val_orig", "") or "",
             )
 
 

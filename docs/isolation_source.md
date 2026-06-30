@@ -49,9 +49,9 @@ LLM connection details are read from environment variables (`.env` at the root):
 | Column      | Description                                                 |
 |-------------|-------------------------------------------------------------|
 | `accession` | Record ID                                                   |
-| `iso_attr`  | `\|\|`-separated attribute names                            |
-| `iso_val`   | `\|\|`-separated values, paired by position with `iso_attr` |
-| `host_val`  | Standardized host (used as additional context for the LLM)  |
+| `iso_attr_orig` | `\|\|`-separated attribute names                            |
+| `iso_val_orig`  | `\|\|`-separated values, paired by position with `iso_attr_orig` |
+| `host_val_orig` | Standardized host (used as additional context for the LLM)  |
 | `package`   | NCBI BioSample package name                                 |
 
 ## Outputs
@@ -59,8 +59,8 @@ LLM connection details are read from environment variables (`.env` at the root):
 | Column             | Description                                                       |
 |--------------------|-------------------------------------------------------------------|
 | `accession`        | Record ID                                                         |
-| `iso_attr`         | Standardized input attribute(s)                                   |
-| `iso_val`          | Standardized input value(s)                                       |
+| `iso_attr_orig`    | Standardized input attribute(s)                                   |
+| `iso_val_orig`     | Standardized input value(s)                                       |
 | `iso_terms`        | `\|\|`-joined, `:`-separated ontology paths of all selected nodes |
 | `iso_display_term` | `\|\|`-joined human readable terms of all selected nodes          |
 | `iso_ontology_id`  | `\|\|`-joined ontology IDs, `NA` for nodes without one            |

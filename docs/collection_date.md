@@ -40,8 +40,8 @@ the attributes to process, see `config/date.yaml`.
 | Column          | Description                                                                       |
 |-----------------|-----------------------------------------------------------------------------------|
 | `accession`     | Record ID                                                                         |
-| `date_attr`     | `\|\|`-separated attribute names                                                  |
-| `date_val`      | `\|\|`-separated values, paired by position with `date_attr`                      |
+| `date_attr_orig` | `\|\|`-separated attribute names                                                  |
+| `date_val_orig`  | `\|\|`-separated values, paired by position with `date_attr_orig`                 |
 | `date_category` | `\|\|`-separated single-letter categories. `s` for sampling, `o` for non-sampling |
 
 ## Outputs
@@ -52,8 +52,8 @@ the attributes to process, see `config/date.yaml`.
 | `date_start` | ISO-format earliest possible collection date |
 | `date_end`   | ISO-format latest possible collection date   |
 | `date_score` | See [below](#reliability-score)              |
-| `date_attr`  | Standardized input attribute(s)              |
-| `date_val`   | Standardized input value(s)                  |
+| `date_attr_orig` | Standardized input attribute(s)              |
+| `date_val_orig`  | Standardized input value(s)                  |
 
 ## Data usage recommendations
 
@@ -127,5 +127,5 @@ treated as a single year-precision match and scored accordingly.
 When a record has more than one sampling date
 with divergent bounds, they are merged into an envelope spanning all values, 
 with the score derived from the envelope's span using the interval scoring
-table above. The output row's `date_attr` and `date_val` columns are filled with `||`-joined 
+table above. The output row's `date_attr_orig` and `date_val_orig` columns are filled with `||`-joined 
 lists.

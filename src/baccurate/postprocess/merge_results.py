@@ -17,10 +17,10 @@ logger = logging.getLogger(__name__)
 
 FINAL_COLUMN_ORDER = [
     "accession", "pathogen", "pathogen_sci_name", "in_ATB", "bioproject",
-    "date_attr", "date_val", "date_start", "date_end", "date_score",
-    "loc_attr", "loc_val", "loc_continent", "loc_UNregion", "loc_country", "loc_other",
-    "iso_attr", "iso_val", "iso_host", "iso_terms", "iso_display_term", "iso_ontology_id",
-    "host_attr", "host_val", "host_taxid", "host_sci_name",
+    "date_attr_orig", "date_val_orig", "date_start", "date_end", "date_score",
+    "loc_attr_orig", "loc_val_orig", "loc_continent", "loc_UNregion", "loc_country", "loc_other",
+    "iso_attr_orig", "iso_val_orig", "iso_host", "iso_terms", "iso_display_term", "iso_ontology_id",
+    "host_attr_orig", "host_val_orig", "host_taxid", "host_sci_name",
     "host_common_names", "host_lineage_names", "host_lineage_taxids",
     "host_score", "host_low_conf",
 ]

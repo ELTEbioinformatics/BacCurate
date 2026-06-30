@@ -290,8 +290,8 @@ class DateStandardizer:
             "date_start",
             "date_end",
             "date_score",
-            "date_attr",
-            "date_val",
+            "date_attr_orig",
+            "date_val_orig",
         ]
 
         total = count_tsv_rows(input_path)
@@ -314,8 +314,8 @@ class DateStandardizer:
                 accession = row.get("accession", "")
                 res = self.find_best_date(
                     accession,
-                    row.get("date_attr", ""),
-                    row.get("date_val", ""),
+                    row.get("date_attr_orig", ""),
+                    row.get("date_val_orig", ""),
                     row.get("date_category", ""),
                 )
                 bounds, attribute, value = res

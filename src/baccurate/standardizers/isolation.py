@@ -629,8 +629,8 @@ class IsoStandardizer:
     ) -> None:
         """Classify iso rows from input_path and (optionally) additional_input.
 
-        input_path is expected to follow the extracted_metadata schema (iso_attr,
-        iso_val, host_val, package columns; pathogen-filterable). additional_input
+        input_path is expected to follow the extracted_metadata schema (iso_attr_orig,
+        iso_val_orig, host_val_orig, package columns; pathogen-filterable). additional_input
         follows the host-overflow schema (attribute, value, package; already
         filtered to one pathogen, no host context).
         """
@@ -654,8 +654,8 @@ class IsoStandardizer:
 
         output_header = [
             "accession",
-            "iso_attr",
-            "iso_val",
+            "iso_attr_orig",
+            "iso_val_orig",
             "iso_terms",
             "iso_display_term",
             "iso_ontology_id",
@@ -688,9 +688,9 @@ class IsoStandardizer:
                             continue
 
                         accession = row.get("accession", "")
-                        attr = row.get("iso_attr", "") or ""
-                        value = str(row.get("iso_val", "") or "").strip()
-                        raw_host = str(row.get("host_val", "") or "").strip()
+                        attr = row.get("iso_attr_orig", "") or ""
+                        value = str(row.get("iso_val_orig", "") or "").strip()
+                        raw_host = str(row.get("host_val_orig", "") or "").strip()
                         host = host_map.get(accession, raw_host)
                         package = str(row.get("package", "") or "").strip()
 
