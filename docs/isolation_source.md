@@ -59,8 +59,8 @@ LLM connection details are read from environment variables (`.env` at the root):
 | Column             | Description                                                       |
 |--------------------|-------------------------------------------------------------------|
 | `accession`        | Record ID                                                         |
-| `iso_attr_orig`    | Standardized input attribute(s)                                   |
-| `iso_val_orig`     | Standardized input value(s)                                       |
+| `iso_attr_orig`    | Unstandardized input attribute(s)                                   |
+| `iso_val_orig`     | Unstandardized input value(s)                                       |
 | `iso_terms`        | `\|\|`-joined, `:`-separated ontology paths of all selected nodes |
 | `iso_display_term` | `\|\|`-joined human readable terms of all selected nodes          |
 | `iso_ontology_id`  | `\|\|`-joined ontology IDs, `NA` for nodes without one            |

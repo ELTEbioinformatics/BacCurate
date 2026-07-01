@@ -73,8 +73,8 @@ A TSV file with one row per record:
 | `host_common_names`   | Comma-separated NCBI common names for the host taxid                              |
 | `host_lineage_names`  | Comma-separated ancestor scientific names, root-to-tip, limited to standard ranks |
 | `host_lineage_taxids` | Comma-separated NCBI taxids, paired by position with `host_lineage_names`         |
-| `host_attr_orig`      | Standardized input attribute(s)                                                   |
-| `host_val_orig`       | Standardized input value(s)                                                       |
+| `host_attr_orig`      | Unstandardized input attribute(s)                                                   |
+| `host_val_orig`       | Unstandardized input value(s)                                                       |
 
 `host_overflow.tsv` lists records forwarded to the
 isolation-source pipeline. A record may appear in both files when it has multiple input rows

@@ -52,8 +52,8 @@ the attributes to process, see `config/date.yaml`.
 | `date_start` | ISO-format earliest possible collection date |
 | `date_end`   | ISO-format latest possible collection date   |
 | `date_score` | See [below](#reliability-score)              |
-| `date_attr_orig` | Standardized input attribute(s)              |
-| `date_val_orig`  | Standardized input value(s)                  |
+| `date_attr_orig` | Unstandardized input attribute(s)            |
+| `date_val_orig`  | Unstandardized input value(s)                  |
 
 ## Data usage recommendations
 
