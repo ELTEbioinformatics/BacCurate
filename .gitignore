@@ -1,6 +1,5 @@
 __pycache__/
 .venv/
-venv
 .idea/
 .pytest_cache
 .ruff_cache
@@ -10,9 +9,9 @@ venv
 *.7z
 *.xml
 data/cache/
-output/*
-results/
-scripts/*
+data/raw/id_lists/
+output/
+scripts_old/
 *.log
 TODO
 *.history
