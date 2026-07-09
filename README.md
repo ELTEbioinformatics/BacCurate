@@ -1,13 +1,17 @@
 # BacCurate
-[BacCurate](https://baccurate.org/) standardizes metadata for highly virulent and antibiotic-resistant
-bacterial pathogens into a searchable resource. This repository contains
+[BacCurate](https://baccurate.org/) turns heterogeneous public sequencing 
+metadata into a standardized, confidence-scored resource for comparative 
+genomics, genomic epidemiology, and One Health research. 
+
+This repository contains
 the source code that extracts and harmonizes the metadata from the
 [NCBI BioSample](https://www.ncbi.nlm.nih.gov/biosample) database.
 
-### Pathogens covered (currently all ESKAPEE)
+### Pathogens covered (includes all ESKAPEE)
 - *Enterococcus faecium*
+- *Enterococcus faecalis*
 - *Staphylococcus aureus*
-- *Klebsiella pneumoniae*
+- *Klebsiella pneumoniae species complex*
 - *Acinetobacter baumannii*
 - *Pseudomonas aeruginosa*
 - *Enterobacter* spp.
@@ -19,7 +23,6 @@ the source code that extracts and harmonizes the metadata from the
 - Geographical location
 - Isolation source
 
-### [See the documentation about the standardization process here.](https://github.com/ELTEbioinformatics/BacCurate/tree/main/docs)
 ## Installation
 Requires Python 3.12 or later.
 
@@ -60,17 +63,28 @@ SERVER="url"
 LLM_MODEL="model-name"
 ```
 ### 4. Setting up input data
-Under construction
+The starting dataset is assembled locally from three public sources:
+
+- the [NCBI BioSample metadata](https://ftp.ncbi.nlm.nih.gov/biosample/) (`biosample_set.xml.gz`),
+- the [NCBI taxonomy dump](https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/) (`nodes.dmp`, `names.dmp`, `merged.dmp`),
+- the [AllTheBacteria](https://allthebacteria.org/) metadata (sylph/GTDB species profiling).
+
+With those in place, run:
+
+```bash
+python scripts/parse_biosample_xml.py
+python scripts/build_biosample_index.py data/raw/atb_2025-05.tsv
+```
+
+See [docs/data_acquisition.md](docs/data_acquisition.md) for more information.
 
 ## Usage
 To process all available attributes (host, date, loc, iso) for one or more pathogens:
 ```bash
 uv run baccurate abaumannii ecoli
 ```
-You must provide at least one pathogen keyword. The valid keywords are defined in
-`config/pathogens.yaml` (`abaumannii`, `ecoli`, `kpneumoniae`, `saureus`,
-`paeruginosa`, `efaecium`, `enterobacter`). Each is also the input-file name and
-the `pathogen` output-column value.
+You must provide at least one pathogen keyword. Keywords are defined in
+`config/pathogens.yaml`. Example: `ecoli`
 
 ### Running specific pipelines only
 Available options are: `host`, `date`, `loc`, `iso`.
