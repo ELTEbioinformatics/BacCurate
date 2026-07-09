@@ -1,9 +1,15 @@
 # Registry of target pathogen groups.
 #
-# Each key is the canonical short keyword used:
-#   - the CLI argument (`uv run baccurate abaumannii ecoli`),
-#   - the stem of the input files (data/raw/biosample_xml/<key>.xml, data/raw/id_lists/<key>.txt),
-#   - the value written to the `pathogen` column of the output tables.
+# A top-level key is either a LEAF (has scientific_name / ncbi_taxid / rank)
+# or a CONTAINER (a map of leaf pathogens, e.g. kpsc).
+#
+# A pathogen key is the unit of identity, used as:
+#   - a CLI argument (`uv run baccurate abaumannii ecoli`),
+#   - the stem of the input files (data/raw/id_lists/<pathogen_key>.tsv),
+#   - the value written to the `pathogen` output column and `pathogen_biosample`.
+# A container key is a convenience group: `uv run baccurate kpsc` runs all its pathogen keys.
+#
+# Optional `also_taxids` adds extra NCBI taxid subtrees when parsing the BioSample XML dump
 
 abaumannii:
   scientific_name: Acinetobacter baumannii
@@ -14,11 +20,7 @@ ecoli:
   scientific_name: Escherichia coli
   ncbi_taxid: 562
   rank: species
-
-kpneumoniae:
-  scientific_name: Klebsiella pneumoniae
-  ncbi_taxid: 573
-  rank: species
+  also_taxids: [620]  # Shigella genus on NCBI. But genomically E. coli
 
 saureus:
   scientific_name: Staphylococcus aureus
@@ -30,12 +32,40 @@ paeruginosa:
   ncbi_taxid: 287
   rank: species
 
-efaecium:
-  scientific_name: Enterococcus faecium
-  ncbi_taxid: 1352
-  rank: species
-
 enterobacter:
   scientific_name: Enterobacter
   ncbi_taxid: 547
   rank: genus
+
+# Klebsiella pneumoniae species complex
+kpsc:
+  kpneumoniae:
+    scientific_name: Klebsiella pneumoniae
+    ncbi_taxid: 573
+    rank: species
+  kquasipneumoniae:
+    scientific_name: Klebsiella quasipneumoniae
+    ncbi_taxid: 1463165
+    rank: species
+  kvariicola:
+    scientific_name: Klebsiella variicola
+    ncbi_taxid: 244366
+    rank: species
+  kquasivariicola:
+    scientific_name: Klebsiella quasivariicola
+    ncbi_taxid: 2026240
+    rank: species
+  kafricana:
+    scientific_name: Klebsiella africana
+    ncbi_taxid: 2489010
+    rank: species
+
+enterococcus:
+  efaecium:
+    scientific_name: Enterococcus faecium
+    ncbi_taxid: 1352
+    rank: species
+  efaecalis:
+    scientific_name: Enterococcus faecalis
+    ncbi_taxid: 1351
+    rank: species

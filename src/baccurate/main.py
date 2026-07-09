@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 
 from baccurate.extraction import main as run_extraction
-from baccurate.pathogens import pathogen_keys
+from baccurate.pathogens import all_keywords, expand_keys, pathogen_keys
 from baccurate.paths import (
     CONFIG_DIR,
     DATE_OUTPUT,
@@ -277,10 +277,12 @@ def main() -> None:
     parser.add_argument(
         "names",
         nargs="*",
-        choices=pathogen_keys(),
+        choices=all_keywords(),
         metavar="PATHOGEN",
-        help="One or more target pathogens to process (see config/pathogens.yaml): "
-        + ", ".join(pathogen_keys())
+        help="One or more target pathogens to process (see config/pathogens.yaml). "
+        "Pathogen keys: " + ", ".join(pathogen_keys())
+        + ". Groups (expand to their pathogen keys): "
+        + ", ".join(k for k in all_keywords() if k not in pathogen_keys())
         + ". If omitted, every pathogen is processed.",
     )
     parser.add_argument(
@@ -360,7 +362,7 @@ def main() -> None:
     )
     log_level = "DEBUG" if args.debug else "INFO"
 
-    names = args.names or _discover_pathogens(DEFAULT_INDEX_TSV)
+    names = expand_keys(args.names) if args.names else _discover_pathogens(DEFAULT_INDEX_TSV)
 
     if args.attribute:
         active_pipelines = tuple(p for p in PIPELINES if p.name in args.attribute)
