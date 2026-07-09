@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "baccurate"
 version = "0.3.0"
-description = "Python scripts to standardize BioSample metadata from NCBI"
+description = "Python metadata harmonizer for BioSample ESKAPEE data"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
@@ -46,8 +46,8 @@ scripts = [
 ]
 
 [project.urls]
-Repository = "https://github.com/kadan02/BacCurate.git"
-Issues = "https://github.com/kadan02/BacCurate/issues"
+Repository = "https://github.com/ELTEbioinformatics/BacCurate.git"
+Issues = "https://github.com/ELTEbioinformatics/BacCurate/issues"
 
 [project.scripts]
 baccurate = "baccurate.main:main"
