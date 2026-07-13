@@ -9,7 +9,8 @@ __pycache__/
 *.7z
 *.xml
 data/cache/
-data/raw/id_lists/
+data/raw
+!data/raw/README.md
 output/
 scripts_old/
 *.log
