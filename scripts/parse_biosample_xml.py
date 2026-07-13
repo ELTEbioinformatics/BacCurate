@@ -2,19 +2,17 @@
 
 Produces:
   1. ``data/raw/id_lists/<pathogen_key>.tsv`` (accession, taxid, organism)
-  2. ``data/raw/biosamples.xml`` a filtered subset of the dump
+  2. ``data/raw/biosamples.xml.gz`` a filtered subset of the dump
 """
 from __future__ import annotations
 
 import argparse
-import gzip
 import hashlib
 import logging
 import sys
 from collections import defaultdict, deque
 from datetime import date
 from pathlib import Path
-from typing import IO
 
 from lxml import etree
 
@@ -23,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from baccurate.atb import NA, build_keyword_maps, sylph_to_keyword
 from baccurate.pathogens import load_pathogens
 from baccurate.paths import DEFAULT_NODES_DMP, DEFAULT_XML_INPUT, RAW_DIR
+from baccurate.utils.compressed_io import open_binary, open_text
 
 log = logging.getLogger("parse_biosample_xml")
 
@@ -135,10 +134,6 @@ def load_atb_scope(atb_path: Path) -> set[str]:
     return scope
 
 
-def _open_dump(path: Path) -> IO[bytes]:
-    return gzip.open(path, "rb") if path.suffix == ".gz" else path.open("rb")
-
-
 def stream(
     dump: Path,
     closure: dict[int, str],
@@ -157,12 +152,12 @@ def stream(
     subset = None
     subset_kept = 0
     if subset_path is not None:
-        subset = subset_path.open("w", encoding="utf-8", newline="\n")
+        subset = open_text(subset_path, "w", newline="\n")
         subset.write('<?xml version="1.0" encoding="UTF-8"?>\n<BioSampleSet>\n')
 
     seen = 0
     try:
-        with _open_dump(dump) as fh:
+        with open_binary(dump) as fh:
             context = etree.iterparse(fh, events=("end",), tag="BioSample", huge_tree=True)
             for _event, elem in context:
                 seen += 1

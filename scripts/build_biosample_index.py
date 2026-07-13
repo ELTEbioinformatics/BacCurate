@@ -1,4 +1,4 @@
-"""Assemble ``data/raw/biosample_index.tsv``.
+"""Assemble ``data/raw/biosample_index.tsv.gz``.
 
 Output is a union of:
   - accessions in ``data/raw/id_lists/<pathogen_key>.tsv`` (from
@@ -146,7 +146,9 @@ def main() -> int:
         log.info("%s counts: %s", col, {k: counts[k] for k in sorted(counts)})
 
     if out_path.exists():
-        backup = out_dir / "biosample_index_old.tsv"
+        suffixes = "".join(out_path.suffixes)
+        stem = out_path.name.removesuffix(suffixes)
+        backup = out_dir / f"{stem}_old{suffixes}"
         os.replace(out_path, backup)
         log.info("renamed previous index -> %s", backup)
     df.to_csv(out_path, sep="\t", index=False)
