@@ -1,10 +1,10 @@
 
-Thid folder includes immutable inputs to the pipeline.
+This folder includes immutable inputs to the pipeline.
 
-- `biosamples.xml` - Downloaded [BioSample XML metadata](https://ftp.ncbi.nlm.nih.gov/biosample/).
+- `biosamples.xml.gz` - Filtered [BioSample XML metadata](https://ftp.ncbi.nlm.nih.gov/biosample/), streamed directly by the pipeline.
 
 
-- `biosample_index.tsv` - One row per BioSample accession. Includes the following columns:
+- `biosample_index.tsv.gz` - One row per BioSample accession, streamed directly by the pipeline. Includes the following columns:
     - `accession` - The join key across the pipeline.
     - `in_ATB` - True if the accession is present in AllTheBacteria collection.
     - `pathogen_biosample` - pathogen key (`config/pathogens.yaml`) from BioSample `Organism` field   ,
