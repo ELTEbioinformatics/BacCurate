@@ -12,6 +12,7 @@ from pathlib import Path
 import pandas as pd
 
 from baccurate.pathogens import scientific_name
+from baccurate.utils.compressed_io import open_text
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ FINAL_COLUMN_ORDER = [
 def _atb_ids_by_pathogen(index_path: Path) -> dict[str, set[str]]:
     """Map pathogen key -> set of ATB accessions, from biosample_index.tsv pathogen_ATB column."""
     by_pathogen: dict[str, set[str]] = defaultdict(set)
-    with index_path.open("r", encoding="utf-8", newline="") as f:
+    with open_text(index_path, newline="") as f:
         reader = csv.DictReader(f, delimiter="\t")
         for row in reader:
             if (row.get("in_ATB") or "").strip() != "True":

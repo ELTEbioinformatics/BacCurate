@@ -1,5 +1,6 @@
 """Default filesystem paths."""
 
+from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -14,8 +15,24 @@ RAW_DIR = DATA_DIR / "raw"
 CACHE_DIR = DATA_DIR / "cache"
 REFERENCE_DIR = DATA_DIR / "reference"
 
-DEFAULT_XML_INPUT = RAW_DIR / "biosamples.xml"
-DEFAULT_INDEX_TSV = RAW_DIR / "biosample_index.tsv"
+
+@dataclass(frozen=True)
+class RawInputPaths:
+    xml: Path
+    index: Path
+
+
+def raw_input_paths(uncompressed: bool = False) -> RawInputPaths:
+    """Return the canonical compressed or optional plain-text raw inputs."""
+    compression_suffix = "" if uncompressed else ".gz"
+    return RawInputPaths(
+        xml=RAW_DIR / f"biosamples.xml{compression_suffix}",
+        index=RAW_DIR / f"biosample_index.tsv{compression_suffix}",
+    )
+
+
+DEFAULT_XML_INPUT = raw_input_paths().xml
+DEFAULT_INDEX_TSV = raw_input_paths().index
 
 DEFAULT_EXTRACTED_TSV = OUTPUT_DIR / "extracted_metadata.tsv"
 DEFAULT_PATHOGEN_OUTPUT_DIR = OUTPUT_DIR

@@ -27,6 +27,7 @@ def main(
     log_level: str = "INFO",
     config_dir: Path = CONFIG_DIR,
     disable_progress: bool = False,
+    uncompressed: bool = False,
 ) -> None:
     logging.basicConfig(
         level=log_level.upper(),
@@ -41,7 +42,7 @@ def main(
 
     pathogen_by_accession = load_pathogen_map(index_path, names)
 
-    files = resolve_input_files(input_path)
+    files = resolve_input_files(input_path, uncompressed=uncompressed)
     with make_inner_bar(len(files), "extracting BioSample XML", disable=disable_progress) as bar:
         for xml_file in files:
             logger.info("Parsing %s...", xml_file)
@@ -74,6 +75,11 @@ if __name__ == "__main__":
     parser.add_argument("--names", nargs="*")
     parser.add_argument("--log-level", default="INFO")
     parser.add_argument("--quiet", action="store_true", help="Disable progress bars.")
+    parser.add_argument(
+        "--uncompressed",
+        action="store_true",
+        help="Discover uncompressed .xml files when --input is a directory.",
+    )
     args = parser.parse_args()
 
     main(
@@ -83,4 +89,5 @@ if __name__ == "__main__":
         names=args.names,
         log_level=args.log_level,
         disable_progress=args.quiet,
+        uncompressed=args.uncompressed,
     )

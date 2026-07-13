@@ -4,7 +4,10 @@ import logging
 import re
 import xml.etree.ElementTree as ET
 from collections.abc import Callable, Iterator
+from pathlib import Path
 from typing import Any
+
+from baccurate.utils.compressed_io import open_binary
 
 logger = logging.getLogger(__name__)
 
@@ -52,37 +55,38 @@ def _extract_bioproject(elem: ET.Element) -> str:
 
 
 def process_biosample_xml(
-    input_file: str,
+    input_file: str | Path,
     check_function: Callable[[str, str], bool],
 ) -> Iterator[tuple[str, list[dict[str, Any]], str, str]]:
-    """Stream a BioSample XML file, yielding (accession, found_attrs, package_name, bioproject) per record."""
+    """Stream XML, yielding accession, attributes, package, and BioProject per record."""
     records_processed = 0
 
     try:
-        context = ET.iterparse(input_file, events=("end",))
-        context = iter(context)
+        with open_binary(input_file) as stream:
+            context = ET.iterparse(stream, events=("end",))
+            for _event, elem in context:
+                if elem.tag == "BioSample":
+                    records_processed += 1
 
-        for _event, elem in context:
-            if elem.tag == "BioSample":
-                records_processed += 1
+                    try:
+                        accession = elem.get("accession", "unknown")
 
-                try:
-                    accession = elem.get("accession", "unknown")
+                        package_elem = elem.find("Package")
+                        package_name = package_elem.text if package_elem is not None else ""
 
-                    package_elem = elem.find("Package")
-                    package_name = package_elem.text if package_elem is not None else ""
+                        bioproject = _extract_bioproject(elem)
 
-                    bioproject = _extract_bioproject(elem)
+                        found_attrs = parse_xml(elem, check_function, check_root_attributes=True)
+                        if found_attrs:
+                            yield accession, found_attrs, package_name, bioproject
 
-                    found_attrs = parse_xml(elem, check_function, check_root_attributes=True)
-                    if found_attrs:
-                        yield accession, found_attrs, package_name, bioproject
+                    except Exception as e:
+                        logger.error(
+                            "Error parsing record %d: %s", records_processed, e, exc_info=True
+                        )
 
-                except Exception as e:
-                    logger.error(f"Error parsing record {records_processed}: {e}", exc_info=True)
-
-                finally:
-                    elem.clear()
+                    finally:
+                        elem.clear()
 
     except Exception as e:
         logger.critical(f"XML Iteration Error: {e}", exc_info=True)

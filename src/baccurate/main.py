@@ -18,7 +18,6 @@ from baccurate.paths import (
     CONFIG_DIR,
     DATE_OUTPUT,
     DEFAULT_EXTRACTED_TSV,
-    DEFAULT_INDEX_TSV,
     DEFAULT_NAMES_DMP,
     DEFAULT_NODES_DMP,
     DEFAULT_PATHOGEN_OUTPUT_DIR,
@@ -28,6 +27,7 @@ from baccurate.paths import (
     ISO_OUTPUT,
     LOC_OUTPUT,
     MERGED_OUTPUT,
+    raw_input_paths,
 )
 from baccurate.postprocess.merge_results import merge_results
 from baccurate.standardizers import date as date_std
@@ -36,6 +36,7 @@ from baccurate.standardizers import isolation as iso_std
 from baccurate.standardizers import location as loc_std
 from baccurate.standardizers.host import HostStandardizer
 from baccurate.taxonomy.lineage import add_lineage_columns
+from baccurate.utils.compressed_io import open_text
 from baccurate.utils.progress import make_outer_bar, progress_context
 
 logger = logging.getLogger(__name__)
@@ -263,7 +264,7 @@ def _check_output_collisions(
 def _discover_pathogens(index_path: Path) -> list[str]:
     keys = set(pathogen_keys())
     found = set()
-    with index_path.open("r", encoding="utf-8", newline="") as f:
+    with open_text(index_path, newline="") as f:
         reader = csv.DictReader(f, delimiter="\t")
         for row in reader:
             pathogen = (row.get("pathogen_biosample") or "").strip()
@@ -288,8 +289,13 @@ def main() -> None:
     parser.add_argument(
         "--input",
         type=Path,
-        default=DEFAULT_XML_INPUT,
-        help="BioSample XML to process.",
+        default=None,
+        help=f"BioSample XML to process (default: {DEFAULT_XML_INPUT}).",
+    )
+    parser.add_argument(
+        "--uncompressed",
+        action="store_true",
+        help="Use uncompressed .xml and .tsv inputs instead of .gz files.",
     )
     parser.add_argument(
         "--config-dir",
@@ -362,7 +368,11 @@ def main() -> None:
     )
     log_level = "DEBUG" if args.debug else "INFO"
 
-    names = expand_keys(args.names) if args.names else _discover_pathogens(DEFAULT_INDEX_TSV)
+    raw_inputs = raw_input_paths(uncompressed=args.uncompressed)
+    input_path = args.input if args.input is not None else raw_inputs.xml
+    index_path = raw_inputs.index
+
+    names = expand_keys(args.names) if args.names else _discover_pathogens(index_path)
 
     if args.attribute:
         active_pipelines = tuple(p for p in PIPELINES if p.name in args.attribute)
@@ -388,16 +398,17 @@ def main() -> None:
         if not extracted_metadata_path.exists():
             logger.info(
                 "Executing extraction: input=%s output=%s",
-                args.input,
+                input_path,
                 extracted_metadata_path,
             )
             run_extraction(
-                input_path=args.input,
+                input_path=input_path,
                 output_path=extracted_metadata_path,
-                index_path=DEFAULT_INDEX_TSV,
+                index_path=index_path,
                 names=extraction_names,
                 log_level=log_level,
                 disable_progress=disable_progress,
+                uncompressed=args.uncompressed,
             )
 
         total_slots = len(names) * len(active_pipelines)
@@ -417,7 +428,7 @@ def main() -> None:
     merge_results(
         names,
         run_base,
-        DEFAULT_INDEX_TSV,
+        index_path,
         merged_path,
         [{"name": p.name, "output": p.output} for p in active_pipelines],
         extracted_metadata_path=extracted_metadata_path,
