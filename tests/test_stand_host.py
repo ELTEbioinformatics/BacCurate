@@ -223,8 +223,8 @@ def test_force_override_beats_default_matching(standardizer):
 
 
 def test_null_override_forwards_to_iso_and_returns_no_match(standardizer):
-    """`poultry flies` is overridden to null"""
-    assert classify(standardizer, "poultry flies") is None
+    """`cancer` is overridden to null"""
+    assert classify(standardizer, "cancer") is None
 
 
 # =============================================================================
