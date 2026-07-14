@@ -39,6 +39,8 @@ class AttributeMatch:
 
 
 class AttributeClassifier(Protocol):
+    def match_attribute(self, attr_name: str) -> AttributeMatch | None: ...
+
     def match(self, value: str, attr_name: str) -> AttributeMatch | None: ...
 
 
@@ -51,12 +53,18 @@ class KeywordClassifier:
         self.blacklist = _keyword_set(config, "blacklist")
         self.null_values = _keyword_set(config, "null_values")
 
-    def match(self, value: str, attr_name: str) -> AttributeMatch | None:
-        if not _within_scope(value, attr_name, self.blacklist, self.null_values):
+    def match_attribute(self, attr_name: str) -> AttributeMatch | None:
+        """Match an eligible positive attribute-name rule, without value filters."""
+        if attr_name in self.blacklist:
             return None
         if any(kw in attr_name for kw in self.keywords):
             return AttributeMatch(self.attribute)
         return None
+
+    def match(self, value: str, attr_name: str) -> AttributeMatch | None:
+        if not _within_scope(value, attr_name, self.blacklist, self.null_values):
+            return None
+        return self.match_attribute(attr_name)
 
 
 class LocationClassifier:
@@ -72,18 +80,24 @@ class LocationClassifier:
         self.pat_country_colon = re.compile(patterns.get("country_colon_city", r"^$"))
         self.pat_country_comma = re.compile(patterns.get("country_comma_city", r"^$"))
 
-    def match(self, value: str, attr_name: str) -> AttributeMatch | None:
-        if not _within_scope(value, attr_name, self.blacklist, self.null_values):
+    def match_attribute(self, attr_name: str) -> AttributeMatch | None:
+        """Match eligible positive location attribute-name rules."""
+        if attr_name in self.blacklist:
             return None
         by_attr = (
             any(kw in attr_name for kw in self.geo_keywords) or attr_name in self.coord_attributes
         )
+        return AttributeMatch("loc") if by_attr else None
+
+    def match(self, value: str, attr_name: str) -> AttributeMatch | None:
+        if not _within_scope(value, attr_name, self.blacklist, self.null_values):
+            return None
         by_value = (
             self.pat_coord.match(value) is not None
             or self.pat_country_colon.match(value) is not None
             or self.pat_country_comma.match(value) is not None
         )
-        return AttributeMatch("loc") if by_attr or by_value else None
+        return self.match_attribute(attr_name) or (AttributeMatch("loc") if by_value else None)
 
 
 class DateClassifier:
@@ -95,14 +109,20 @@ class DateClassifier:
         self.blacklist = _keyword_set(config, "blacklist")
         self.null_values = _keyword_set(config, "null_values")
 
-    def match(self, value: str, attr_name: str) -> AttributeMatch | None:
-        if not _within_scope(value, attr_name, self.blacklist, self.null_values):
+    def match_attribute(self, attr_name: str) -> AttributeMatch | None:
+        """Match eligible positive date attribute-name rules."""
+        if attr_name in self.blacklist:
             return None
         if any(kw in attr_name for kw in self.sampling_keywords):
             return AttributeMatch("date", DATE_SAMPLING)
         if any(kw in attr_name for kw in self.other_keywords):
             return AttributeMatch("date", DATE_OTHER)
         return None
+
+    def match(self, value: str, attr_name: str) -> AttributeMatch | None:
+        if not _within_scope(value, attr_name, self.blacklist, self.null_values):
+            return None
+        return self.match_attribute(attr_name)
 
 
 class MetadataClassifier:
@@ -111,11 +131,17 @@ class MetadataClassifier:
     def __init__(self, classifiers: list[AttributeClassifier]) -> None:
         self.classifiers = classifiers
 
-    @cache
+    @cache  # noqa: B019 - this classifier lives only for one bounded extraction run.
     def classify(self, value: str, attr_name: str | None = None) -> tuple[AttributeMatch, ...]:
         value = normalize_keyword(value)
         attr_name = normalize_keyword(attr_name or "")
         hits = (c.match(value, attr_name) for c in self.classifiers)
+        return tuple(hit for hit in hits if hit is not None)
+
+    def classify_attribute(self, attr_name: str) -> tuple[AttributeMatch, ...]:
+        """Classify an eligible attribute name without applying value filters."""
+        attr_name = normalize_keyword(attr_name)
+        hits = (classifier.match_attribute(attr_name) for classifier in self.classifiers)
         return tuple(hit for hit in hits if hit is not None)
 
 
