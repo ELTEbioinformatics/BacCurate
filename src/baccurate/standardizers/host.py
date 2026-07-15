@@ -1,5 +1,6 @@
 """
-Map host annotations from sample metadata to NCBI Taxonomy ID and scientific names (binomial nomenclature).
+Map host annotations from sample metadata to NCBI Taxonomy IDs and
+scientific names (binomial nomenclature).
 
 See docs/host.md for the documentation.
 """
@@ -10,7 +11,6 @@ import re
 import string
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
-from functools import cache
 from pathlib import Path
 
 import pandas as pd
@@ -280,9 +280,6 @@ class HostStandardizer:
             re.compile(re.escape(str(s)), re.IGNORECASE)
             for s in self.config.get("ignored_substrings", [])
         ]
-        self.null_values: set[str] = {
-            _normalize_text(str(v)) for v in self.config.get("null_values", [])
-        }
         # Each iso_keyword is stored alongside its normalized word set.
         # Matching is whole-word: all the keyword's words must appear
         # as whole words in the value's normalized word set.
@@ -331,7 +328,6 @@ class HostStandardizer:
         )
         return ValueMatch(info, SCORE_TAXID)
 
-    @cache
     def _match_text_value(self, normalized: str) -> ValueMatch | None:
         # Tiers tried in priority order. Sciname and synonym both score
         # 1.0, but sciname is checked first to keep the logged tier
@@ -435,9 +431,6 @@ class HostStandardizer:
         if not normalized:
             logger.debug("Empty after normalization: %r (attribute=%r)", value, attribute)
             return None
-        if normalized in self.null_values:
-            logger.debug("Null value %r (attribute=%r)", value, attribute)
-            return None
         if normalized.isdigit():
             if attribute.lower() != "host_taxid":
                 logger.debug(
@@ -500,7 +493,9 @@ class HostStandardizer:
         attributes = split_pipe_separated(attributes_str)
         values = split_pipe_separated(val_str)
         info = self.taxid_to_info[str(taxid)]
-        for idx, (raw_attr, raw_val) in enumerate(zip(attributes, values)):
+        for idx, (raw_attr, raw_val) in enumerate(
+            zip(attributes, values, strict=False)
+        ):
             if self.taxid_overrides.get(_normalize_text(raw_val)) == taxid:
                 return HostMatch(
                     info=info,
@@ -576,7 +571,12 @@ class HostStandardizer:
         building block for the pass-3 retry, which only cares about confirmed hits.
         """
         for accession, attr_str, val_str in rows:
-            match = self.classify_row(accession, attr_str, val_str, skip_iso_keywords=skip_iso_keywords)
+            match = self.classify_row(
+                accession,
+                attr_str,
+                val_str,
+                skip_iso_keywords=skip_iso_keywords,
+            )
             if match is not None:
                 yield accession, match
 
@@ -594,7 +594,9 @@ class HostStandardizer:
         )
 
         candidates: list[HostMatch] = []
-        for idx, (raw_attr, raw_val) in enumerate(zip(attributes, values)):
+        for idx, (raw_attr, raw_val) in enumerate(
+            zip(attributes, values, strict=False)
+        ):
             attr = raw_attr.strip()
             val = raw_val.strip()
             match = self._match_value(val, attr)

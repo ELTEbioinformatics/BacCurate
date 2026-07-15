@@ -38,17 +38,35 @@ ONTOLOGY_ID_PATTERN = re.compile(r"\b([A-Z]+:\d+)\b", re.IGNORECASE)
 
 # Patterns for masking variable data before cache hashing.
 MASKING_PATTERNS: list[tuple[re.Pattern, str]] = [
-            (re.compile(r'\b\d{4}[-/]\d{2}[-/]\d{2}\b'), '<DATE>'), # e.g.,2022-05-21
-            (re.compile(r'\b\d{2}[-/]\d{2}[-/]\d{4}\b'), '<DATE>'), # e.g., 21/05/2022
-            (re.compile(r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{4}\b', re.IGNORECASE), # e.g., Dec 2024
-             '<DATE>'),
-            (re.compile(r'\b\d+\.\d+\s*[NSEW]\b', re.IGNORECASE), '<COORD>'), # 32.522 N, 113.2154 W
-            (re.compile(r'\b\d+(?:\.\d+)?\s*(?:[muµ]?l|[mkµ]?g|[cmµ]?m)\b', re.IGNORECASE), '<MEASURE>'), # common lab units
-            (re.compile(r'\b\d+(?:\.\d+)?\s*[xX]\s*\d+(?:\.\d+)?\s*(?:[cmµ]?m)?\b', re.IGNORECASE), '<DIMENSION>'), # e.g., 13x100mm, 2x4
-            (re.compile(r'\b[A-Za-z]+[-_](?<!:)\d+\b'), '<ID>'),  # identifiers with separators, e.g. Patient-1
-            (re.compile(r'\b[A-Za-z]{1,3}\d+\b'), '<ID>'),  # short identifiers without separators, e.g. A1 or b2
-            (re.compile(r'(?<![:\d])\d+'), '<NUM>')     # e.g. 32 or patient1. ontology-IDs (ENVO:00...) kept intact
-        ]
+    (re.compile(r"\b\d{4}[-/]\d{2}[-/]\d{2}\b"), "<DATE>"),
+    (re.compile(r"\b\d{2}[-/]\d{2}[-/]\d{4}\b"), "<DATE>"),
+    (
+        re.compile(
+            r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)"
+            r"[a-z]* \d{4}\b",
+            re.IGNORECASE,
+        ),
+        "<DATE>",
+    ),
+    (re.compile(r"\b\d+\.\d+\s*[NSEW]\b", re.IGNORECASE), "<COORD>"),
+    (
+        re.compile(
+            r"\b\d+(?:\.\d+)?\s*(?:[muµ]?l|[mkµ]?g|[cmµ]?m)\b",
+            re.IGNORECASE,
+        ),
+        "<MEASURE>",
+    ),
+    (
+        re.compile(
+            r"\b\d+(?:\.\d+)?\s*[xX]\s*\d+(?:\.\d+)?\s*(?:[cmµ]?m)?\b",
+            re.IGNORECASE,
+        ),
+        "<DIMENSION>",
+    ),
+    (re.compile(r"\b[A-Za-z]+[-_](?<!:)\d+\b"), "<ID>"),
+    (re.compile(r"\b[A-Za-z]{1,3}\d+\b"), "<ID>"),
+    (re.compile(r"(?<![:\d])\d+"), "<NUM>"),
+]
 
 # --- Data structures ---
 
@@ -339,8 +357,6 @@ class LLMClassifier:
         self.config = config
         self.ont = ontology_manager
         self.cache = cache_manager
-        self.null_values = {normalize_keyword(v) for v in self.config.get("null_values", [])}
-
         # load expected attribute name -> term_path from config
         self.expected_attr_to_term: dict[str, str] = {}
         for attr, term in (self.config.get("expected") or {}).items():
@@ -408,12 +424,11 @@ class LLMClassifier:
             effective_model,
         )
 
-        # Split and filter null values
         attrs = split_pipe_separated(str(attr_name))
         vals = split_pipe_separated(str(value))
         valid_attrs, valid_vals = [], []
-        for a, v in zip(attrs, vals):
-            if normalize_keyword(v) in self.null_values or v.strip() == "":
+        for a, v in zip(attrs, vals, strict=False):
+            if v.strip() == "":
                 continue
             valid_attrs.append(a.strip())
             valid_vals.append(v.strip())
@@ -427,7 +442,7 @@ class LLMClassifier:
                 reasoning=[
                     {
                         "node": "classifier",
-                        "reasoning": "All values filtered as NA.",
+                        "reasoning": "No non-empty candidate values were provided.",
                         "selections": [],
                     }
                 ],

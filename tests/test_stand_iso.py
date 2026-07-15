@@ -17,7 +17,6 @@ from types import SimpleNamespace
 import pytest
 
 from baccurate.standardizers.isolation import (
-    IsoStandardizer,
     LLMClassifier,
     OntologyManager,
     SQLiteCache,
@@ -314,17 +313,19 @@ def test_format_metadata_omits_blank_host():
 # 6. standardize_record
 # =============================================================================
 
-# --- Null / trivial inputs -------------------------------------------------
+# --- Structurally empty and trusted inputs ---------------------------------
 
 
-def test_null_value_resolves_to_unspecified_without_llm(classifier):
-    res = classifier.standardize_record("T", "isolation_source", "missing", "", "")
+def test_standardizer_does_not_reapply_extraction_rejection(classifier):
+    classifier._fake.respond_with(["unspecified"])
+
+    res = classifier.standardize_record("T", "isolation_source", "GENOMIC", "", "")
 
     assert res.display_terms == "unspecified"
     assert res.categories == "unspecified"
     assert res.ontology_links == "NA"
-    assert classifier.stats["llm_calls"] == 0
-    assert classifier._fake.calls == []
+    assert classifier.stats["llm_calls"] == 1
+    assert len(classifier._fake.calls) == 1
 
 
 def test_empty_value_resolves_to_unspecified_without_llm(classifier):

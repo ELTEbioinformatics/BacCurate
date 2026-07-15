@@ -10,6 +10,7 @@ pytest tests/test_stand_date.py -v
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 from pathlib import Path
 
@@ -222,6 +223,20 @@ def test_typo_dates_are_rejected_rather_than_returning_a_garbage_date(
     description,
 ):
     assert parse(standardizer, typo) is None, description
+
+
+@pytest.mark.parametrize("value", ["2013-15", "1983-97", "15/2013"])
+def logs_warning_for_impossible_month(standardizer, value, caplog):
+    caplog.set_level(logging.WARNING)
+
+    assert parse(standardizer, value) is None
+
+    assert any(
+        "Invalid year-month metadata value" in message
+        and repr(value) in message
+        and "month" in message
+        for message in caplog.messages
+    )
 
 
 # =============================================================================

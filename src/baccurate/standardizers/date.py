@@ -125,6 +125,30 @@ def _expand_bounds(dt: date, strategy: str) -> tuple[date, date]:
     return dt, dt
 
 
+def _out_of_range_month(pattern_name: str, value: str) -> int | None:
+    """Extract the month from a year-month string and return it
+    only if it is outside 1-12, otherwise return None.
+
+    Returns None also when the pattern does not describe a
+    year-month format."""
+
+    month_position = {
+        "yyyy_mm": 1,
+        "yyyy_mm_slash": 1,
+        "mm_yyyy": 0,
+        "mm_yyyy_slash": 0,
+    }.get(pattern_name)
+
+    if month_position is None:
+        return None
+
+    month = int(re.split(r"[-/]", value)[month_position])
+
+    if 1 <= month <= 12:
+        return None
+
+    return month
+
 class DateParser:
     """Holds the compiled regex set and dispatches single-date / interval parsing."""
 
@@ -140,6 +164,14 @@ class DateParser:
         for name, score, strategy, dayfirst in SINGLE_DATE_FORMATS:
             if not self.patterns[name].fullmatch(val):
                 continue
+            invalid_month = _out_of_range_month(name, val)
+            if invalid_month is not None:
+                logger.warning(
+                    "Invalid year-month %r: month %d is outside 1..12",
+                    date_str,
+                    invalid_month,
+                )
+                return None
             try:
                 dt = dateutil_parser.parse(val, default=DATEUTIL_DEFAULT, dayfirst=dayfirst)
             except (ValueError, OverflowError) as e:
@@ -229,7 +261,7 @@ class DateStandardizer:
         sampling: list[DateRecord] = []
         other: list[DateRecord] = []
 
-        for attr, val, category in zip(attributes, values, categories):
+        for attr, val, category in zip(attributes, values, categories, strict=False):
             record = self._parse_attribute_value(attr, val)
             if record is None:
                 continue
@@ -254,7 +286,8 @@ class DateStandardizer:
             envelope = DateBounds(combined_start, combined_end, score)
 
             logger.warning(
-                "%s has different valid sampling dates across %d distinct attributes: %s > [%s, %s].",
+                "%s has different valid sampling dates across %d distinct attributes: "
+                "%s > [%s, %s].",
                 accession,
                 len(unique_bounds),
                 envelope.start.isoformat(),

@@ -1,142 +1,6 @@
-# work in progress
-
-keywords:
-  - "isolation"
-  - "source"
-  - "material"
-  - "specimen"
-  - "tissue"
-  - "host_description"
-  - "host_body_product"
-  - "host body site"
-  - "host_body_habitat"
-  - "env"
-  - "scale"
-  - "ontology"
-  - "ontological"
-  - "food"
-  # - "env_broad_scale"
-  # - "env_local_scale"
-  # - "env_medium"
-  # - "environmental-sample"
-
-blacklist:
-  - "host_subject_id"
-  - "biomaterial_provider"
-  - "ref_biomaterial"
-  - "source_mat_id"
-  - "LIBRARY_SOURCE"
-  - "type-material"
-  - "Isolate number"
-  - "time of isolation"
-  - "source_material_id"
-  - "library_source_(click_for_details)"
-  - "isolated by"
-  - "isolate_ID"
-  - "Specimen submitter"
-  - "year isolated"
-  - "subsource_note"
-  - "metagenomic source"
-  - "source_name"
-  - "metagenome_source"
-  - "Specimen class"
-  - "specimen_voucher"
-  - "BioSourceType"
-  - "reference_material"
-  - "specimen voucher url"
-  - "specimen_id"
-  - "Medium_used_for_isolation"
-  - "Isolation_country"
-  - "Isolation_date"
-  - "source_SRA"
-  - "source_SRA_ bioproject"
-  - "source_area"
-  - "specimen with known storage state"
-  - "Source code"
-  - "carbon source"
-  - "season_environment"
-  - "climate_environment"
-  - "surf_material"
-  - "samp_source_mat_cat"
-  - "env_monitoring_zone"
-  - "food_origin"
-  - "food_processing_method"
-  - "food_contain_wrap"
-  - "food_prod"
-  - "food_quality_date"
-  - "food_preserv_proc"
-  - "food_pack_integrity"
-  - "food_pack_medium"
-  - "food_contact_surf"
-  - "food_product_qual"
-
-# Values that should be treated as missing or null
-null_values:
-  - "missing"
-  - "mising"
-  - "missing: third party data"
-  - "not collected"
-  - "Not collecte"
-  - "no collected"
-  - "no collect"
-  - "not colllected"
-  - "not available"
-  - "not applicable"
-  - "not aplicable"
-  - "not provided"
-  - "not known"
-  - "unknown"
-  - "na"
-  - "nan"
-  - "n/a"
-  - "null"
-  - "none"
-  - "-"
-  - "not determined"
-  - "not available"
-  - "not available: not collected"
-  - "not applicable"
-  - "no applicable"
-  - "non-applicable"
-  - "not applicaple"
-  - "not aplicable"
-  - "not applocable"
-  - "not apply"
-  - "not applicable1"
-  - "not applicable2"
-  - "not applicable3"
-  - "not applicable5"
-  - "not applicapble"
-  - "Not appropriate"
-  - "Not applied"
-  - "not provided"
-  - "not known"
-  - "forgeted"
-  - "unknown"
-  - "undetermined"
-  - "/"
-  - "na"
-  - "nan"
-  - "n/a"
-  - "N.A"
-  - "n. a."
-  - "N.A."
-  - "null"
-  - "none"
-  - "No host"
-  - "reference"
-  - "unidentified"
-  - "GENOMIC"
-  - "0-28 days"
-  - "missing: control sample"
-  - "10 mL LB Batch Culture - 16x100mm culture tubes"
-
-# Used as warning flags if output is different.
-# attribute name -> display_term.
 expected:
   food_source: food
 
-# LLM config
 default_model: mistral-small3.2:24b
 available_models:
   - mistral-small3.2:24b
@@ -146,7 +10,6 @@ available_models:
   - gpt-oss:120b
   - llama3.1:8b
 
-# Prompts
 system_prompt: |
   You are an expert biology ontologist specialized in classifying BioSample
   isolation-source metadata into one or more nodes of the ontology tree below.
@@ -157,7 +20,7 @@ system_prompt: |
   # Output rules
   1. Return the node(s) you chose, COPIED VERBATIM
      from a bullet in the "# Tree" section.
-     Return just the chosen node's name, not its path (e.g. "rectum"). 
+     Return just the chosen node's name, not its path (e.g. "rectum").
      From one path, only return the most specific node.
      See "# Node notes" when picking among siblings.
   2. Within a branch, prefer the MOST SPECIFIC term that is fully supported
@@ -166,8 +29,8 @@ system_prompt: |
      sample IS ["host-associated"] even when no organ or tissue is named.
   4. In vitro phrases ("cell culture", "tissue culture",
      "lab strain", "lab evolved", "experimental evolution", "synthetic") describe a
-     laboratory origin. If those are the ONLY informative tokens, 
-     return ["laboratory"]. By contrast, in case of e.g. "blood culture" and 
+     laboratory origin. If those are the ONLY informative tokens,
+     return ["laboratory"]. By contrast, in case of e.g. "blood culture" and
      "urine culture" return blood/urine sources.
   5. Self-descriptive values ("tissue=bacterial cell", "host=bacterium",
      strain identifiers placed in source fields): describe the pathogen, not
@@ -175,7 +38,7 @@ system_prompt: |
   6. Homonyms: if a value is highly ambiguous (e.g. "litter", "swab")
      and the surrounding metadata does not resolve it, return ["unspecified"].
   7. If the metadata implies "patients" or any clinical setting, choose "healthcare facility".
-  8. In your reasoning, emphasise WHY each term was chosen in a few words. Do NOT paraphrase the metadata. 
+  8. In your reasoning, emphasise WHY each term was chosen in a few words. Do NOT paraphrase the metadata.
 
 user_prompt: |
   Classify this biosample's isolation source:

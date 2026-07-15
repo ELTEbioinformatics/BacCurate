@@ -9,6 +9,8 @@ pytest tests/test_stand_loc.py -v
 
 from __future__ import annotations
 
+import gc
+import weakref
 from pathlib import Path
 
 import pytest
@@ -75,3 +77,14 @@ def test_country_colon_city_keeps_sublocation_after_remap(standardizer):
 
     assert match.country == "USA"
     assert match.sublocation == "Boston"
+
+
+def test_country_conversion_cache_does_not_retain_standardizer():
+    standardizer = LocationStandardizer(CONFIG_PATH)
+    standardizer.find_best_location("TEST", "geo_loc_name", "Germany")
+    standardizer_ref = weakref.ref(standardizer)
+
+    del standardizer
+    gc.collect()
+
+    assert standardizer_ref() is None

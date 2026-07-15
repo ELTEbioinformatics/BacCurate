@@ -130,23 +130,15 @@ def test_normalization_collapses_surface_variants(standardizer, input_string):
 
 
 # =============================================================================
-# Null values and ignored substrings
+# Trusted candidates and ignored substrings
 # =============================================================================
 
 
-@pytest.mark.parametrize(
-    "null_value",
-    [
-        "missing",
-        "unknown",
-        "n/a",
-        "-",
-        "Escherichia coli",
-        "laboratory strain",
-    ],
-)
-def test_configured_null_values_return_no_match(standardizer, null_value):
-    assert classify(standardizer, null_value) is None
+def test_standardizer_does_not_reapply_extraction_rejection(standardizer):
+    """lab strains retained by extraction reach host matching."""
+    match = classify(standardizer, "Anopheles gambiae G3 strain, lab colony")
+
+    assert match.info.taxid == 7165
 
 
 def test_ignored_substrings_are_stripped_before_matching(standardizer):

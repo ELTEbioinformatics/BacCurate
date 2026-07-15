@@ -154,7 +154,6 @@ class SQLiteCache(SQLiteKVCache):
 class LocationStandardizer:
     def __init__(self, config_path: Path | str) -> None:
         self.config = load_config(config_path)
-        self.null_values = set(self.config.get("null_values", []))
         self.coordinate_attributes = set(self.config.get("coordinate_attributes", []))
         self.wait_s = int(self.config.get("wait_s", 5))
         self.insdc_map = dict(self.config.get("insdc_country_map", {}))
@@ -167,6 +166,12 @@ class LocationStandardizer:
 
         self.cc = coco.CountryConverter()
         logging.getLogger("country_converter").setLevel(logging.CRITICAL)
+
+        # Cache on this instance so the cache stays small
+        # and is freed with the standardizer
+        self._country_convert = lru_cache(maxsize=4096)(self._country_convert)
+        self._country_to_unregion = lru_cache(maxsize=4096)(self._country_to_unregion)
+        self.decode_coordinates = lru_cache(maxsize=4096)(self.decode_coordinates)
 
         cache_path = self.config.get("cache_db_path", DEFAULT_LOC_CACHE_DB)
         self.cache = SQLiteCache(cache_path)
@@ -201,7 +206,6 @@ class LocationStandardizer:
 
     # --- Per-value matching ---
 
-    @lru_cache(maxsize=4096)
     def _country_convert(self, loc: str) -> tuple[str, str]:
         """
         Look up a single string via country_converter.
@@ -223,14 +227,13 @@ class LocationStandardizer:
                 return name, (continent or "NA")
         return "NA", "NA"
 
-    @lru_cache(maxsize=4096)
     def _country_to_unregion(self, country: str) -> str:
         """Map a standardized country name to its UN region via country_converter."""
         if not country or country == "NA":
             return "NA"
-        return _extract_string(self.cc.convert(names=country, to="UNregion", not_found="NA")) or "NA"
+        converted = self.cc.convert(names=country, to="UNregion", not_found="NA")
+        return _extract_string(converted) or "NA"
 
-    @lru_cache(maxsize=4096)
     def decode_coordinates(self, coord_str: str) -> tuple[str | None, str | None]:
         """Decode a coordinate string to (raw_country, city) via reverse_geocode."""
         lat, lon = _normalize_coordinates(coord_str)
@@ -268,13 +271,11 @@ class LocationStandardizer:
         """
         Run country_converter on a non-coordinate value.
 
-        Returns None if cc failed (so the caller can queue the value for
-        LLM fallback). Returns LocationMatch("NA", ...) if the value is a
-        configured null phrase (so the caller can skip it without
-        triggering LLM).
+        Returns None if country_converter fails so the caller can queue the
+        already-identified value for LLM fallback.
         """
         loc_lower = val.strip().lower()
-        if not loc_lower or loc_lower in self.null_values or loc_lower == "na":
+        if not loc_lower:
             return LocationMatch("NA", "NA", None)
 
         # Peel off "Country:City" sublocation before lookup.
@@ -284,9 +285,6 @@ class LocationStandardizer:
             country_part, sub = val.split(":", 1)
             loc_clean = country_part.strip()
             sublocation = sub.strip() or None
-            cp_lower = loc_clean.lower()
-            if cp_lower in self.null_values or cp_lower == "na":
-                return LocationMatch("NA", "NA", None)
 
         country, continent = self._country_convert(loc_clean)
         if country == "NA":
@@ -419,7 +417,7 @@ class LocationStandardizer:
         valid_matches: list[LocationMatch] = []
         unmatched_pairs: list[tuple[str, str]] = []
 
-        for attr, val in zip(attrs, vals):
+        for attr, val in zip(attrs, vals, strict=False):
             attr = attr.strip()
             val = val.strip()
             if not val:
