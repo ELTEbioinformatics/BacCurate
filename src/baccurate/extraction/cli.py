@@ -1,20 +1,17 @@
-"""CLI entry point for the BioSample metadata extraction stage.
-
-Scans BioSample XML files and classifies each attribute as host, isolation
-source, location, or date, emitting a per-accession TSV and per-pathogen HTML
-reports.
-"""
+"""CLI entry point for metadata extraction stage."""
 
 import argparse
+import csv
 import logging
 from pathlib import Path
 
-from baccurate.extraction.classifiers import build_metadata_classifier
-from baccurate.extraction.io import load_pathogen_map, resolve_input_files, write_tsv
-from baccurate.extraction.tables import DistributionTable, RecordTable
+from baccurate.extraction._review_reports import ReviewReports
+from baccurate.extraction.io import load_pathogen_map, resolve_input_files
+from baccurate.extraction.policy import ExtractionPolicy
+from baccurate.extraction.tables import COLUMNS, record_row
 from baccurate.paths import CONFIG_DIR, DEFAULT_INDEX_TSV
 from baccurate.utils.progress import make_inner_bar
-from baccurate.utils.xml import process_biosample_xml
+from baccurate.utils.xml import CandidateCounters, process_biosample_xml
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +25,8 @@ def main(
     config_dir: Path = CONFIG_DIR,
     disable_progress: bool = False,
     uncompressed: bool = False,
-) -> None:
+    policy: ExtractionPolicy | None = None,
+) -> CandidateCounters:
     logging.basicConfig(
         level=log_level.upper(),
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -36,34 +34,52 @@ def main(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    classifier = build_metadata_classifier(config_dir)
-    records = RecordTable()
-    distribution = DistributionTable()
+    if policy is None:
+        policy = ExtractionPolicy.load(config_dir / "metadata_matching.yaml")
+    counters = CandidateCounters()
+    review_reports = ReviewReports()
 
     pathogen_by_accession = load_pathogen_map(index_path, names)
 
     files = resolve_input_files(input_path, uncompressed=uncompressed)
-    with make_inner_bar(len(files), "extracting BioSample XML", disable=disable_progress) as bar:
-        for xml_file in files:
-            logger.info("Parsing %s...", xml_file)
-            try:
-                for accession, attrs, package, bioproject in process_biosample_xml(
-                    str(xml_file), lambda v, a: bool(classifier.classify(v, a))
-                ):
-                    pathogen = pathogen_by_accession.get(accession)
-                    if pathogen is None:
-                        continue
-                    for attr in attrs:
-                        matches = classifier.classify(attr["value"], attr["attribute"])
-                        if not matches:
+    with output_path.open("w", newline="", encoding="utf-8") as output_stream:
+        writer = csv.writer(output_stream, delimiter="\t")
+        writer.writerow(COLUMNS)
+        with make_inner_bar(
+            len(files), "extracting BioSample XML", disable=disable_progress
+        ) as bar:
+            for xml_file in files:
+                logger.info("Parsing %s...", xml_file)
+                try:
+                    for accession, candidates, package, bioproject in process_biosample_xml(
+                        str(xml_file), policy.evaluate, counters
+                    ):
+                        for decision in candidates:
+                            review_reports.observe(decision, accession=accession)
+                        pathogen = pathogen_by_accession.get(accession)
+                        if pathogen is None:
                             continue
-                        records.add(accession, pathogen, package, bioproject, attr, matches)
-                        distribution.add(pathogen, attr, matches)
-            except Exception:
-                logger.exception("Failed to parse %s - skipping", xml_file)
-            bar.update(1)
+                        row = record_row(
+                            accession=accession,
+                            pathogen=pathogen,
+                            package=package,
+                            bioproject=bioproject,
+                            candidates=candidates,
+                        )
+                        if row is not None:
+                            writer.writerow(row)
+                except Exception:
+                    logger.exception("Failed to parse %s - skipping", xml_file)
+                bar.update(1)
 
-    write_tsv(records, output_path)
+    review_reports.write(output_path.parent)
+    if review_reports.has_unreviewed:
+        logger.warning(
+            "Unreviewed metadata attributes were excluded. See unreviewed_attributes.tsv"
+        )
+    review_reports.log_automatic_rejections(logger)
+    logger.info("Candidate policy summary: %s", counters.summary())
+    return counters
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

@@ -1,18 +1,62 @@
 """BioSample XML streaming and attribute extraction helpers."""
 
+from __future__ import annotations
+
 import logging
 import re
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
 from lxml import etree
 
 from baccurate.utils.compressed_io import open_binary
 
+if TYPE_CHECKING:
+    from baccurate.extraction.policy import PolicyDecision
+
 logger = logging.getLogger(__name__)
 
 ROOT_DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
+
+
+@dataclass(slots=True)
+class CandidateCounters:
+    """Count each source attribute and value once,
+    even when it affects several standardizers."""
+
+    inspected: int = 0
+    identified: int = 0
+    rejected: int = 0
+    unreviewed: int = 0
+    found: int = 0
+    filtered: int = 0
+    multiply_matched: int = 0
+
+    def record(self, decision: PolicyDecision) -> None:
+        self.inspected += 1
+        event_kinds = {event.kind for event in decision.events}
+        if decision.matches or "rejected_value" in event_kinds:
+            self.identified += 1
+        if "rejected_value" in event_kinds:
+            self.rejected += 1
+        if "unreviewed_attribute" in event_kinds:
+            self.unreviewed += 1
+        if decision.matches:
+            self.found += 1
+        else:
+            self.filtered += 1
+        if len(decision.matches) > 1:
+            self.multiply_matched += 1
+
+    def summary(self) -> str:
+        return (
+            f"inspected={self.inspected}, identified={self.identified}, "
+            f"found={self.found}, rejected={self.rejected}, "
+            f"unreviewed={self.unreviewed}, filtered={self.filtered}, "
+            f"multiply_matched={self.multiply_matched}"
+        )
 
 
 def iter_biosample_candidates(
@@ -21,10 +65,22 @@ def iter_biosample_candidates(
     include_root_dates: bool = False,
 ) -> Iterator[tuple[str, str]]:
     """Yield attribute/value candidates in extraction order."""
+    for attribute, value, _source in _iter_biosample_candidates_with_source(
+        record, include_root_dates=include_root_dates
+    ):
+        yield attribute, value
+
+
+def _iter_biosample_candidates_with_source(
+    record: etree._Element,
+    *,
+    include_root_dates: bool = False,
+) -> Iterator[tuple[str, str, str]]:
+    """Yield raw candidates while retaining their XML structural source."""
     if include_root_dates:
         for attr_name, value in record.attrib.items():
             if value and ROOT_DATE_PATTERN.match(str(value)):
-                yield attr_name, str(value)
+                yield attr_name, str(value), "biosample_root"
 
     attributes_container = record.find("Attributes")
     if attributes_container is None:
@@ -37,7 +93,7 @@ def iter_biosample_candidates(
             continue
         value = attr_elem.text
         if attr_name and value:
-            yield attr_name, value
+            yield attr_name, value, "attribute"
 
 
 def _clear_record(record: etree._Element) -> None:
@@ -74,23 +130,25 @@ def iter_biosample_records(input_file: str | Path) -> Iterator[etree._Element]:
 
 def parse_xml(
     record: etree._Element,
-    check_function: Callable[[str, str], bool],
+    evaluate_function: Callable[..., PolicyDecision],
     check_root_attributes: bool = False,
-) -> list[dict[str, Any]]:
-    found_attrs = []
+    counters: CandidateCounters | None = None,
+) -> list[PolicyDecision]:
+    candidates = []
 
-    def add_finding(val: str, name: str, attr: bool):
-        found_attrs.append({"attribute": name, "value": val, "is_valid_attr": attr})
-
-    for attr_name, value in iter_biosample_candidates(
+    for attr_name, value, xml_source in _iter_biosample_candidates_with_source(
         record,
         include_root_dates=check_root_attributes,
     ):
-        is_valid_attr = check_function(value, attr_name)
-        if is_valid_attr:
-            add_finding(value, attr_name, is_valid_attr)
+        decision = replace(
+            evaluate_function(attribute=attr_name, value=value),
+            xml_source=xml_source,
+        )
+        if counters is not None:
+            counters.record(decision)
+        candidates.append(decision)
 
-    return found_attrs
+    return candidates
 
 
 def _extract_bioproject(elem: etree._Element) -> str:
@@ -102,9 +160,10 @@ def _extract_bioproject(elem: etree._Element) -> str:
 
 def process_biosample_xml(
     input_file: str | Path,
-    check_function: Callable[[str, str], bool],
-) -> Iterator[tuple[str, list[dict[str, Any]], str, str]]:
-    """Stream XML, yielding accession, attributes, package, and BioProject per record."""
+    evaluate_function: Callable[..., PolicyDecision],
+    counters: CandidateCounters | None = None,
+) -> Iterator[tuple[str, list[PolicyDecision], str, str]]:
+    """Stream XML, yielding accession, candidate decisions, package, and BioProject."""
     records_processed = 0
 
     try:
@@ -119,9 +178,14 @@ def process_biosample_xml(
 
                 bioproject = _extract_bioproject(elem)
 
-                found_attrs = parse_xml(elem, check_function, check_root_attributes=True)
-                if found_attrs:
-                    yield accession, found_attrs, package_name, bioproject
+                candidates = parse_xml(
+                    elem,
+                    evaluate_function,
+                    check_root_attributes=True,
+                    counters=counters,
+                )
+                if candidates:
+                    yield accession, candidates, package_name, bioproject
 
             except Exception as e:
                 logger.error("Error parsing record %d: %s", records_processed, e, exc_info=True)

@@ -1,83 +1,43 @@
-"""Per-accession record accumulator and per-pathogen distribution counter."""
+"""Build rows for extracted_metadata.tsv."""
 
-from collections import Counter, defaultdict
-from collections.abc import Iterator
+from collections.abc import Iterable
 
-from baccurate.extraction.classifiers import ATTRIBUTES, AttributeMatch
+from baccurate.extraction.metadata_types import ATTRIBUTES
+from baccurate.extraction.policy import PolicyDecision
 
-# accession is the row key, not a stored field, so it leads the column list.
 COLUMNS = ["accession", "bioproject", "pathogen", "package", "date_category"] + [
     f"{attribute}_{kind}_orig" for attribute in ATTRIBUTES for kind in ("attr", "val")
 ]
 
-# Columns holding multiple values, joined with '||' on write.
-LIST_COLUMNS = {"date_category"} | {
-    f"{attribute}_{kind}_orig" for attribute in ATTRIBUTES for kind in ("attr", "val")
-}
+def record_row(
+    *,
+    accession: str,
+    pathogen: str,
+    package: str,
+    bioproject: str,
+    candidates: Iterable[PolicyDecision],
+) -> list[str] | None:
+    """Return one output row for one record, or None"""
+    raw_pairs: dict[str, tuple[list[str], list[str]]] = {
+        target: ([], []) for target in ATTRIBUTES
+    }
+    date_categories: list[str] = []
+    found = False
 
-REPORT_LABELS = {
-    "host": "host",
-    "iso": "isolation source",
-    "loc": "location",
-    "date": "date",
-}
+    for decision in candidates:
+        for match in decision.matches:
+            found = True
+            attributes, values = raw_pairs[match.target]
+            attributes.append(decision.attribute or "")
+            values.append(decision.value)
+            if match.target == "date":
+                date_categories.append(match.category)
 
+    if not found:
+        return None
 
-def _new_record() -> dict[str, str | list[str]]:
-    return {col: [] if col in LIST_COLUMNS else "" for col in COLUMNS if col != "accession"}
-
-
-class RecordTable:
-    """Accumulates classified attributes into one record per BioSample accession."""
-
-    def __init__(self) -> None:
-        self._records: defaultdict[str, dict] = defaultdict(_new_record)
-
-    def add(
-        self,
-        accession: str,
-        pathogen: str,
-        package: str,
-        bioproject: str,
-        attr: dict,
-        matches: tuple[AttributeMatch, ...],
-    ) -> None:
-        rec = self._records[accession]
-        rec["pathogen"] = pathogen
-        rec["package"] = package
-        rec["bioproject"] = bioproject
-        for match in matches:
-            rec[f"{match.attribute}_attr_orig"].append(attr["attribute"] or "")
-            rec[f"{match.attribute}_val_orig"].append(attr["value"])
-            if match.attribute == "date":
-                rec["date_category"].append(match.category)
-
-    def rows(self) -> Iterator[list[str]]:
-        for accession in sorted(self._records):
-            rec = self._records[accession]
-            row = []
-            for col in COLUMNS:
-                if col == "accession":
-                    row.append(accession)
-                elif col in LIST_COLUMNS:
-                    row.append("||".join(rec[col]))
-                else:
-                    row.append(rec[col])
-            yield row
-
-
-class DistributionTable:
-    """Counts attribute-value occurrences per pathogen and attribute type for the HTML reports."""
-
-    def __init__(self) -> None:
-        # Structure: pathogen -> attribute type -> attribute name -> Counter
-        self._counts = defaultdict(lambda: defaultdict(lambda: defaultdict(Counter)))
-
-    def add(self, pathogen: str, attr: dict, matches: tuple[AttributeMatch, ...]) -> None:
-        for match in matches:
-            self._counts[pathogen][match.attribute][attr["attribute"] or ""][attr["value"]] += 1
-
-    def reports(self) -> Iterator[tuple[str, str, dict]]:
-        for pathogen, by_attribute in self._counts.items():
-            for attribute, data in by_attribute.items():
-                yield pathogen, attribute, data
+    row = [accession, bioproject, pathogen, package, "||".join(date_categories)]
+    for target in ATTRIBUTES:
+        attributes, values = raw_pairs[target]
+        row.extend(("||".join(attributes), "||".join(values)))
+    return row

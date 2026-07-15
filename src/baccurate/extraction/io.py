@@ -4,7 +4,6 @@ import csv
 import logging
 from pathlib import Path
 
-from baccurate.extraction.tables import COLUMNS, RecordTable
 from baccurate.utils.compressed_io import open_text
 
 logger = logging.getLogger(__name__)
@@ -35,9 +34,3 @@ def load_pathogen_map(index_path: Path, names: list[str] | None = None) -> dict[
                 continue
             mapping[accession] = pathogen
     return mapping
-
-def write_tsv(records: RecordTable, path: Path) -> None:
-    with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f, delimiter="\t")
-        writer.writerow(COLUMNS)
-        writer.writerows(records.rows())
