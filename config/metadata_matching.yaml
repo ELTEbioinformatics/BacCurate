@@ -1,0 +1,310 @@
+# Central extraction metadata rules.
+#
+# Note: Attribute names are compared after normalization.
+schema_version: 1
+
+universal_missing:
+  exact:
+    - "-"
+    - "/"
+    - na
+    - n/a
+    - n.a.
+    - nan
+    - "null"
+    - none
+    - nd
+    - missing
+    - unknown
+    - unkwon
+    - unavailable
+    - undetermined
+    - unidentified
+    - not available
+    - not applicable
+    - not applicabable
+    - not applied
+    - not collected
+    - not collect
+    - not provided
+    - not known
+    - not determined
+    - not reported
+    - not specified
+    - not supplied
+    - not recorded
+    - no data
+    - no collect
+    - no information
+    - no collected
+    - no applicable
+    - restricted access
+    - withheld
+    - confidential
+  explanation_prefixes:
+    - missing
+    - restricted access
+    - withheld
+    - confidential
+  explanation_suffixes:
+    - privacy
+    - patient privacy
+  fuzzy: one_edit_unique
+
+# This is a value-only rule. Country names are exact after normalization.
+location_rescue:
+  vocabulary_path: ../data/reference/geo_loc_list.txt
+  aliases:
+    - United States
+  separators:
+    - ":"
+    - ","
+
+targets:
+  host:
+    discovery:
+      host_fields:
+        tokens: [host]
+        phrases: [source organism]
+    accept:
+      identity:
+        - host
+        - host_taxid
+        - host_common_name
+        - host_scientific_name
+        - host_species
+        - host_animal_breed
+        - host_infra_specific_name
+        - host_infra_specific_rank
+        - host_subspecf_genlin
+    ignore:
+      properties:
+        - host age
+        - host disease
+        - host sex
+        - host health
+        - host status
+        - host genotype
+        - host strain
+        - host tissue sampled
+        - host body habitat
+        - host body product
+        - host description
+      identifiers:
+        - host subject id
+        - host sample
+      non_host_identity:
+        - lab_host
+      relationship_flags:
+        - host associated
+        - is the sequenced pathogen host associated
+      observed_non_identity:
+        - host am
+        - host blood press diast
+        - host blood press syst
+        - host body mass index
+        - host body temp
+        - host color
+        - host dependence
+        - host diet
+        - host disease outcome
+        - host disease stage
+        - host dry mass
+        - host family relationship
+        - host group size
+        - host growth cond
+        - host health state
+        - host height
+        - host hiv stat
+        - host housing
+        - host last meal
+        - host length
+        - host life stage
+        - host number
+        - host occupation
+        - host phenotype
+        - host pulse
+        - host shape
+        - host substrate
+        - host symbiont
+        - host tot mass
+        - host variety
+    reject:
+      generic_non_host:
+        exact: [reference, host, parent, isolate, genus, microbial, microbiology, bacteria, bacterial]
+      bare_bacterial_taxon:
+        exact:
+          - Escherichia
+          - Escherichia coli
+          - E. coli
+          - E coli
+          - Enterococcus
+          - Enterococcus faecium
+          - Enterococcus faecalis
+          - Staphylococcus
+          - Staphylococcus aureus
+          - Klebsiella
+          - Klebsiella pneumoniae
+          - Acinetobacter
+          - Acinetobacter baumannii
+          - Pseudomonas
+          - Pseudomonas aeruginosa
+          - Enterobacter
+        fuzzy: one_edit_unique
+
+  iso:
+    discovery:
+      physical_origin:
+        tokens: [isolation, source, material, specimen, tissue]
+        phrases:
+          - isolation source
+          - isolated from
+          - host body site
+          - host body product
+      environmental_origin:
+        tokens: [environment, environmental, food]
+    accept:
+      physical_origin:
+        - isolation_source
+        - lab_host
+        - source_type
+        - bio_material
+        - tissue
+        - host_tissue_sampled
+        - host_body_product
+        - host_body_habitat
+        - host_description
+        - body_product
+        - farm_water_source
+        - samp_source_mat_cat
+        - surf_material
+      environmental_origin:
+        - env_broad_scale
+        - env_local_scale
+        - env_medium
+        - env_package
+        - animal_env
+        - food_source
+        - food_contact_surf
+        - food_prod
+        - food_product_type
+        - food_type_processed
+        - food_industry_code
+        - food_industry_class
+        - food_prod_synonym
+        - food_prod_char
+        - plant_product
+    ignore:
+      administrative:
+        - biomaterial provider
+        - ref biomaterial
+        - library source
+        - source material id
+        - source name
+        - isolated by
+        - reference material
+      identifiers:
+        - isolate id
+        - specimen id
+        - specimen voucher
+      process_and_quality:
+        - climate_environment
+        - season_environment
+        - food_additive
+        - food_pack_medium
+        - food_product_qual
+        - material_condition
+        - metagenome_source
+        - food processing method
+        - food quality date
+        - food preserv proc
+        - food contain wrap
+        - food pack integrity
+        - food clean proc
+    reject:
+      non_discriminative_process:
+        exact: [GENOMIC, Culture]
+
+  loc:
+    discovery:
+      geographic_origin:
+        tokens: [geo, loc, location, country, region, lat, lon, latitude, longitude]
+        phrases:
+          - geographic location
+          - geo loc
+          - collection site
+      coordinate_fields:
+        phrases: [lat lon]
+    accept:
+      place:
+        - geo_loc_name
+      coordinates:
+        - lat_lon
+        - coll_site_geo_feat
+    ignore:
+      non_geographic_position:
+        - file location
+        - plasmid location
+        - location type
+        - location in facility
+        - rel_location
+        - relative location
+      non_collection_geography:
+        - birth_location
+        - host birthplace
+        - geographic location depth
+        - geographic location elevation
+        - samp_store_loc
+
+  date:
+    discovery:
+      dated_events:
+        tokens: [date, year, time]
+        phrases:
+          - first public
+          - last update
+    accept:
+      sampling:
+        - collection_date
+      fallback:
+        - submission_date
+        - last_update
+        - publication_date
+        - cult_isol_date
+        - isolation_date
+        - isolation_year
+        - year_isolated
+        - time_of_isolation
+        - extraction_date
+        - DNA_extraction_date
+        - sequencing_date
+        - date_sequencing
+        - release_date
+        - ngdc_release_date
+        - ena_first_public
+        - ena_last_update
+        - insdc_first_public
+        - insdc_last_update
+        - kobic_registration_date
+        - kobic_release_date
+        - kobic_submission_date
+        - upload_date
+        - UploadDate
+        - received_date
+        - recieved_date
+        - receipt_date
+        - admission_date
+        - last_modified
+        - first_public
+        - date_for_experiment_in_lc
+    ignore:
+      unrelated_dates:
+        - assembly date
+        - passage date
+        - food quality date
+        - host age
+        - collection date old
+        - birth_date
+        - death_date
+        - ferm_time
+        - time_since_last_wash
