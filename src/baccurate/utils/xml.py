@@ -59,18 +59,6 @@ class CandidateCounters:
         )
 
 
-def iter_biosample_candidates(
-    record: etree._Element,
-    *,
-    include_root_dates: bool = False,
-) -> Iterator[tuple[str, str]]:
-    """Yield attribute/value candidates in extraction order."""
-    for attribute, value, _source in _iter_biosample_candidates_with_source(
-        record, include_root_dates=include_root_dates
-    ):
-        yield attribute, value
-
-
 def _iter_biosample_candidates_with_source(
     record: etree._Element,
     *,

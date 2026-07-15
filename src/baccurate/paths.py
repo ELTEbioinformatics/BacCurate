@@ -54,4 +54,3 @@ DEFAULT_GEO_LOC_LIST = REFERENCE_DIR / "geo_loc_list.txt"
 
 DEFAULT_ISO_CACHE_DB = CACHE_DIR / "llm_iso_cache.db"
 DEFAULT_LOC_CACHE_DB = CACHE_DIR / "llm_loc_cache.db"
-DEFAULT_CURATION_DB = CACHE_DIR / "curation_sessions.db"
