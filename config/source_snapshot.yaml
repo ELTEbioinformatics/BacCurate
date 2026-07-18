@@ -1,0 +1,11 @@
+manifest_version: 1
+snapshot_id: ncbi-biosample-2026-07-09
+provider: NCBI BioSample
+retrieved_on: 2026-07-09
+snapshot_as_of: null
+metadata_reference_date: 2026-07-09
+source_url: https://ftp.ncbi.nlm.nih.gov/biosample/
+files:
+  - name: biosamples.xml.gz
+    sha256: f1f85275543cbb9974fca578e00b695173164e8a001fdc2d6fdaeae69f31d4cc
+notes: See docs/data_acquisition.md for more info.
