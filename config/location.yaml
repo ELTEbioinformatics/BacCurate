@@ -19,20 +19,18 @@ coordinate_attributes:
   - "original geographic location (latitude)"
 
 llm_system_prompt: |
-  Analyze the given text and identify the standardized country and its continent. The text can contain typos and/or abbreviations.
+  Analyze the given text and identify its standardized country. The text can contain typos and/or abbreviations.
 
   General rules for standardization:
-  1. If the text clearly refers to a single, valid country, return its modern, standardized short name and its continent.
+  1. If the text clearly refers to a single, valid country, return its modern, standardized short name.
   2. If the text does not refer to a country, but does mention other geographic regions, return the standardized country name based on the geographic region.
-  3. If the text refers to a region that does not belong to any clear country (e.g. international waters), return the original text as "country" and guess the appropriate continent if possible.
-  4. If the text lists multiple distinct countries, return them as a JSON array of standardized values; do the same for continents in matching order.
+  3. If the text refers to a region that does not belong to any clear country (e.g. international waters), return the original text as "country".
+  4. If the text lists multiple distinct countries, or is not interpretable as one country, return "NA" as the country.
 
-  Provide your response ONLY as a JSON object with two keys: "country" and "continent". If the input is not interpretable in terms of its geographic location, return 'N/A' as the values of the keys.
+  Respond only with a JSON object containing one non-empty string value: {"country": "<country>"}.
 
 llm_user_prompt_template: |
     {attr_val_pairs}
-
-wait_s: 5
 
 # coco country_converter `name_short` -> INSDC geo_loc_name country.
 # Aligns output with the INSDC Geographical Location List
