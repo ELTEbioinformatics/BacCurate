@@ -1,12 +1,7 @@
 """
-Tests for baccurate.standardizers.isolation.
+Tests for isolation source standardziation
 
 Uses a monkeypatch instead of calling an actual LLM API.
-
-Run with:
-uv run pytest tests/test_stand_iso.py -v
-or
-pytest tests/test_stand_iso.py -v
 """
 
 from __future__ import annotations
@@ -16,7 +11,11 @@ from types import SimpleNamespace
 
 import pytest
 
+from baccurate.standardizers.host import HostOverflowContext
 from baccurate.standardizers.isolation import (
+    IsolationDiagnostic,
+    IsolationOutcome,
+    IsoStandardizer,
     LLMClassifier,
     OntologyManager,
     SQLiteCache,
@@ -93,6 +92,17 @@ def cache(tmp_path) -> SQLiteCache:
 
 
 @pytest.fixture
+def feces_source() -> StandardizedSource:
+    return StandardizedSource(
+        categories="host-associated",
+        display_terms="feces",
+        ontology_links="ENVO:00002003",
+        term_paths=FECES,
+        reasoning=[],
+    )
+
+
+@pytest.fixture
 def classifier(config, ontology, cache, monkeypatch) -> LLMClassifier:
     # Creaty dummy values for LLMClassifier.__init__
     monkeypatch.setenv("API_KEY", "test")
@@ -105,102 +115,162 @@ def classifier(config, ontology, cache, monkeypatch) -> LLMClassifier:
 
 
 # =============================================================================
-# 1. Value masking (SQLiteCache._mask_value)
+# Record-level outcomes
 # =============================================================================
 
 
-@pytest.mark.parametrize("value", ["2020-02-01", "12/07/2025", "Jan 2011"])
-def test_dates_are_masked(value):
-    assert SQLiteCache._mask_value(value) == "<DATE>"
+def test_typed_record_outcome_preserves_context_origins_and_diagnostics(tmp_path, monkeypatch):
+    config_path = tmp_path / "isolation.yaml"
+    config_path.write_text(
+        CONFIG_PATH.read_text(encoding="utf-8")
+        + f'\ncache_db_path: "{(tmp_path / "iso-cache.db").as_posix()}"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "baccurate.standardizers.isolation.load_llm_client",
+        lambda *_args: (None, None),
+    )
+    standardizer = IsoStandardizer(config_path)
+
+    try:
+        result = standardizer.standardize(
+            {
+                "accession": "SAME_ACCESSION",
+                "iso_attr_orig": "isolation_source",
+                "iso_val_orig": "stool",
+            },
+            host_context="Homo sapiens",
+            overflow=HostOverflowContext(
+                attribute="host sample",
+                value="blood",
+            ),
+        )
+        with pytest.raises(ValueError, match="2 attributes for 1 values"):
+            standardizer.standardize(
+                {
+                    "accession": "MALFORMED",
+                    "iso_attr_orig": "isolation_source||tissue",
+                    "iso_val_orig": "blood",
+                },
+                host_context="",
+            )
+        fake_client = FakeClient()
+        fake_client.fail_with(RuntimeError("boom"))
+        standardizer.pipeline.client = fake_client
+        with pytest.raises(
+            RuntimeError,
+            match="Isolation-source LLM failed for accession TYPED_FAILURE",
+        ):
+            standardizer.standardize(
+                {
+                    "accession": "TYPED_FAILURE",
+                    "iso_attr_orig": "isolation_source",
+                    "iso_val_orig": "venous draw",
+                },
+                host_context="",
+            )
+    finally:
+        standardizer.close()
+
+    assert isinstance(result, IsolationOutcome)
+    assert result.host_context == "Homo sapiens"
+    assert [(origin.attribute, origin.value) for origin in result.origins] == [
+        ("isolation_source", "stool"),
+        ("host sample", "blood"),
+    ]
+    assert FECES in result.term_paths.split("||")
+    assert BLOOD in result.term_paths.split("||")
+    assert result.display_terms != "unspecified"
+    assert result.ontology_links
+    assert result.exact_matches == 2
+    assert result.cache_hits == 0
+    assert result.llm_calls == 0
+    assert result.diagnostics == (IsolationDiagnostic.EXACT_MATCH,)
 
 
-def test_coordinate_is_masked():
-    assert SQLiteCache._mask_value("37.9 N") == "<COORD>"
+def test_typed_record_outcome_preserves_model_reasoning_on_exact_cache_hit(tmp_path, monkeypatch):
+    config_path = tmp_path / "isolation.yaml"
+    config_path.write_text(
+        CONFIG_PATH.read_text(encoding="utf-8")
+        + f'\ncache_db_path: "{(tmp_path / "iso-cache.db").as_posix()}"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LLM_MODEL", "test-model")
+    first_standardizer = IsoStandardizer(config_path, client=None)
+    fake_client = FakeClient()
+    fake_client.respond_with(["wound"], reasoning="clinical wound")
+    first_standardizer.pipeline.client = fake_client
 
+    try:
+        modelled = first_standardizer.standardize(
+            {
+                "accession": "MODELLED",
+                "iso_attr_orig": "isolation_source",
+                "iso_val_orig": "wound patient 1",
+            },
+            host_context="Homo sapiens",
+        )
+    finally:
+        first_standardizer.close()
 
-def test_lab_unit_is_masked():
-    assert SQLiteCache._mask_value("10 mg") == "<MEASURE>"
+    cached_standardizer = IsoStandardizer(config_path, client=None)
+    try:
+        cached = cached_standardizer.standardize(
+            {
+                "accession": "CACHED",
+                "iso_attr_orig": "isolation_source",
+                "iso_val_orig": "wound patient 1",
+            },
+            host_context="Homo sapiens",
+        )
+    finally:
+        cached_standardizer.close()
 
-
-def test_dimension_is_masked():
-    assert SQLiteCache._mask_value("1x4") == "<DIMENSION>"
-
-
-def test_percentage_number_is_masked():
-    assert SQLiteCache._mask_value("50%") == SQLiteCache._mask_value("90%")
-
-
-@pytest.mark.parametrize("value", ["Patient-1", "A1"])
-def test_identifiers_are_masked(value):
-    assert SQLiteCache._mask_value(value) == "<ID>"
-
-
-def test_bare_number_is_masked():
-    assert SQLiteCache._mask_value("patient 1") == "patient <NUM>"
-
-
-def test_number_glued_to_a_word_is_masked():
-    a = SQLiteCache._mask_value("patient1")
-    b = SQLiteCache._mask_value("patient2")
-
-    assert a == b == "patient<NUM>"
-
-
-def test_different_stems_with_glued_numbers_stay_distinct():
-    assert SQLiteCache._mask_value("patient1") != SQLiteCache._mask_value("sample1")
-
-
-def test_values_differing_only_by_number_mask_identically():
-    a = SQLiteCache._mask_value("Stool Sample Patient 1")
-    b = SQLiteCache._mask_value("stool sample patient 2")
-
-    assert a == b
-    assert a == "stool sample patient <NUM>"
-
-
-def test_ontology_id_digits_are_not_masked_as_numbers():
-    masked = SQLiteCache._mask_value("ENVO:00002003")
-
-    assert masked == "envo:00002003"
-    assert "<NUM>" not in masked
-
-
-def test_distinct_ontology_ids_do_not_collide_after_masking():
-    """Different ontology IDs should not share a cache key."""
-    assert SQLiteCache._mask_value("ENVO:00002003") != SQLiteCache._mask_value("ENVO:00002005")
+    assert isinstance(modelled, IsolationOutcome)
+    assert modelled.diagnostics == (IsolationDiagnostic.LLM_CALL,)
+    assert modelled.reasoning == (
+        {
+            "node": "classifier",
+            "reasoning": "clinical wound",
+            "selections": [WOUND],
+            "selected_terms": ["wound"],
+        },
+    )
+    assert isinstance(cached, IsolationOutcome)
+    assert cached.term_paths == modelled.term_paths
+    assert cached.reasoning == modelled.reasoning
+    assert cached.diagnostics == (IsolationDiagnostic.CACHE_HIT,)
 
 
 # =============================================================================
-# 2. Cache hashing + round-trip (SQLiteCache)
+# SQLite cache
 # =============================================================================
-
-
-def test_hash_is_stable_for_identical_inputs(cache):
-    h1 = cache._generate_hash("isolation_source", "blood", "human", "m1")
-    h2 = cache._generate_hash("isolation_source", "blood", "human", "m1")
-
-    assert h1 == h2
 
 
 @pytest.mark.parametrize(
-    "attr,value,host,model",
+    "stored_value,changed_value",
     [
-        ("tissue", "blood", "human", "m1"),            # different attr
-        ("isolation_source", "blood", "mouse", "m1"),  # different host
-        ("isolation_source", "blood", "human", "m2"),  # different model
+        ("sampled 2020-02-01", "sampled 2020-02-02"),
+        ("37.9 N", "38.0 N"),
+        ("10 mg", "11 mg"),
+        ("1x4 cm", "1x5 cm"),
+        ("Patient-1", "Patient-2"),
+        ("50%", "90%"),
+        ("patient 1", "patient 2"),
+        ("patient1", "patient2"),
+        ("ENVO:00002003", "ENVO:00002005"),
     ],
 )
-def test_hash_differs_when_any_keyed_field_differs(cache, attr, value, host, model):
-    base = cache._generate_hash("isolation_source", "blood", "human", "m1")
+def test_cache_does_not_reuse_changed_evidence(cache, feces_source, stored_value, changed_value):
+    cache.set("isolation_source", stored_value, "human", feces_source, "m1")
 
-    assert cache._generate_hash(attr, value, host, model) != base
+    assert cache.get("isolation_source", changed_value, "human", "m1") is None
 
 
-def test_masking_equivalent_values_share_a_hash(cache):
-    h1 = cache._generate_hash("iso", "patient 1", "human", "m1")
-    h2 = cache._generate_hash("iso", "patient 2", "human", "m1")
+def test_cache_reuses_the_same_normalized_evidence(cache, feces_source):
+    cache.set(" Isolation Source ", " Stool Sample ", " Homo sapiens ", feces_source, " M1 ")
 
-    assert h1 == h2
+    assert cache.get("isolation_source", "stool sample", "homo sapiens", "m1") == feces_source
 
 
 def test_set_then_get_round_trips_the_record(cache):
@@ -226,8 +296,9 @@ def test_set_then_get_round_trips_the_record(cache):
 def test_get_on_unknown_key_returns_none(cache):
     assert cache.get("isolation_source", "never stored", "human", "m1") is None
 
+
 # =============================================================================
-# 3. Ontology parsing (OntologyManager)
+# Ontology parsing
 # =============================================================================
 
 
@@ -270,7 +341,7 @@ def test_crosslinks_resolve_to_target_paths(ontology, source, target):
 
 
 # =============================================================================
-# 4. Direct match (LLMClassifier._direct_match)
+# Direct match
 # =============================================================================
 
 
@@ -292,7 +363,7 @@ def test_direct_match_returns_none_for_unknown_value(classifier):
 
 
 # =============================================================================
-# 5. Metadata formatting (LLMClassifier._format_metadata)
+# Metadata formatting
 # =============================================================================
 
 
@@ -310,16 +381,14 @@ def test_format_metadata_omits_blank_host():
 
 
 # =============================================================================
-# 6. standardize_record
+# standardize_record: empty and trusted inputs
 # =============================================================================
-
-# --- Structurally empty and trusted inputs ---------------------------------
 
 
 def test_standardizer_does_not_reapply_extraction_rejection(classifier):
     classifier._fake.respond_with(["unspecified"])
 
-    res = classifier.standardize_record("T", "isolation_source", "GENOMIC", "", "")
+    res = classifier.standardize_record("T", "isolation_source", "GENOMIC", "")
 
     assert res.display_terms == "unspecified"
     assert res.categories == "unspecified"
@@ -329,17 +398,19 @@ def test_standardizer_does_not_reapply_extraction_rejection(classifier):
 
 
 def test_empty_value_resolves_to_unspecified_without_llm(classifier):
-    res = classifier.standardize_record("T", "isolation_source", "   ", "", "")
+    res = classifier.standardize_record("T", "isolation_source", "   ", "")
 
     assert res.display_terms == "unspecified"
     assert classifier._fake.calls == []
 
 
-# --- Direct-match -------------------------------------
+# =============================================================================
+# standardize_record: direct matching
+# =============================================================================
 
 
 def test_direct_match_skips_llm_and_applies_crosslink(classifier):
-    res = classifier.standardize_record("T", "isolation_source", "stool", "", "")
+    res = classifier.standardize_record("T", "isolation_source", "stool", "")
 
     terms = res.display_terms.split("||")
     paths = res.term_paths.split("||")
@@ -354,9 +425,7 @@ def test_direct_match_skips_llm_and_applies_crosslink(classifier):
 
 
 def test_all_values_direct_matching_skips_llm(classifier):
-    res = classifier.standardize_record(
-        "T", "isolation_source||tissue", "stool||blood", "", ""
-    )
+    res = classifier.standardize_record("T", "isolation_source||tissue", "stool||blood", "")
 
     paths = res.term_paths.split("||")
     assert FECES in paths
@@ -365,12 +434,25 @@ def test_all_values_direct_matching_skips_llm(classifier):
     assert classifier._fake.calls == []
 
 
-# --- LLM branch -------------------------------------------
+def test_synonymous_values_direct_matching_the_same_path_skip_llm(classifier):
+    res = classifier.standardize_record(
+        "T", "isolation_source||sample_material", "stool||feces", ""
+    )
+
+    assert FECES in res.term_paths.split("||")
+    assert classifier.stats["exact_matches"] == 2
+    assert classifier.stats["llm_calls"] == 0
+    assert classifier._fake.calls == []
+
+
+# =============================================================================
+# standardize_record: LLM branch
+# =============================================================================
 
 
 def test_llm_selection_is_mapped_to_term_path(classifier):
     classifier._fake.respond_with(["blood"], reasoning="venous blood")
-    res = classifier.standardize_record("T", "isolation_source", "venous draw", "", "")
+    res = classifier.standardize_record("T", "isolation_source", "venous draw", "")
 
     assert classifier.stats["llm_calls"] == 1
     assert "blood" in res.display_terms.split("||")
@@ -383,7 +465,7 @@ def test_llm_selection_is_mapped_to_term_path(classifier):
 
 def test_llm_selection_expands_along_crosslinks(classifier):
     classifier._fake.respond_with(["feces"])
-    res = classifier.standardize_record("T", "isolation_source", "gut contents", "", "")
+    res = classifier.standardize_record("T", "isolation_source", "gut contents", "")
 
     terms = res.display_terms.split("||")
     assert "feces" in terms
@@ -394,9 +476,7 @@ def test_llm_selection_expands_along_crosslinks(classifier):
 
 def test_direct_and_llm_paths_are_unioned(classifier):
     classifier._fake.respond_with(["blood"])
-    res = classifier.standardize_record(
-        "T", "isolation_source||tissue", "stool||venous draw", "", ""
-    )
+    res = classifier.standardize_record("T", "isolation_source||tissue", "stool||venous draw", "")
 
     paths = res.term_paths.split("||")
     assert FECES in paths  # from direct match
@@ -404,64 +484,77 @@ def test_direct_and_llm_paths_are_unioned(classifier):
     assert classifier.stats["llm_calls"] == 1
 
 
-# --- Expected mismatch warning) -----------------------------------
+# =============================================================================
+# standardize_record: expected-mismatch warnings
+# =============================================================================
 
 
-def test_warn_when_expected_node_absent(classifier, caplog):
+def test_expected_node_absence_is_not_logged_per_record(classifier, caplog):
     classifier._fake.respond_with(["blood"])
     with caplog.at_level("WARNING"):
-        res = classifier.standardize_record("ACC", "food_source", "mystery", "", "")
+        res = classifier.standardize_record("ACC", "food_source", "mystery", "")
 
-    assert any("attribute_shortcut mismatch" in r.getMessage() for r in caplog.records)
+    assert not any("attribute_shortcut mismatch" in r.getMessage() for r in caplog.records)
     assert "food" not in res.display_terms.split("||")
 
 
 def test_no_warning_for_descendant_term(classifier, caplog):
     classifier._fake.respond_with(["meat product"])
     with caplog.at_level("WARNING"):
-        classifier.standardize_record("ACC", "food_source", "ground beef", "", "")
+        classifier.standardize_record("ACC", "food_source", "ground beef", "")
 
     assert not any("attribute_shortcut mismatch" in r.getMessage() for r in caplog.records)
 
 
-# --- LLM failure handling --------------------------------------------------
+# =============================================================================
+# standardize_record: LLM failure handling
+# =============================================================================
 
 
-def test_llm_failure_with_no_direct_match_falls_back_to_unspecified(classifier):
+def test_model_failure_aborts_with_accession(classifier):
     classifier._fake.fail_with(RuntimeError("boom"))
-    res = classifier.standardize_record("T", "isolation_source", "venous draw", "", "")
 
-    assert res.display_terms == "unspecified"
-    assert any("error" in h for h in res.reasoning)
-
-
-def test_llm_failure_still_keeps_direct_matches(classifier):
-    classifier._fake.fail_with(RuntimeError("boom"))
-    res = classifier.standardize_record(
-        "T", "isolation_source||tissue", "stool||venous draw", "", ""
-    )
-
-    assert "feces" in res.display_terms.split("||")
-    assert res.display_terms != "unspecified"
+    with pytest.raises(
+        RuntimeError,
+        match="Isolation-source LLM failed for accession EXTERNAL_FAILURE",
+    ):
+        classifier.standardize_record(
+            "EXTERNAL_FAILURE",
+            "isolation_source",
+            "venous draw",
+            "",
+        )
 
 
-# --- Caching within standardize_record -------------------------------------
+# =============================================================================
+# standardize_record: caching
+# =============================================================================
 
 
-def test_identical_call_hits_cache_without_reinvoking_llm(classifier):
-    classifier.standardize_record("T", "isolation_source", "stool", "", "")
-    classifier.standardize_record("T", "isolation_source", "stool", "", "")
+def test_identical_model_evidence_hits_cache_without_reinvoking_model(classifier):
+    classifier._fake.respond_with(["wound"], reasoning="clinical wound")
+    first = classifier.standardize_record("T1", "isolation_source", "wound patient 1", "")
+    classifier._fake.behavior = None
+
+    second = classifier.standardize_record("T2", "isolation_source", "wound patient 1", "")
 
     assert classifier.stats["cache_hits"] == 1
-    assert classifier._fake.calls == []
-
-
-def test_masking_equivalent_value_hits_cache(classifier):
-    classifier._fake.respond_with(["wound"])
-    classifier.standardize_record("T", "isolation_source", "wound patient 1", "", "")
     assert len(classifier._fake.calls) == 1
+    assert second == first
+    assert second.reasoning == [
+        {
+            "node": "classifier",
+            "reasoning": "clinical wound",
+            "selections": [WOUND],
+            "selected_terms": ["wound"],
+        }
+    ]
 
-    classifier.standardize_record("T", "isolation_source", "wound patient 2", "", "")
 
-    assert len(classifier._fake.calls) == 1  # no second LLM call
-    assert classifier.stats["cache_hits"] >= 1
+def test_changed_numeric_evidence_uses_model_again(classifier):
+    classifier._fake.respond_with(["wound"])
+    classifier.standardize_record("T", "isolation_source", "wound patient 1", "")
+    classifier.standardize_record("T", "isolation_source", "wound patient 2", "")
+
+    assert len(classifier._fake.calls) == 2
+    assert classifier.stats["cache_hits"] == 0

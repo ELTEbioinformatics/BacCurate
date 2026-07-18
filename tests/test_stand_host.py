@@ -1,11 +1,4 @@
-"""
-Tests for baccurate.standardizers.host.
-
-Run with:
-uv run pytest tests/test_stand_host.py -v
-or
-pytest tests/test_stand_host.py -v
-"""
+"""Tests for host standardization."""
 
 from __future__ import annotations
 
@@ -13,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from baccurate.standardizers.host import HostStandardizer
+from baccurate.standardizers.host import HostDiagnostic, HostStandardizer
 
 ROOT = Path(__file__).parent.parent
 CONFIG_PATH = ROOT / "config" / "host.yaml"
@@ -32,7 +25,96 @@ def classify(standardizer: HostStandardizer, value: str, attribute: str = "host"
 
 
 # =============================================================================
-# Main tests per score tiers
+# Record-level outcomes
+# =============================================================================
+
+
+def test_record_standardization_rejects_misaligned_host_candidate_counts(standardizer):
+    with pytest.raises(
+        ValueError,
+        match=r"MALFORMED.*host_attr_orig=2.*host_val_orig=1.*counts must match",
+    ):
+        standardizer.standardize(
+            {
+                "accession": "MALFORMED",
+                "host_attr_orig": "host||host_taxid",
+                "host_val_orig": "human",
+            }
+        )
+
+
+def test_record_outcome_distinguishes_standardized_host_overflow_and_absence(standardizer):
+    matched = standardizer.standardize(
+        {
+            "accession": "MATCHED",
+            "host_attr_orig": "host_taxid||host",
+            "host_val_orig": "9606||human",
+        }
+    )
+    overflow = standardizer.standardize(
+        {
+            "accession": "OVERFLOW",
+            "host_attr_orig": "host",
+            "host_val_orig": "no host",
+        }
+    )
+    absent = standardizer.standardize(
+        {
+            "accession": "ABSENT",
+            "host_attr_orig": "",
+            "host_val_orig": "",
+        }
+    )
+    context_bearing_bacterium = standardizer.standardize(
+        {
+            "accession": "BACTERIAL_CONTEXT",
+            "host_attr_orig": "host",
+            "host_val_orig": "Escherichia coli str. K-12",
+        }
+    )
+    broad_host = standardizer.standardize(
+        {
+            "accession": "BROAD",
+            "host_attr_orig": "host",
+            "host_val_orig": "swine",
+        }
+    )
+
+    assert matched.standardized.taxid == 9606
+    assert matched.standardized.scientific_name == "Homo sapiens"
+    assert matched.score == 1.0
+    assert matched.low_confidence is False
+    assert matched.diagnostics == (HostDiagnostic.MATCHED,)
+    assert [(origin.attribute, origin.value) for origin in matched.origins] == [
+        ("host_taxid", "9606")
+    ]
+    assert matched.overflow is None
+    assert overflow.standardized is None
+    assert overflow.overflow.attribute == "host"
+    assert overflow.overflow.value == "no host"
+    assert absent.standardized is None
+    assert absent.overflow is None
+    assert context_bearing_bacterium.standardized is None
+    assert context_bearing_bacterium.overflow.value == "Escherichia coli str. K-12"
+    assert broad_host.standardized.taxid == 9823
+    assert broad_host.score == 0.7
+
+
+def test_retry_uses_eligible_isolation_origins_without_iso_keyword_preemption(standardizer):
+    outcome = standardizer.retry("RETRY", "food_source", "chicken meat")
+
+    assert outcome.standardized.taxid == 9031
+    assert outcome.standardized.scientific_name == "Gallus gallus"
+    assert len(outcome.origins) == 1
+    assert (outcome.origins[0].attribute, outcome.origins[0].value) == (
+        "food_source",
+        "chicken meat",
+    )
+    assert outcome.retry_eligible
+
+
+# =============================================================================
+# Match score tiers
 # =============================================================================
 
 
@@ -93,6 +175,7 @@ def test_multiword_subset_match_scores_0_70(standardizer):
     assert match.score == 0.7
     assert match.match_tier == "multi-word"
     assert match.low_confidence is True
+    assert match.diagnostics == (HostDiagnostic.SUBSET_MATCH,)
 
 
 def test_singleword_subset_match_scores_0_50(standardizer):
@@ -160,15 +243,12 @@ def test_value_consisting_only_of_ignored_substrings_returns_no_match(standardiz
 
 
 def test_numeric_value_under_non_taxid_attribute_is_rejected(standardizer):
-    """A bare number in the `host` attribute is not a meaningful host name."""
+    """A bare number in the `host` attribute is not a meaningful host name.
+
+    The same number under `host_taxid` resolves — see
+    test_numeric_taxid_under_host_taxid_attribute_resolves_directly.
+    """
     assert classify(standardizer, "9606", attribute="host") is None
-
-
-def test_numeric_value_under_host_taxid_resolves(standardizer):
-    """The same number under `host_taxid` does resolve."""
-    match = classify(standardizer, "9606", attribute="host_taxid")
-
-    assert match.info.taxid == 9606
 
 
 # =============================================================================
@@ -288,6 +368,7 @@ def test_attribute_disagreement_flags_low_confidence_but_keeps_best_score(standa
     assert match.info.taxid == 9606
     assert match.score == 1.0
     assert match.low_confidence is True
+    assert HostDiagnostic.ATTRIBUTE_DISAGREEMENT in match.diagnostics
 
 
 def test_host_taxid_wins_tiebreaker_over_host_at_equal_score(standardizer):
