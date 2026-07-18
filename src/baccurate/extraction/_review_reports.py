@@ -9,7 +9,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from baccurate.extraction.policy import PolicyDecision
+from baccurate.extraction.curation import CurationDecision
 
 _REPRESENTATIVE_LIMIT = 3
 _UNREVIEWED_COLUMNS = (
@@ -42,7 +42,7 @@ class _UnreviewedBucket:
     count: int = 0
     examples: set[tuple[str, str, str]] = field(default_factory=set)
 
-    def add(self, decision: PolicyDecision, accession: str) -> None:
+    def add(self, decision: CurationDecision, accession: str) -> None:
         self.count += 1
         _remember(self.examples, (decision.attribute, decision.value, accession))
 
@@ -59,7 +59,7 @@ class _UncertainBucket:
     count: int = 0
     examples: set[tuple[str, str, str]] = field(default_factory=set)
 
-    def add(self, decision: PolicyDecision, accession: str) -> None:
+    def add(self, decision: CurationDecision, accession: str) -> None:
         self.count += 1
         _remember(self.examples, (decision.attribute, decision.value, accession))
 
@@ -83,7 +83,25 @@ class ReviewReports:
     def has_unreviewed(self) -> bool:
         return bool(self._unreviewed)
 
-    def observe(self, decision: PolicyDecision, *, accession: str) -> None:
+    @property
+    def unreviewed_count(self) -> int:
+        """Return the number of unreviewed candidate occurrences."""
+        return sum(bucket.count for bucket in self._unreviewed.values())
+
+    @property
+    def uncertain_count(self) -> int:
+        """Return the number of uncertain rejection occurrences."""
+        return sum(bucket.count for bucket in self._uncertain.values())
+
+    @property
+    def automatic_rejection_counts(self) -> dict[str, dict[str, int]]:
+        """Return automatic rejection counts grouped by target and family."""
+        counts: dict[str, dict[str, int]] = {}
+        for (target, family), count in sorted(self._automatic_rejections.items()):
+            counts.setdefault(target, {})[family] = count
+        return counts
+
+    def observe(self, decision: CurationDecision, *, accession: str) -> None:
         for event in decision.events:
             if event.kind == "unreviewed_attribute":
                 key = (event.target, event.family, event.normalized_attribute)
@@ -94,9 +112,17 @@ class ReviewReports:
             elif event.kind == "rejected_value":
                 self._automatic_rejections[(event.target, event.family)] += 1
 
-    def write(self, directory: Path) -> None:
-        self._write_unreviewed(directory / "unreviewed_attributes.tsv")
-        self._write_uncertain(directory / "uncertain_rejections.tsv")
+    def write(self, directory: Path) -> dict[str, Path]:
+        unreviewed_path = directory / "unreviewed_attributes.tsv"
+        uncertain_path = directory / "uncertain_rejections.tsv"
+        self._write_unreviewed(unreviewed_path)
+        self._write_uncertain(uncertain_path)
+        paths = {}
+        if self._unreviewed:
+            paths["unreviewed_attributes"] = unreviewed_path
+        if self._uncertain:
+            paths["uncertain_rejections"] = uncertain_path
+        return paths
 
     def log_automatic_rejections(self, logger: logging.Logger) -> None:
         if not self._automatic_rejections:
