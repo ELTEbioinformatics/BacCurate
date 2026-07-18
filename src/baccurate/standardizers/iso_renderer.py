@@ -75,9 +75,9 @@ def render_ontology(ont: OntologyManager) -> str:
     for root in roots:
         _walk_notes(ont, root, out=note_lines)
 
-    parts = ["# Tree", "\n".join(tree_lines)]
+    parts = ["## Tree", "\n".join(tree_lines)]
     if note_lines:
-        parts += ["", "# Node notes", "\n".join(note_lines)]
+        parts += ["", "## Node notes", "\n".join(note_lines)]
     return "\n".join(parts)
 
 
