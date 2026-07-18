@@ -46,6 +46,9 @@ ignored_substrings:
 iso_keywords:
   - "food"
   - "meat"
+  - "beef"
+  - "veal"
+  - "pork"
   - "environment"
   - "soil"
 
