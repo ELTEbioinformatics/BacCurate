@@ -5,68 +5,43 @@ terms via a single-call LLM classifier.
 See docs/isolation_source.md for the full pipeline description.
 """
 
-import csv
 import json
 import logging
 import re
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
 import instructor
+import openai
 import pandas as pd
 from pydantic import BaseModel, Field, field_validator
 
-from baccurate.paths import DEFAULT_ISO_CACHE_DB, DEFAULT_ONTOLOGY_TSV, ISO_OUTPUT
+from baccurate.llm.client import LLMSettings, load_llm_client, load_llm_settings
+from baccurate.llm.diagnostics import LLMFailureCategory, observe_llm_call
+from baccurate.paths import DEFAULT_ISO_CACHE_DB, DEFAULT_ONTOLOGY_TSV
+from baccurate.standardizers.host import HostOverflowContext
 from baccurate.standardizers.iso_renderer import (
     render_ontology,
     valid_display_terms,
 )
-from baccurate.utils.args import create_arg_parser
 from baccurate.utils.cache import SQLiteKVCache
 from baccurate.utils.config import load_config
-from baccurate.utils.llm import load_llm_client
-from baccurate.utils.logging import setup_standardizer_logging
-from baccurate.utils.progress import count_tsv_rows, make_inner_bar
 from baccurate.utils.text import normalize_keyword, split_pipe_separated
 
 logger = logging.getLogger(__name__)
+_LOAD_CONFIGURED_CLIENT = object()
 
 # --- Constants ---
 
 ONTOLOGY_ID_PATTERN = re.compile(r"\b([A-Z]+:\d+)\b", re.IGNORECASE)
-
-# Patterns for masking variable data before cache hashing.
-MASKING_PATTERNS: list[tuple[re.Pattern, str]] = [
-    (re.compile(r"\b\d{4}[-/]\d{2}[-/]\d{2}\b"), "<DATE>"),
-    (re.compile(r"\b\d{2}[-/]\d{2}[-/]\d{4}\b"), "<DATE>"),
-    (
-        re.compile(
-            r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)"
-            r"[a-z]* \d{4}\b",
-            re.IGNORECASE,
-        ),
-        "<DATE>",
-    ),
-    (re.compile(r"\b\d+\.\d+\s*[NSEW]\b", re.IGNORECASE), "<COORD>"),
-    (
-        re.compile(
-            r"\b\d+(?:\.\d+)?\s*(?:[muµ]?l|[mkµ]?g|[cmµ]?m)\b",
-            re.IGNORECASE,
-        ),
-        "<MEASURE>",
-    ),
-    (
-        re.compile(
-            r"\b\d+(?:\.\d+)?\s*[xX]\s*\d+(?:\.\d+)?\s*(?:[cmµ]?m)?\b",
-            re.IGNORECASE,
-        ),
-        "<DIMENSION>",
-    ),
-    (re.compile(r"\b[A-Za-z]+[-_](?<!:)\d+\b"), "<ID>"),
-    (re.compile(r"\b[A-Za-z]{1,3}\d+\b"), "<ID>"),
-    (re.compile(r"(?<![:\d])\d+"), "<NUM>"),
-]
+HOST_RETRY_TRIGGERS: tuple[str, ...] = (
+    "host-associated",
+    "environmental:anthropogenic environment:food:animal product",
+    "environmental:anthropogenic environment:food:plant food product",
+)
 
 # --- Data structures ---
 
@@ -82,11 +57,67 @@ class StandardizedSource:
     reasoning: list[dict]
 
 
+class IsolationDiagnostic(StrEnum):
+    """The fixed set of isolation-source results used in build reports."""
+
+    NO_CANDIDATES = "no_candidates"
+    EXACT_MATCH = "exact_match"
+    CACHE_HIT = "cache_hit"
+    LLM_CALL = "llm_call"
+    UNSPECIFIED = "unspecified"
+
+
+@dataclass(frozen=True, slots=True)
+class IsolationOrigin:
+    """One source attribute/value pair used for isolation classification."""
+
+    attribute: str
+    value: str
+
+
+@dataclass(frozen=True, slots=True)
+class IsolationOutcome:
+    """Typed isolation-source classification for one extracted record."""
+
+    categories: str
+    display_terms: str
+    ontology_links: str
+    term_paths: str
+    host_context: str
+    origins: tuple[IsolationOrigin, ...]
+    reasoning: tuple[dict, ...]
+    diagnostics: tuple[IsolationDiagnostic, ...]
+    exact_matches: int
+    cache_hits: int
+    llm_calls: int
+
+    @property
+    def standardized_term_paths(self) -> tuple[str, ...]:
+        """Selected ontology paths as structured values."""
+        return tuple(split_pipe_separated(self.term_paths)) if self.term_paths else ()
+
+    @property
+    def host_retry_eligible(self) -> bool:
+        """Whether this classification can support another host attempt."""
+        return any(
+            path == trigger or path.startswith(f"{trigger}:")
+            for path in self.standardized_term_paths
+            for trigger in HOST_RETRY_TRIGGERS
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class IsolationRejection:
+    """A record with no isolation-source candidates to classify."""
+
+    diagnostics: tuple[IsolationDiagnostic, ...]
+
+
 # --- Cache ---
 
 
 class SQLiteCache(SQLiteKVCache):
-    """SQLite-backed cache keyed on (attr, masked_value, host, model) hashes."""
+    """SQLite-backed cache keyed on normalized evidence and model hashes."""
 
     _CREATE_TABLE_SQL = """
         CREATE TABLE IF NOT EXISTS cache (
@@ -102,24 +133,13 @@ class SQLiteCache(SQLiteKVCache):
     def __init__(self, db_path: Path | str = DEFAULT_ISO_CACHE_DB) -> None:
         super().__init__(db_path)
 
-    @staticmethod
-    def _mask_value(text: str) -> str:
-        masked_text = str(text).lower()
-        for pattern, replacement in MASKING_PATTERNS:
-            masked_text = pattern.sub(replacement, masked_text)
-        return masked_text.strip()
-
     def _generate_hash(self, attr_name: str, value: str, host: str, model: str = "") -> str:
-        masked_value = self._mask_value(value)
-        original_lower = str(value).strip().lower()
-        if original_lower != masked_value:
-            logger.info("[MASKING] %r --> %r", original_lower, masked_value)
-
-        norm_attr = normalize_keyword(attr_name)
-        norm_host = normalize_keyword(host)
+        norm_attr = normalize_keyword(str(attr_name).strip())
+        norm_value = normalize_keyword(str(value).strip())
+        norm_host = normalize_keyword(str(host).strip())
         norm_model = (model or "").strip().lower()
 
-        raw_string = f"{norm_attr}|{masked_value}|{norm_host}|{norm_model}"
+        raw_string = f"{norm_attr}|{norm_value}|{norm_host}|{norm_model}"
         return self._sha256(raw_string)
 
     def get(
@@ -353,29 +373,42 @@ class LLMClassifier:
         config: dict,
         ontology_manager: OntologyManager,
         cache_manager: SQLiteCache,
+        result_logger: logging.Logger | None = None,
+        client: object = _LOAD_CONFIGURED_CLIENT,
+        llm_settings: LLMSettings | None = None,
     ) -> None:
+        self.logger = result_logger or logger
         self.config = config
         self.ont = ontology_manager
         self.cache = cache_manager
-        # load expected attribute name -> term_path from config
-        self.expected_attr_to_term: dict[str, str] = {}
-        for attr, term in (self.config.get("expected") or {}).items():
-            path = self.ont.display_term_to_path.get(normalize_keyword(term))
-            self.expected_attr_to_term[normalize_keyword(attr)] = path
-
         self.stats = {"cache_hits": 0, "exact_matches": 0, "llm_calls": 0}
 
-        raw_client, env_model = load_llm_client()
-        self.default_model = self.config.get("default_model") or env_model or ""
-        self.client = instructor.from_openai(raw_client) if raw_client else None
+        if client is _LOAD_CONFIGURED_CLIENT:
+            raw_client, env_model = load_llm_client(llm_settings)
+        else:
+            raw_client = client
+            settings = llm_settings or load_llm_settings()
+            env_model = settings.model
+        self._raw_client = raw_client
+        try:
+            self.model = env_model or ""
+            self.client = instructor.from_openai(raw_client) if raw_client else None
 
-        valid_set = {normalize_keyword(t) for t in valid_display_terms(self.ont)}
-        self._schema = _build_schema(valid_set)
-        self._ontology_block = render_ontology(self.ont)
+            valid_set = {normalize_keyword(t) for t in valid_display_terms(self.ont)}
+            self._schema = _build_schema(valid_set)
+            self._ontology_block = render_ontology(self.ont)
 
-        system_template = self.config.get("system_prompt") or ""
-        self.system_prompt = system_template.format(ontology_tree=self._ontology_block)
-        self.user_template = self.config.get("user_prompt")
+            system_template = self.config.get("system_prompt") or ""
+            self.system_prompt = system_template.format(ontology_tree=self._ontology_block)
+            self.user_template = self.config.get("user_prompt")
+        except BaseException:
+            if raw_client is not None:
+                raw_client.close()
+            raise
+
+    def close(self) -> None:
+        if self._raw_client is not None:
+            self._raw_client.close()
 
     def _direct_match(self, value: str) -> str | None:
         """Try ontology-ID and exact-display-name match. Returns a term path or None."""
@@ -400,29 +433,8 @@ class LLMClassifier:
         attr_name: str,
         value: str,
         host: str,
-        package: str,
-        *,
-        model: str | None = None,
-        mode: str = "full",
     ) -> StandardizedSource:
-        """Process one record.
-
-        `mode` possible values:
-        - "full: default behavior. This is the only mode that reads/writes the
-          SQLite cache.
-        - "direct_only" - deterministic matching only against the ontology nodes
-        - "llm_only" - always call the LLM.
-        """
-
-        effective_model = (model or self.default_model or "").strip()
-        logger.info(
-            "%s - Value: %r | Host: %r | Package: %r | Model: %r",
-            accession,
-            value,
-            host,
-            package,
-            effective_model,
-        )
+        """Classify one record through deterministic matching, cache, and model fallback."""
 
         attrs = split_pipe_separated(str(attr_name))
         vals = split_pipe_separated(str(value))
@@ -448,41 +460,25 @@ class LLMClassifier:
                 ],
             )
 
-        filtered_attr_str = "||".join(valid_attrs)
-        filtered_val_str = "||".join(valid_vals)
-
-        if mode == "full":
-            cached_result = self.cache.get(
-                filtered_attr_str, filtered_val_str, host, effective_model
-            )
-            if cached_result:
-                self.stats["cache_hits"] += 1
-                return cached_result
+        evidence_attributes = "||".join(valid_attrs)
+        evidence_values = "||".join(valid_vals)
 
         # Direct-match pass over each (attr, val) pair before calling the LLM.
         direct_paths: set[str] = set()
-        if mode != "llm_only":
-            for v in valid_vals:
-                path = self._direct_match(v)
-                if path is not None:
-                    direct_paths.add(path)
-                    self.stats["exact_matches"] += 1
+        direct_match_count = 0
+        for v in valid_vals:
+            path = self._direct_match(v)
+            if path is not None:
+                direct_paths.add(path)
+                direct_match_count += 1
+                self.stats["exact_matches"] += 1
 
         final_nodes: set[str] = set()
         reasoning_history: list[dict] = []
 
-        direct_covers_all = bool(direct_paths) and len(direct_paths) >= len(valid_vals)
+        direct_covers_all = direct_match_count == len(valid_vals)
 
-        if mode == "direct_only":
-            final_nodes |= direct_paths
-            reasoning_history.append(
-                {
-                    "node": "direct_match",
-                    "reasoning": "direct_only mode: ontology-ID / exact display-term matches only.",
-                    "selections": sorted(direct_paths),
-                }
-            )
-        elif mode == "full" and direct_covers_all:
+        if direct_covers_all:
             final_nodes |= direct_paths
             reasoning_history.append(
                 {
@@ -492,33 +488,56 @@ class LLMClassifier:
                 }
             )
         else:
-            metadata_block = self._format_metadata(valid_attrs, valid_vals, host)
-            user_prompt = self.user_template.format(metadata=metadata_block)
+            cached_result = self.cache.get(evidence_attributes, evidence_values, host, self.model)
+            if cached_result:
+                self.stats["cache_hits"] += 1
+                return cached_result
 
-            logger.debug("Classifier user prompt:\n%s", user_prompt)
-
-            try:
-                self.stats["llm_calls"] += 1
-                resp = self.client.chat.completions.create(
-                    model=effective_model,
-                    response_model=self._schema,
-                    messages=[
-                        {"role": "system", "content": self.system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    temperature=0,
-                    max_retries=3,
+            if self.client is None:
+                final_nodes |= direct_paths
+                reasoning_history.append(
+                    {
+                        "node": "classifier",
+                        "reasoning": "LLM classification is disabled.",
+                        "selections": [],
+                    }
                 )
+            else:
+                metadata_block = self._format_metadata(valid_attrs, valid_vals, host)
+                user_prompt = self.user_template.format(metadata=metadata_block)
+
+                try:
+                    self.stats["llm_calls"] += 1
+                    with observe_llm_call(
+                        accession=accession,
+                        target="isolation",
+                        model=self.model,
+                    ) as call:
+                        resp = self.client.chat.completions.create(
+                            model=self.model,
+                            response_model=self._schema,
+                            messages=[
+                                {"role": "system", "content": self.system_prompt},
+                                {"role": "user", "content": user_prompt},
+                            ],
+                            temperature=0,
+                            max_retries=3,
+                        )
+                    call.accepted()
+                except Exception as e:
+                    if isinstance(e, openai.APIError):
+                        call.validation_retries_exhausted()
+                    else:
+                        call.failed(LLMFailureCategory.INVALID_MODEL_RESPONSE)
+                    raise RuntimeError(
+                        f"Isolation-source LLM failed for accession {accession}"
+                    ) from e
+
                 llm_paths: set[str] = set()
                 for term in resp.terms:
                     path = self.ont.display_term_to_path.get(normalize_keyword(term))
                     if path is not None:
                         llm_paths.add(path)
-                    else:
-                        logger.warning(
-                            "Display term %r passed validator but has no path mapping.",
-                            term,
-                        )
                 final_nodes |= direct_paths
                 final_nodes |= llm_paths
 
@@ -530,17 +549,6 @@ class LLMClassifier:
                         "selected_terms": list(resp.terms),
                     }
                 )
-                logger.info(
-                    "Classifier: %r selected %r -> %r — %s",
-                    accession,
-                    list(resp.terms),
-                    sorted(llm_paths),
-                    resp.reasoning,
-                )
-            except Exception as e:
-                logger.error("LLM call failed for %r: %s", accession, e)
-                reasoning_history.append({"node": "classifier", "error": str(e), "selections": []})
-                final_nodes |= direct_paths
 
         extra_crosslink_nodes: set[str] = set()
         for node in list(final_nodes):
@@ -556,18 +564,6 @@ class LLMClassifier:
                     "selections": sorted(extra_crosslink_nodes),
                 }
             )
-
-        # warn when a configuree attribute is present but its expected node
-        # (or a descendant) was not assigned anywhere in the record.
-        for a in valid_attrs:
-            expected = self.expected_attr_to_term.get(normalize_keyword(a))
-            if expected and not any(
-                p == expected or p.startswith(expected + ":") for p in final_nodes
-            ):
-                logger.warning(
-                    "%s - attribute_shortcut mismatch: %r present but no %r (or child) in %r.",
-                    accession, a, expected, sorted(final_nodes),
-                )
 
         if not final_nodes:
             final_record = StandardizedSource(
@@ -593,231 +589,110 @@ class LLMClassifier:
                 reasoning=reasoning_history,
             )
 
-        if mode == "full":
-            self.cache.set(
-                filtered_attr_str, filtered_val_str, host, final_record, effective_model
-            )
+        if not direct_covers_all and self.client is not None:
+            self.cache.set(evidence_attributes, evidence_values, host, final_record, self.model)
         return final_record
 
 
-# ---- Orchestration ----
-
-
-def _load_standardized_hosts(path: Path | str | None) -> dict[str, str]:
-    """Map accession -> standardized host scientific name from host_standardized.tsv."""
-    if not path:
-        return {}
-    p = Path(path)
-    if not p.exists():
-        return {}
-    mapping: dict[str, str] = {}
-    with p.open("r", encoding="utf-8", newline="") as f:
-        reader = csv.DictReader(f, delimiter="\t")
-        for row in reader:
-            acc = (row.get("accession") or "").strip()
-            sci = (row.get("host_sci_name") or "").strip()
-            if acc and sci:
-                mapping[acc] = sci
-    return mapping
-
-
 class IsoStandardizer:
-    def __init__(self, config_path: Path | str) -> None:
+    def __init__(
+        self,
+        config_path: Path | str,
+        result_logger: logging.Logger | None = None,
+        client: object = _LOAD_CONFIGURED_CLIENT,
+        llm_settings: LLMSettings | None = None,
+    ) -> None:
+        self.logger = result_logger or logger
         self.config = load_config(config_path)
 
         db_path = self.config.get("cache_db_path", DEFAULT_ISO_CACHE_DB)
         ontology_path = self.config.get("ontology_tsv_path", DEFAULT_ONTOLOGY_TSV)
 
         self.cache = SQLiteCache(db_path)
-        self.ontology = OntologyManager(ontology_path)
-        self.pipeline = LLMClassifier(self.config, self.ontology, self.cache)
-        logger.info("IsoStandardizer initialised (LLMClassifier).")
-
-    def process_file(
-        self,
-        input_path: Path,
-        output_path: Path,
-        pathogen: str | None = None,
-        additional_input: Path | None = None,
-        host_standardized_path: Path | None = None,
-        disable_progress: bool = False,
-    ) -> None:
-        """Classify iso rows from input_path and (optionally) additional_input.
-
-        input_path is expected to follow the extracted_metadata schema (iso_attr_orig,
-        iso_val_orig, host_val_orig, package columns; pathogen-filterable). additional_input
-        follows the host-overflow schema (attribute, value, package; already
-        filtered to one pathogen, no host context).
-        """
-        host_map = _load_standardized_hosts(host_standardized_path)
-
-        if host_map:
-            logger.info("Loaded %d standardized host values.", len(host_map))
-
-        # Pre-load overflow rows
-        overflow_by_acc: dict[str, list[tuple[str, str, str]]] = {}
-        if additional_input is not None and additional_input.exists():
-            with additional_input.open("r", encoding="utf-8") as f:
-                for row in csv.DictReader(f, delimiter="\t"):
-                    value = str(row.get("value", "") or "").strip()
-                    if not value:
-                        continue
-                    accession = row.get("accession", "")
-                    attr = row.get("attribute", "") or ""
-                    package = str(row.get("package", "") or "").strip()
-                    overflow_by_acc.setdefault(accession, []).append((attr, value, package))
-
-        output_header = [
-            "accession",
-            "iso_attr_orig",
-            "iso_val_orig",
-            "iso_terms",
-            "iso_display_term",
-            "iso_ontology_id",
-            "iso_host",
-        ]
-        jsonl_path = output_path.with_suffix(".jsonl")
-        records_processed = 0
-
-        total = count_tsv_rows(input_path)
-        if additional_input is not None and additional_input.exists():
-            total += count_tsv_rows(additional_input)
-        primary_desc = f"iso [{pathogen}]" if pathogen else "iso"
-        overflow_desc = f"{primary_desc} (overflow)"
-
         try:
-            with (
-                output_path.open("w", encoding="utf-8", newline="") as outfile,
-                jsonl_path.open("w", encoding="utf-8") as jsonl_out,
-                make_inner_bar(total, primary_desc, disable=disable_progress) as bar,
-            ):
-                writer = csv.writer(outfile, delimiter="\t")
-                writer.writerow(output_header)
-
-                # Stage A: primary input (extracted_metadata schema).
-                with input_path.open("r", encoding="utf-8") as infile:
-                    reader = csv.DictReader(infile, delimiter="\t")
-                    for row in reader:
-                        if pathogen and row.get("pathogen") != pathogen:
-                            bar.update(1)
-                            continue
-
-                        accession = row.get("accession", "")
-                        attr = row.get("iso_attr_orig", "") or ""
-                        value = str(row.get("iso_val_orig", "") or "").strip()
-                        raw_host = str(row.get("host_val_orig", "") or "").strip()
-                        host = host_map.get(accession, raw_host)
-                        package = str(row.get("package", "") or "").strip()
-
-                        # Fold any forwarded host values for this accession into the same record
-                        overflow_entries = overflow_by_acc.pop(accession, [])
-                        attrs = [attr] if value else []
-                        vals = [value] if value else []
-                        for o_attr, o_val, _ in overflow_entries:
-                            attrs.append(o_attr)
-                            vals.append(o_val)
-
-                        if not vals:
-                            bar.update(1)
-                            continue
-
-                        records_processed += self._process_record(
-                            writer,
-                            jsonl_out,
-                            accession,
-                            "||".join(attrs),
-                            "||".join(vals),
-                            host,
-                            package,
-                        )
-                        bar.update(1 + len(overflow_entries))
-
-
-                if overflow_by_acc:
-                    bar.set_description(overflow_desc)
-                    for accession, entries in overflow_by_acc.items():
-                        attrs = [e[0] for e in entries]
-                        vals = [e[1] for e in entries]
-                        package = next((e[2] for e in entries if e[2]), "")
-
-                        # Overflow rows have no host context by definition (host failed).
-                        records_processed += self._process_record(
-                            writer,
-                            jsonl_out,
-                            accession,
-                            "||".join(attrs),
-                            "||".join(vals),
-                            "",
-                            package,
-                        )
-                        bar.update(len(entries))
-
-            stats = self.pipeline.stats
-            logger.info(
-                "Processed %d records: %d cache hits, %d exact matches, %d LLM calls.",
-                records_processed,
-                stats["cache_hits"],
-                stats["exact_matches"],
-                stats["llm_calls"],
+            self.ontology = OntologyManager(ontology_path)
+            self.pipeline = LLMClassifier(
+                self.config,
+                self.ontology,
+                self.cache,
+                result_logger=self.logger,
+                client=client,
+                llm_settings=llm_settings,
             )
+        except BaseException:
+            self.cache.close()
+            raise
+        self.logger.info("IsoStandardizer initialised (LLMClassifier).")
+
+    def standardize(
+        self,
+        record: Mapping[str, str],
+        *,
+        host_context: str,
+        overflow: HostOverflowContext | None = None,
+    ) -> IsolationOutcome | IsolationRejection:
+        """Classify one record with optional in-memory host overflow context."""
+        attributes = str(record.get("iso_attr_orig", "") or "")
+        values = str(record.get("iso_val_orig", "") or "")
+        if overflow is not None and overflow.value.strip():
+            attributes = "||".join(part for part in (attributes, overflow.attribute) if part)
+            values = "||".join(part for part in (values, overflow.value) if part)
+
+        attribute_parts = split_pipe_separated(attributes)
+        value_parts = split_pipe_separated(values)
+        if len(attribute_parts) != len(value_parts):
+            accession = str(record.get("accession", "") or "")
+            raise ValueError(
+                f"Malformed isolation-source candidates for accession {accession}: "
+                f"{len(attribute_parts)} attributes for {len(value_parts)} values"
+            )
+        origins = tuple(
+            IsolationOrigin(attribute.strip(), value.strip())
+            for attribute, value in zip(
+                attribute_parts,
+                value_parts,
+                strict=True,
+            )
+            if value.strip()
+        )
+        if not origins:
+            return IsolationRejection((IsolationDiagnostic.NO_CANDIDATES,))
+
+        before = dict(self.pipeline.stats)
+        standardized = self.pipeline.standardize_record(
+            str(record.get("accession", "") or ""),
+            "||".join(origin.attribute for origin in origins),
+            "||".join(origin.value for origin in origins),
+            host_context,
+        )
+        exact_matches = self.pipeline.stats["exact_matches"] - before["exact_matches"]
+        cache_hits = self.pipeline.stats["cache_hits"] - before["cache_hits"]
+        llm_calls = self.pipeline.stats["llm_calls"] - before["llm_calls"]
+        diagnostics = []
+        if exact_matches:
+            diagnostics.append(IsolationDiagnostic.EXACT_MATCH)
+        if cache_hits:
+            diagnostics.append(IsolationDiagnostic.CACHE_HIT)
+        if llm_calls:
+            diagnostics.append(IsolationDiagnostic.LLM_CALL)
+        if not standardized.term_paths:
+            diagnostics.append(IsolationDiagnostic.UNSPECIFIED)
+        return IsolationOutcome(
+            categories=standardized.categories,
+            display_terms=standardized.display_terms,
+            ontology_links=standardized.ontology_links,
+            term_paths=standardized.term_paths,
+            host_context=host_context,
+            origins=origins,
+            reasoning=tuple(standardized.reasoning),
+            diagnostics=tuple(diagnostics),
+            exact_matches=exact_matches,
+            cache_hits=cache_hits,
+            llm_calls=llm_calls,
+        )
+
+    def close(self) -> None:
+        try:
+            self.pipeline.close()
         finally:
             self.cache.close()
-
-    def _process_record(
-        self,
-        writer: "csv.writer",
-        jsonl_out,
-        accession: str,
-        attr: str,
-        value: str,
-        host: str,
-        package: str,
-    ) -> int:
-        res = self.pipeline.standardize_record(accession, attr, value, host, package)
-        writer.writerow(
-            [
-                accession,
-                attr,
-                value,
-                res.term_paths,
-                res.display_terms,
-                res.ontology_links,
-                host,
-            ]
-        )
-        jsonl_out.write(json.dumps({"accession": accession, "history": res.reasoning}) + "\n")
-        return 1
-
-
-def main(
-    input_path: Path,
-    output_path: Path,
-    config_path: Path,
-    log_level: str = "INFO",
-    pathogen: str | None = None,
-    additional_input: Path | None = None,
-    host_standardized_path: Path | None = None,
-    disable_progress: bool = False,
-) -> None:
-    setup_standardizer_logging(logger, output_path, "iso_standardized", log_level)
-
-    standardizer = IsoStandardizer(config_path)
-    standardizer.process_file(
-        input_path,
-        output_path,
-        pathogen=pathogen,
-        additional_input=additional_input,
-        host_standardized_path=host_standardized_path,
-        disable_progress=disable_progress,
-    )
-
-
-if __name__ == "__main__":
-    parser = create_arg_parser(default_config_path="config/isolation_source.yaml")
-    args = parser.parse_args()
-
-    in_path = Path(args.input_file)
-    out_path = Path(args.output_dir) / ISO_OUTPUT
-    cfg_path = Path(args.config)
-
-    main(in_path, out_path, cfg_path, args.log_level)

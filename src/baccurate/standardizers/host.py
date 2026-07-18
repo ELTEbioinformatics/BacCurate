@@ -5,21 +5,18 @@ scientific names (binomial nomenclature).
 See docs/host.md for the documentation.
 """
 
-import csv
 import logging
 import re
 import string
-from collections.abc import Iterable, Iterator
+from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
 import pandas as pd
 
-from baccurate.paths import DEFAULT_TAXIDS_CURATED, DEFAULT_TAXIDS_NCBI, HOST_OUTPUT, HOST_OVERFLOW
-from baccurate.utils.args import create_arg_parser
+from baccurate.paths import DEFAULT_TAXIDS_CURATED, DEFAULT_TAXIDS_NCBI
 from baccurate.utils.config import load_config
-from baccurate.utils.logging import setup_standardizer_logging
-from baccurate.utils.progress import count_tsv_rows, make_inner_bar
 from baccurate.utils.text import split_pipe_separated
 
 logger = logging.getLogger(__name__)
@@ -102,6 +99,19 @@ class ValueMatch:
     tier_candidates: tuple[str, ...] = ()
 
 
+class HostDiagnostic(StrEnum):
+    """The fixed set of host-classification results used in build reports."""
+
+    ISO_KEYWORD_PREEMPTION = "iso_keyword_preemption"
+    OVERRIDE_REJECTION = "override_rejection"
+    FORCED_OVERRIDE = "forced_override"
+    MATCHED = "matched"
+    UNMATCHED = "unmatched"
+    SUBSET_MATCH = "subset_match"
+    AMBIGUOUS_SUBSET = "ambiguous_subset"
+    ATTRIBUTE_DISAGREEMENT = "attribute_disagreement"
+
+
 @dataclass(frozen=True, slots=True)
 class HostMatch:
     """Winning match for a record, with the (attribute, value) it came from."""
@@ -116,6 +126,54 @@ class HostMatch:
     # True when worth reviewing:
     # any subset match, ambiguous subset, or cross-attribute disagreement.
     low_confidence: bool = False
+    diagnostics: tuple[HostDiagnostic, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class StandardizedHost:
+    """Taxonomic identity selected for one record."""
+
+    taxid: int
+    scientific_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class HostOrigin:
+    """One source attribute/value pair supporting a standardized host."""
+
+    attribute: str
+    value: str
+
+
+@dataclass(frozen=True, slots=True)
+class HostOverflowContext:
+    """Unresolved host information reused as extra context in the isolation standardizer."""
+
+    attribute: str
+    value: str
+
+
+@dataclass(frozen=True, slots=True)
+class HostOutcome:
+    """Record-level host result, including distinct absence and overflow states."""
+
+    standardized: StandardizedHost | None
+    score: float | None
+    low_confidence: bool
+    origins: tuple[HostOrigin, ...]
+    overflow: HostOverflowContext | None
+    diagnostics: tuple[HostDiagnostic, ...]
+    retry_eligible: bool = False
+
+    def __post_init__(self) -> None:
+        if (self.standardized is None) != (self.score is None):
+            raise ValueError("A standardized host and score must be present together")
+        if self.standardized is not None and not self.origins:
+            raise ValueError("A standardized host requires a source origin")
+        if self.standardized is None and self.origins:
+            raise ValueError("An absent standardized host cannot have source origins")
+        if not self.diagnostics:
+            raise ValueError("A host outcome requires at least one diagnostic")
 
 
 # --- Main class ---
@@ -127,7 +185,9 @@ class HostStandardizer:
         config_path: Path | str,
         ncbi_table_path: Path | str = DEFAULT_TAXIDS_NCBI,
         curated_table_path: Path | str = DEFAULT_TAXIDS_CURATED,
+        result_logger: logging.Logger | None = None,
     ) -> None:
+        self.logger = result_logger or logger
         self.config = load_config(config_path)
         self._build_lookups(Path(ncbi_table_path), Path(curated_table_path))
         self._compile_filters()
@@ -199,7 +259,7 @@ class HostStandardizer:
                 taxid_str = str(row["taxid"])
                 info = self.taxid_to_info.get(taxid_str)
                 if info is None:
-                    logger.warning(
+                    self.logger.warning(
                         "Curated row for taxid %s has no matching NCBI row - skipped",
                         taxid_str,
                     )
@@ -231,7 +291,7 @@ class HostStandardizer:
             self.broad_common_to_info.setdefault(norm, info)
             self._index_for_subset(norm, info)
 
-        logger.info(
+        self.logger.info(
             "Loaded lookup tables: %d taxids, %d unique scinames, "
             "%d unique synonyms, %d unique keywords, "
             "%d unique NCBI curated common names, "
@@ -309,7 +369,7 @@ class HostStandardizer:
                 )
             self.taxid_overrides[norm_key] = int(raw_taxid)
         if self.taxid_overrides:
-            logger.info("Loaded %d manual taxid override(s)", len(self.taxid_overrides))
+            self.logger.info("Loaded %d manual taxid override(s)", len(self.taxid_overrides))
 
     # --- Per-value matching ---
 
@@ -321,34 +381,22 @@ class HostStandardizer:
     def _match_numeric_value(self, normalized: str) -> ValueMatch | None:
         info = self.taxid_to_info.get(normalized)
         if info is None:
-            logger.debug("No taxid match for %r", normalized)
             return None
-        logger.debug(
-            "Taxid match: %r -> %s (taxid %d)", normalized, info.scientific_name, info.taxid
-        )
         return ValueMatch(info, SCORE_TAXID)
 
     def _match_text_value(self, normalized: str) -> ValueMatch | None:
         # Tiers tried in priority order. Sciname and synonym both score
         # 1.0, but sciname is checked first to keep the logged tier
         # label honest.
-        for label, lookup, score in (
-            ("sciname", self.sciname_to_info, SCORE_SCINAME),
-            ("synonym", self.synonym_to_info, SCORE_SYNONYM),
-            ("keyword", self.keyword_to_info, SCORE_KEYWORD),
-            ("curated common name", self.curated_common_to_info, SCORE_CURATED_COMMON),
-            ("broad common name", self.broad_common_to_info, SCORE_BROAD_COMMON),
+        for lookup, score in (
+            (self.sciname_to_info, SCORE_SCINAME),
+            (self.synonym_to_info, SCORE_SYNONYM),
+            (self.keyword_to_info, SCORE_KEYWORD),
+            (self.curated_common_to_info, SCORE_CURATED_COMMON),
+            (self.broad_common_to_info, SCORE_BROAD_COMMON),
         ):
             info = lookup.get(normalized)
             if info is not None:
-                logger.debug(
-                    "%s exact match: %r -> %s (taxid %d, score %.2f)",
-                    label,
-                    normalized,
-                    info.scientific_name,
-                    info.taxid,
-                    score,
-                )
                 return ValueMatch(info, score)
         return self._match_subset_value(normalized)
 
@@ -361,8 +409,6 @@ class HostStandardizer:
             stripped = w.strip(string.digits)
             if stripped:
                 search_words.add(stripped)
-
-        logger.debug("Subset match for %r: search_words=%s", normalized, sorted(search_words))
 
         # --- Multi-word terms ---
         # Use raw input word count, not the deduped set, so a 2-word
@@ -385,13 +431,7 @@ class HostStandardizer:
                 multiword_matches.append(info)
 
         if multiword_matches:
-            logger.debug(
-                "Multi-word matches for %r: %s",
-                normalized,
-                sorted({(i.scientific_name, i.taxid) for i in multiword_matches}),
-            )
             return self._build_subset_match(multiword_matches, SCORE_SUBSET_MULTIWORD, "multi-word")
-        logger.debug("No multi-word match for %r", normalized)
 
         # --- Single-word terms (fallback) ---
         singleword_matches: list[TaxonInfo] = []
@@ -401,15 +441,9 @@ class HostStandardizer:
                 singleword_matches.append(info)
 
         if singleword_matches:
-            logger.debug(
-                "Single-word matches for %r: %s",
-                normalized,
-                sorted({(i.scientific_name, i.taxid) for i in singleword_matches}),
-            )
             return self._build_subset_match(
                 singleword_matches, SCORE_SUBSET_SINGLEWORD, "single-word"
             )
-        logger.debug("No single-word match for %r", normalized)
 
         return None
 
@@ -429,15 +463,9 @@ class HostStandardizer:
         """Dispatch a single (attribute, value) pair to the right matcher."""
         normalized = _normalize_text(self._strip_ignored_substrings(value.strip()))
         if not normalized:
-            logger.debug("Empty after normalization: %r (attribute=%r)", value, attribute)
             return None
         if normalized.isdigit():
             if attribute.lower() != "host_taxid":
-                logger.debug(
-                    "Numeric value %r in non-host_taxid attribute %r - skipped",
-                    normalized,
-                    attribute,
-                )
                 return None
             return self._match_numeric_value(normalized)
         return self._match_text_value(normalized)
@@ -458,7 +486,6 @@ class HostStandardizer:
                 continue
             for original, kw_words in self.iso_keywords:
                 if kw_words.issubset(value_words):
-                    logger.debug("iso_keyword match: %r in value %r", original, value)
                     return original
         return None
 
@@ -493,9 +520,7 @@ class HostStandardizer:
         attributes = split_pipe_separated(attributes_str)
         values = split_pipe_separated(val_str)
         info = self.taxid_to_info[str(taxid)]
-        for idx, (raw_attr, raw_val) in enumerate(
-            zip(attributes, values, strict=False)
-        ):
+        for idx, (raw_attr, raw_val) in enumerate(zip(attributes, values, strict=False)):
             if self.taxid_overrides.get(_normalize_text(raw_val)) == taxid:
                 return HostMatch(
                     info=info,
@@ -507,7 +532,7 @@ class HostStandardizer:
                     tier_candidates=(),
                     low_confidence=False,
                 )
-        raise AssertionError(f"_build_override_match called for taxid {taxid} but no value matched")
+        raise AssertionError(f"_build_override_match: no value matched taxid {taxid}")
 
     # --- Per-record dispatch ---
 
@@ -528,57 +553,111 @@ class HostStandardizer:
         the value has already been classified by the iso pipeline, to find
         the source organism named in it (e.g.'chicken meat' -> Gallus gallus).
         """
+        match, _diagnostic = self._classify_row_with_diagnostic(
+            accession,
+            attr_str,
+            val_str,
+            skip_iso_keywords=skip_iso_keywords,
+        )
+        return match
+
+    def _classify_row_with_diagnostic(
+        self,
+        accession: str,
+        attr_str: str,
+        val_str: str,
+        *,
+        skip_iso_keywords: bool = False,
+    ) -> tuple[HostMatch | None, HostDiagnostic]:
+        attribute_count = len(split_pipe_separated(attr_str))
+        value_count = len(split_pipe_separated(val_str))
+        if attribute_count != value_count:
+            raise ValueError(
+                f"Malformed host candidates for {accession}: "
+                f"host_attr_orig={attribute_count}, host_val_orig={value_count}; "
+                "counts must match"
+            )
         if not skip_iso_keywords:
             iso_keyword = self._find_iso_keyword(val_str)
             if iso_keyword is not None:
-                logger.warning(
-                    "%s: value %r matches iso_keyword %r - forwarding to iso_source",
-                    accession,
-                    val_str,
-                    iso_keyword,
-                )
-                return None
+                return None, HostDiagnostic.ISO_KEYWORD_PREEMPTION
 
         outcome, payload = self._check_overrides(val_str)
         if outcome == "reject":
-            logger.warning(
-                "%s: value %r overridden as reject - forwarding to iso_source",
-                accession,
-                payload,
-            )
-            return None
+            return None, HostDiagnostic.OVERRIDE_REJECTION
         if outcome == "force":
             match = self._build_override_match(val_str, attr_str, payload)
-            logger.warning(
-                "%s: value %r overridden to taxid %d (%s)",
-                accession,
-                match.value,
-                match.info.taxid,
-                match.info.scientific_name,
+            return match, HostDiagnostic.FORCED_OVERRIDE
+
+        match = self.find_best_match(accession, attr_str, val_str)
+        diagnostic = HostDiagnostic.MATCHED if match is not None else HostDiagnostic.UNMATCHED
+        return match, diagnostic
+
+    def standardize(self, record: Mapping[str, str]) -> HostOutcome:
+        accession = record.get("accession", "")
+        attributes = record.get("host_attr_orig", "") or ""
+        values = record.get("host_val_orig", "") or ""
+        match, diagnostic = self._classify_row_with_diagnostic(
+            accession,
+            attributes,
+            values,
+        )
+        if match is not None:
+            return self._matched_outcome(match, diagnostic)
+        overflow = None
+        if values.strip():
+            overflow = HostOverflowContext(
+                attribute=attributes,
+                value=values,
             )
-            return match
+        return HostOutcome(
+            standardized=None,
+            score=None,
+            low_confidence=False,
+            origins=(),
+            overflow=overflow,
+            diagnostics=(diagnostic,),
+        )
 
-        return self.find_best_match(accession, attr_str, val_str)
-
-    def classify_values(
-        self,
-        rows: Iterable[tuple[str, str, str]],
-        skip_iso_keywords: bool = False,
-    ) -> Iterator[tuple[str, "HostMatch"]]:
-        """Yield (accession, HostMatch) for each row that classifies as host.
-
-        Non-matches and rows forwarded to iso are silently dropped - this is the
-        building block for the pass-3 retry, which only cares about confirmed hits.
-        """
-        for accession, attr_str, val_str in rows:
-            match = self.classify_row(
-                accession,
-                attr_str,
-                val_str,
-                skip_iso_keywords=skip_iso_keywords,
+    def retry(self, accession: str, attributes: str, values: str) -> HostOutcome:
+        """Retry host classification after eligible isolation interpretation."""
+        match, diagnostic = self._classify_row_with_diagnostic(
+            accession,
+            attributes,
+            values,
+            skip_iso_keywords=True,
+        )
+        if match is None:
+            return HostOutcome(
+                standardized=None,
+                score=None,
+                low_confidence=False,
+                origins=(),
+                overflow=None,
+                diagnostics=(diagnostic,),
+                retry_eligible=True,
             )
-            if match is not None:
-                yield accession, match
+        return self._matched_outcome(match, diagnostic, retry_eligible=True)
+
+    @staticmethod
+    def _matched_outcome(
+        match: HostMatch,
+        diagnostic: HostDiagnostic,
+        *,
+        retry_eligible: bool = False,
+    ) -> HostOutcome:
+        return HostOutcome(
+            standardized=StandardizedHost(
+                taxid=match.info.taxid,
+                scientific_name=match.info.scientific_name,
+            ),
+            score=match.score,
+            low_confidence=match.low_confidence,
+            origins=(HostOrigin(match.attribute, match.value),),
+            overflow=None,
+            diagnostics=(diagnostic, *match.diagnostics),
+            retry_eligible=retry_eligible,
+        )
 
     def find_best_match(
         self,
@@ -589,14 +668,8 @@ class HostStandardizer:
         attributes = split_pipe_separated(attributes_str)
         values = split_pipe_separated(values_str)
 
-        logger.debug(
-            "%s: matching values=%r against attrs=%r", accession, values_str, attributes_str
-        )
-
         candidates: list[HostMatch] = []
-        for idx, (raw_attr, raw_val) in enumerate(
-            zip(attributes, values, strict=False)
-        ):
+        for idx, (raw_attr, raw_val) in enumerate(zip(attributes, values, strict=False)):
             attr = raw_attr.strip()
             val = raw_val.strip()
             match = self._match_value(val, attr)
@@ -615,7 +688,6 @@ class HostStandardizer:
             )
 
         if not candidates:
-            logger.debug("%s: no candidates", accession)
             return None
 
         # Sort key (smaller wins):
@@ -633,54 +705,20 @@ class HostStandardizer:
         )
         best = candidates[0]
 
-        logger.debug(
-            "%s: ranked candidates: %s; chose %s (taxid %d, score %.1f, attribute %r)",
-            accession,
-            [(c.info.scientific_name, c.info.taxid, c.attribute, c.score) for c in candidates],
-            best.info.scientific_name,
-            best.info.taxid,
-            best.score,
-            best.attribute,
-        )
-
         distinct_taxa = {c.info.taxid for c in candidates}
         has_multiple_taxa = len(distinct_taxa) > 1
         has_ambiguous_subset = bool(best.tier_candidates)
         is_subset_match = best.match_tier != ""
         low_confidence = is_subset_match or has_ambiguous_subset or has_multiple_taxa
-
-        if has_multiple_taxa:
-            logger.warning(
-                "%s: %d distinct host taxa across attributes - keeping %s (taxid %d). "
-                "Candidates: %s",
-                accession,
-                len(distinct_taxa),
-                best.info.scientific_name,
-                best.info.taxid,
-                " | ".join(
-                    f"{c.attribute}={c.value!r}->{c.info.scientific_name}" for c in candidates
-                ),
+        diagnostics = tuple(
+            diagnostic
+            for applies, diagnostic in (
+                (is_subset_match, HostDiagnostic.SUBSET_MATCH),
+                (has_ambiguous_subset, HostDiagnostic.AMBIGUOUS_SUBSET),
+                (has_multiple_taxa, HostDiagnostic.ATTRIBUTE_DISAGREEMENT),
             )
-
-        if has_ambiguous_subset:
-            logger.warning(
-                "%s: %s subset match for %r had multiple candidate taxa [%s] "
-                "- using table-priority pick %s",
-                accession,
-                best.match_tier,
-                best.value,
-                ", ".join(best.tier_candidates),
-                best.info.scientific_name,
-            )
-
-        if low_confidence:
-            logger.debug(
-                "%s: flagged low_confidence (subset=%s ambiguous=%s multi_taxa=%s)",
-                accession,
-                is_subset_match,
-                has_ambiguous_subset,
-                has_multiple_taxa,
-            )
+            if applies
+        )
 
         return HostMatch(
             info=best.info,
@@ -691,108 +729,5 @@ class HostStandardizer:
             match_tier=best.match_tier,
             tier_candidates=best.tier_candidates,
             low_confidence=low_confidence,
+            diagnostics=diagnostics,
         )
-
-    # --- File processing ---
-
-    def process_file(
-        self,
-        input_path: Path,
-        host_path: Path,
-        overflow_path: Path,
-        pathogen: str | None = None,
-        disable_progress: bool = False,
-    ) -> None:
-        """Classify host rows from input_path; matches go to host_path, the rest
-        (forwarded by iso_keyword/override, or unmatched) go to overflow_path
-        for downstream iso processing.
-        """
-        host_header = [
-            "accession",
-            "host_taxid",
-            "host_sci_name",
-            "host_score",
-            "host_low_conf",
-            "host_attr_orig",
-            "host_val_orig",
-        ]
-        overflow_header = ["accession", "attribute", "value", "package"]
-
-        total = count_tsv_rows(input_path)
-        bar_desc = f"host [{pathogen}]" if pathogen else "host"
-
-        with (
-            input_path.open("r", encoding="utf-8", newline="") as infile,
-            host_path.open("w", encoding="utf-8", newline="") as out_host,
-            overflow_path.open("w", encoding="utf-8", newline="") as out_overflow,
-            make_inner_bar(total, bar_desc, disable=disable_progress) as bar,
-        ):
-            reader = csv.DictReader(infile, delimiter="\t")
-            writer_host = csv.writer(
-                out_host, delimiter="\t", quoting=csv.QUOTE_NONE, escapechar="\\"
-            )
-            writer_overflow = csv.writer(
-                out_overflow, delimiter="\t", quoting=csv.QUOTE_NONE, escapechar="\\"
-            )
-            writer_host.writerow(host_header)
-            writer_overflow.writerow(overflow_header)
-
-            for row in reader:
-                if pathogen and row.get("pathogen") != pathogen:
-                    bar.update(1)
-                    continue
-
-                accession = row.get("accession", "")
-                attr_str = row.get("host_attr_orig", "") or ""
-                val_str = row.get("host_val_orig", "") or ""
-                package = row.get("package", "") or ""
-
-                match = self.classify_row(accession, attr_str, val_str)
-                if match is not None:
-                    writer_host.writerow(
-                        [
-                            accession,
-                            match.info.taxid,
-                            match.info.scientific_name,
-                            match.score,
-                            match.low_confidence,
-                            match.attribute,
-                            match.value,
-                        ]
-                    )
-                elif val_str.strip():
-                    writer_overflow.writerow([accession, attr_str, val_str, package])
-                bar.update(1)
-
-
-def main(
-    input_path: Path,
-    output_path: Path,
-    config_path: Path,
-    log_level: str = "INFO",
-    pathogen: str | None = None,
-    overflow_path: Path | None = None,
-    disable_progress: bool = False,
-) -> None:
-    setup_standardizer_logging(logger, output_path, "host_standardized", log_level)
-
-    standardizer = HostStandardizer(config_path)
-    if overflow_path is None:
-        overflow_path = output_path.parent / HOST_OVERFLOW
-    standardizer.process_file(
-        input_path, output_path, overflow_path, pathogen=pathogen, disable_progress=disable_progress
-    )
-
-
-if __name__ == "__main__":
-    parser = create_arg_parser(
-        description="Standardize free-text host values from a TSV file into NCBI taxids.",
-        default_config_path="config/host.yaml",
-    )
-    args = parser.parse_args()
-
-    in_path = Path(args.input_file)
-    out_path = Path(args.output_dir) / HOST_OUTPUT
-    cfg_path = Path(args.config)
-
-    main(in_path, out_path, cfg_path, args.log_level)

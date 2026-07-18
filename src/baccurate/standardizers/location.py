@@ -6,12 +6,12 @@ reverse_geocode cannot resolve.
 See location.md for the documentation.
 """
 
-import csv
 import json
 import logging
 import re
-import time
+from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
 
@@ -19,16 +19,18 @@ import country_converter as coco
 import openai
 import reverse_geocode
 
-from baccurate.paths import DEFAULT_GEO_LOC_LIST, DEFAULT_LOC_CACHE_DB, LOC_OUTPUT
-from baccurate.utils.args import create_arg_parser
+from baccurate.llm.client import LLMSettings, load_llm_client
+from baccurate.llm.diagnostics import (
+    LLMFailureCategory,
+    observe_llm_call,
+)
+from baccurate.paths import DEFAULT_GEO_LOC_LIST, DEFAULT_LOC_CACHE_DB
 from baccurate.utils.cache import SQLiteKVCache
 from baccurate.utils.config import load_config
-from baccurate.utils.llm import load_llm_client
-from baccurate.utils.logging import setup_standardizer_logging
-from baccurate.utils.progress import count_tsv_rows, make_inner_bar
 from baccurate.utils.text import split_pipe_separated
 
 logger = logging.getLogger(__name__)
+_LOAD_CONFIGURED_CLIENT = object()
 
 # --- Coordinate patterns ---
 
@@ -107,6 +109,22 @@ def _extract_string(value) -> str | None:
 # --- Data structure ---
 
 
+class LocationDiagnostic(StrEnum):
+    """location-resolution vocabulary used by build diagnostics."""
+
+    ABSENT_CANDIDATES = "absent_candidates"
+    UNRESOLVED_PLACE = "unresolved_place"
+    MODEL_DISABLED = "model_disabled"
+    RECOVERABLE_MODEL_FAILURE = "recoverable_model_failure"
+    RECOVERABLE_COORDINATE_FAILURE = "recoverable_coordinate_failure"
+    INVALID_MODEL_RESPONSE = "invalid_model_response"
+    UNMAPPABLE_RESULT = "unmappable_result"
+    COORDINATE_RESOLUTION = "coordinate_resolution"
+    DIRECT_RESOLUTION = "direct_resolution"
+    CACHE_RESOLUTION = "cache_resolution"
+    MODEL_RESOLUTION = "model_resolution"
+
+
 @dataclass(frozen=True, slots=True)
 class LocationMatch:
     """Standardization result for one record."""
@@ -115,6 +133,48 @@ class LocationMatch:
     continent: str
     sublocation: str | None
     used_llm: bool = False
+    diagnostics: tuple[LocationDiagnostic, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class _ModelResponse:
+    country: str | None
+    diagnostic: LocationDiagnostic | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class LocationOrigin:
+    """One source attribute/value pair supporting a location result."""
+
+    attribute: str
+    value: str
+
+
+@dataclass(frozen=True, slots=True)
+class LocationOutcome:
+    """A standardized location with paired source origins and diagnostics."""
+
+    continent: str
+    un_region: str
+    country: str
+    sublocation: str | None
+    origins: tuple[LocationOrigin, ...]
+    coordinate_decodes: int = 0
+    direct_matches: int = 0
+    cache_hits: int = 0
+    llm_calls: int = 0
+    diagnostics: tuple[LocationDiagnostic, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class LocationRejection:
+    """A record with no usable standardized location, plus its diagnostics."""
+
+    coordinate_decodes: int = 0
+    direct_matches: int = 0
+    cache_hits: int = 0
+    llm_calls: int = 0
+    diagnostics: tuple[LocationDiagnostic, ...] = ()
 
 
 # --- Cache ---
@@ -152,17 +212,28 @@ class SQLiteCache(SQLiteKVCache):
 
 
 class LocationStandardizer:
-    def __init__(self, config_path: Path | str) -> None:
+    def __init__(
+        self,
+        config_path: Path | str,
+        *,
+        client: openai.OpenAI | None | object = _LOAD_CONFIGURED_CLIENT,
+        llm_settings: LLMSettings | None = None,
+        result_logger: logging.Logger | None = None,
+    ) -> None:
+        self.logger = result_logger or logger
         self.config = load_config(config_path)
         self.coordinate_attributes = set(self.config.get("coordinate_attributes", []))
-        self.wait_s = int(self.config.get("wait_s", 5))
         self.insdc_map = dict(self.config.get("insdc_country_map", {}))
         geo_loc_path = self.config.get("geo_loc_list_path", DEFAULT_GEO_LOC_LIST)
         self.insdc_names = self._load_insdc_names(geo_loc_path)
         self.llm_system_prompt = self.config.get("llm_system_prompt")
         self.llm_user_prompt_template = self.config.get("llm_user_prompt_template")
 
-        self.client, self.llm_model = load_llm_client()
+        if client is _LOAD_CONFIGURED_CLIENT:
+            self.client, self.llm_model = load_llm_client(llm_settings)
+        else:
+            self.client = client
+            self.llm_model = llm_settings.model if llm_settings else None
 
         self.cc = coco.CountryConverter()
         logging.getLogger("country_converter").setLevel(logging.CRITICAL)
@@ -195,14 +266,22 @@ class LocationStandardizer:
             return match
         mapped = self.insdc_map.get(match.country, match.country)
         if mapped not in self.insdc_names:
-            logger.warning(
-                "Country %r (from %r) not in INSDC vocabulary - setting NA",
-                mapped, match.country,
+            return LocationMatch(
+                "NA",
+                "NA",
+                match.sublocation,
+                match.used_llm,
+                (LocationDiagnostic.UNMAPPABLE_RESULT,),
             )
-            return LocationMatch("NA", "NA", match.sublocation, match.used_llm)
         if mapped == match.country:
             return match
-        return LocationMatch(mapped, match.continent, match.sublocation, match.used_llm)
+        return LocationMatch(
+            mapped,
+            match.continent,
+            match.sublocation,
+            match.used_llm,
+            match.diagnostics,
+        )
 
     # --- Per-value matching ---
 
@@ -239,22 +318,27 @@ class LocationStandardizer:
         lat, lon = _normalize_coordinates(coord_str)
         if not _is_valid_coord(lat, lon):
             return None, None
-        try:
-            info = reverse_geocode.get((lat, lon))
-            return info.get("country"), info.get("city")
-        except Exception as e:
-            logger.error("Reverse geocoding failed for (%s, %s): %s", lat, lon, e)
-            return None, None
+        info = reverse_geocode.get((lat, lon))
+        return info.get("country"), info.get("city")
 
     def _try_coordinate(self, val: str, attr: str) -> LocationMatch | None:
         """Decode and standardize if the value or attribute looks like a coordinate."""
         if not (_is_coordinate(val) or attr in self.coordinate_attributes):
             return None
 
-        raw_country, city = self.decode_coordinates(val)
+        try:
+            raw_country, city = self.decode_coordinates(val)
+        except Exception:
+            return LocationMatch(
+                "NA",
+                "NA",
+                None,
+                diagnostics=(LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE,),
+            )
         if raw_country is None:
-            logger.debug("Coordinate decode failed for %r", val)
-            return LocationMatch("NA", "NA", None)
+            return LocationMatch(
+                "NA", "NA", None, diagnostics=(LocationDiagnostic.UNRESOLVED_PLACE,)
+            )
 
         cc_country = _extract_string(
             self.cc.convert(names=raw_country, to="name_short", not_found="NA")
@@ -265,7 +349,12 @@ class LocationStandardizer:
         )
 
         self.stats["coordinate_decodes"] += 1
-        return LocationMatch(country, continent, city)
+        return LocationMatch(
+            country,
+            continent,
+            city,
+            diagnostics=(LocationDiagnostic.COORDINATE_RESOLUTION,),
+        )
 
     def _try_country_converter(self, val: str) -> LocationMatch | None:
         """
@@ -290,96 +379,110 @@ class LocationStandardizer:
         if country == "NA":
             return None
         self.stats["direct_matches"] += 1
-        return LocationMatch(country, continent, sublocation)
+        return LocationMatch(
+            country,
+            continent,
+            sublocation,
+            diagnostics=(LocationDiagnostic.DIRECT_RESOLUTION,),
+        )
 
     # --- LLM fallback ---
 
     def _call_llm(
         self,
+        accession: str,
         system_prompt: str | None,
         user_prompt: str,
         timeout: int = 30,
-    ) -> dict | list | None:
+    ) -> _ModelResponse:
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": user_prompt})
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.llm_model,
-                messages=messages,
-                temperature=0,
-                timeout=timeout,
-                seed=100,
-            )
-        except openai.APITimeoutError as e:
-            logger.warning("LLM API request timed out: %s", e)
-            return None
-        except openai.APIError as e:
-            logger.warning("LLM API returned an APIError: %s", e)
-            return None
+            with observe_llm_call(
+                accession=accession,
+                target="location",
+                model=self.llm_model or "",
+            ) as call:
+                response = self.client.chat.completions.create(
+                    model=self.llm_model,
+                    messages=messages,
+                    temperature=0,
+                    timeout=timeout,
+                    seed=100,
+                )
+        except openai.APITimeoutError:
+            return _ModelResponse(None, diagnostic=LocationDiagnostic.RECOVERABLE_MODEL_FAILURE)
+        except openai.APIError:
+            return _ModelResponse(None, diagnostic=LocationDiagnostic.RECOVERABLE_MODEL_FAILURE)
         except Exception as e:
-            logger.error("Unexpected error during LLM API request: %s", e)
-            return None
+            call.failed(LLMFailureCategory.UNEXPECTED)
+            raise RuntimeError(f"Unexpected location model failure: {e}") from e
 
         if response is None:
-            logger.warning("LLM API call returned a None response object.")
-            return None
-
-        time.sleep(self.wait_s)
+            call.failed(LLMFailureCategory.INVALID_MODEL_RESPONSE)
+            return _ModelResponse(None, diagnostic=LocationDiagnostic.INVALID_MODEL_RESPONSE)
 
         try:
             content = response.choices[0].message.content
-        except (AttributeError, IndexError) as e:
-            logger.error("Could not extract content from response: %s", e)
-            return None
+        except (AttributeError, IndexError):
+            call.failed(LLMFailureCategory.INVALID_MODEL_RESPONSE)
+            return _ModelResponse(None, diagnostic=LocationDiagnostic.INVALID_MODEL_RESPONSE)
 
         if not content:
-            logger.warning("LLM returned empty content.")
-            return None
+            call.failed(LLMFailureCategory.INVALID_MODEL_RESPONSE)
+            return _ModelResponse(None, diagnostic=LocationDiagnostic.INVALID_MODEL_RESPONSE)
 
         content = content.strip()
-        logger.debug("LLM response: %s", content)
 
         try:
-            return json.loads(content)
+            parsed = json.loads(content)
         except json.JSONDecodeError:
-            pass
+            call.failed(LLMFailureCategory.INVALID_MODEL_RESPONSE)
+            return _ModelResponse(None, diagnostic=LocationDiagnostic.INVALID_MODEL_RESPONSE)
 
-        match = re.search(r"(\{.*?})|(\[.*?])", content, re.DOTALL)
-        if match is None:
-            logger.warning("No JSON object or array in LLM response: %r", content)
-            return None
+        if not isinstance(parsed, dict) or set(parsed) != {"country"}:
+            call.failed(LLMFailureCategory.INVALID_MODEL_RESPONSE)
+            return _ModelResponse(None, diagnostic=LocationDiagnostic.INVALID_MODEL_RESPONSE)
 
-        json_str = match.group(1) or match.group(2)
-        try:
-            return json.loads(json_str)
-        except json.JSONDecodeError:
-            logger.warning("Failed to parse extracted JSON: %r", json_str)
-            return None
+        country = parsed["country"]
+        if not isinstance(country, str) or not country.strip():
+            call.failed(LLMFailureCategory.INVALID_MODEL_RESPONSE)
+            return _ModelResponse(None, diagnostic=LocationDiagnostic.INVALID_MODEL_RESPONSE)
 
-    def _llm_fallback(self, context_string: str) -> tuple[str, str]:
+        call.accepted()
+        return _ModelResponse(country.strip())
+
+    def _llm_fallback(self, accession: str, context_string: str) -> LocationMatch:
         cached = self.cache.get(context_string)
         if cached is not None:
             self.stats["cache_hits"] += 1
-            logger.debug("LLM cache hit for %r", context_string)
-            return cached
+            diagnostic = (
+                LocationDiagnostic.CACHE_RESOLUTION
+                if cached[0] != "NA"
+                else LocationDiagnostic.UNRESOLVED_PLACE
+            )
+            return LocationMatch(*cached, None, True, (diagnostic,))
 
         if self.client is None:
-            return "NA", "NA"
+            return LocationMatch("NA", "NA", None, True, (LocationDiagnostic.MODEL_DISABLED,))
 
-        logger.debug("LLM call for context %r", context_string)
         user_prompt = self.llm_user_prompt_template.format(attr_val_pairs=context_string)
-        parsed = self._call_llm(self.llm_system_prompt, user_prompt)
+        response = self._call_llm(accession, self.llm_system_prompt, user_prompt)
         self.stats["llm_calls"] += 1
 
-        if parsed is None:
-            self.cache.set(context_string, "NA", "NA")
-            return "NA", "NA"
+        if response.diagnostic is not None:
+            return LocationMatch("NA", "NA", None, True, (response.diagnostic,))
 
-        llm_country = _extract_string(parsed.get("country")) or "NA"
-        llm_continent = _extract_string(parsed.get("continent")) or "NA"
+        llm_country = response.country
+        if llm_country is None:
+            raise AssertionError("Successful model response has no country")
+
+        if llm_country == "NA":
+            self.cache.set(context_string, "NA", "NA")
+            return LocationMatch("NA", "NA", None, True, (LocationDiagnostic.UNMAPPABLE_RESULT,))
 
         # Standardize the LLM's country through cc
         cc_country = _extract_string(
@@ -389,18 +492,66 @@ class LocationStandardizer:
             cc_continent = _extract_string(
                 self.cc.convert(names=cc_country, to="continent", not_found="NA")
             )
-            result = (cc_country, cc_continent or llm_continent or "NA")
+            result = (cc_country, cc_continent or "NA")
         else:
-            logger.debug(
-                "country_converter failed on LLM response %r - using LLM values directly",
-                llm_country,
-            )
-            result = (llm_country, llm_continent)
+            result = (llm_country, "NA")
 
         self.cache.set(context_string, *result)
-        return result
+        return self._to_insdc(
+            LocationMatch(
+                *result,
+                None,
+                True,
+                (LocationDiagnostic.MODEL_RESOLUTION,),
+            )
+        )
 
     # --- Per-record dispatch ---
+
+    def standardize(self, record: Mapping[str, str]) -> LocationOutcome | LocationRejection:
+        """Standardize one extracted record without performing persistence."""
+        accession = record.get("accession", "")
+        attributes = tuple(split_pipe_separated(record.get("loc_attr_orig", "")))
+        values = tuple(split_pipe_separated(record.get("loc_val_orig", "")))
+        if len(attributes) != len(values):
+            raise ValueError(
+                f"Malformed location candidates for {accession}: "
+                f"loc_attr_orig={len(attributes)}, loc_val_orig={len(values)}; counts must match"
+            )
+        before = self.stats.copy()
+        match = self.find_best_location(
+            accession,
+            record.get("loc_attr_orig", ""),
+            record.get("loc_val_orig", ""),
+        )
+        diagnostics = {
+            "coordinate_decodes": self.stats["coordinate_decodes"] - before["coordinate_decodes"],
+            "direct_matches": self.stats["direct_matches"] - before["direct_matches"],
+            "cache_hits": self.stats["cache_hits"] - before["cache_hits"],
+            "llm_calls": self.stats["llm_calls"] - before["llm_calls"],
+            "diagnostics": match.diagnostics,
+        }
+        if match.country == "NA":
+            return LocationRejection(**diagnostics)
+        return LocationOutcome(
+            continent=match.continent,
+            un_region=self._country_to_unregion(match.country),
+            country=match.country,
+            sublocation=match.sublocation,
+            origins=tuple(
+                LocationOrigin(attribute, value)
+                for attribute, value in zip(attributes, values, strict=True)
+            ),
+            **diagnostics,
+        )
+
+    def close(self) -> None:
+        try:
+            self.cache.close()
+        finally:
+            close_client = getattr(self.client, "close", None)
+            if callable(close_client):
+                close_client()
 
     def find_best_location(
         self,
@@ -412,9 +563,12 @@ class LocationStandardizer:
         vals = split_pipe_separated(val_str)
 
         if not vals:
-            return LocationMatch("NA", "NA", None)
+            return LocationMatch(
+                "NA", "NA", None, diagnostics=(LocationDiagnostic.ABSENT_CANDIDATES,)
+            )
 
         valid_matches: list[LocationMatch] = []
+        rejected_matches: list[LocationMatch] = []
         unmatched_pairs: list[tuple[str, str]] = []
 
         for attr, val in zip(attrs, vals, strict=False):
@@ -427,6 +581,8 @@ class LocationStandardizer:
             if coord_match is not None:
                 if coord_match.country != "NA":
                     valid_matches.append(coord_match)
+                else:
+                    rejected_matches.append(coord_match)
                 continue
 
             cc_match = self._try_country_converter(val)
@@ -439,115 +595,35 @@ class LocationStandardizer:
         # or "Country:City" sublocation) since they carry more information.
         if valid_matches:
             with_subloc = [m for m in valid_matches if m.sublocation]
-            return self._to_insdc(with_subloc[0] if with_subloc else valid_matches[0])
+            selected = self._to_insdc(with_subloc[0] if with_subloc else valid_matches[0])
+            return self._preserve_operational_diagnostics(selected, rejected_matches)
 
         if not unmatched_pairs:
-            return LocationMatch("NA", "NA", None)
+            if rejected_matches:
+                return self._preserve_operational_diagnostics(rejected_matches[0], rejected_matches)
+            return LocationMatch(
+                "NA", "NA", None, diagnostics=(LocationDiagnostic.UNRESOLVED_PLACE,)
+            )
 
         context = " ".join(f"{a}={v}" for a, v in unmatched_pairs)
-        country, continent = self._llm_fallback(context)
-        return self._to_insdc(LocationMatch(country, continent, None, used_llm=True))
+        return self._preserve_operational_diagnostics(
+            self._llm_fallback(accession, context), rejected_matches
+        )
 
-    # --- File processing ---
-
-    def process_file(
-        self,
-        input_path: Path,
-        output_path: Path,
-        pathogen: str | None = None,
-        disable_progress: bool = False,
-    ) -> None:
-        output_header = [
-            "accession",
-            "loc_attr_orig",
-            "loc_val_orig",
-            "loc_continent",
-            "loc_UNregion",
-            "loc_country",
-            "loc_other",
-        ]
-
-        total = count_tsv_rows(input_path)
-        bar_desc = f"loc [{pathogen}]" if pathogen else "loc"
-        records_processed = 0
-
-        try:
-            with (
-                input_path.open("r", encoding="utf-8", newline="") as infile,
-                output_path.open("w", encoding="utf-8", newline="") as outfile,
-                make_inner_bar(total, bar_desc, disable=disable_progress) as bar,
-            ):
-                reader = csv.DictReader(infile, delimiter="\t")
-                writer = csv.writer(outfile, delimiter="\t")
-                writer.writerow(output_header)
-
-                for row in reader:
-                    if pathogen and row.get("pathogen") != pathogen:
-                        bar.update(1)
-                        continue
-
-                    accession = row.get("accession", "")
-                    attr_str = (row.get("loc_attr_orig") or "").strip()
-                    val_str = (row.get("loc_val_orig") or "").strip()
-
-                    match = self.find_best_location(accession, attr_str, val_str)
-
-                    if match.country == "NA":
-                        bar.update(1)
-                        continue
-
-                    writer.writerow(
-                        [
-                            accession,
-                            attr_str,
-                            val_str,
-                            match.continent,
-                            self._country_to_unregion(match.country),
-                            match.country,
-                            match.sublocation or "NA",
-                        ]
-                    )
-                    records_processed += 1
-                    bar.update(1)
-
-            logger.info(
-                "Processed %d records: %d coordinate decodes, %d direct matches, "
-                "%d cache hits, %d LLM calls.",
-                records_processed,
-                self.stats["coordinate_decodes"],
-                self.stats["direct_matches"],
-                self.stats["cache_hits"],
-                self.stats["llm_calls"],
-            )
-        finally:
-            self.cache.close()
-
-
-def main(
-    input_path: Path,
-    output_path: Path,
-    config_path: Path,
-    log_level: str = "INFO",
-    pathogen: str | None = None,
-    disable_progress: bool = False,
-) -> None:
-    setup_standardizer_logging(logger, output_path, "loc_standardized", log_level)
-
-    standardizer = LocationStandardizer(config_path)
-    standardizer.process_file(
-        input_path, output_path, pathogen=pathogen, disable_progress=disable_progress
-    )
-
-
-if __name__ == "__main__":
-    parser = create_arg_parser(
-        description="Standardizes location values from a TSV file.",
-        default_config_path="config/location.yaml",
-    )
-    args = parser.parse_args()
-
-    in_path = Path(args.input_file)
-    out_path = Path(args.output_dir) / LOC_OUTPUT
-    cfg_path = Path(args.config)
-
-    main(in_path, out_path, cfg_path, args.log_level)
+    @staticmethod
+    def _preserve_operational_diagnostics(
+        match: LocationMatch,
+        rejected_matches: list[LocationMatch],
+    ) -> LocationMatch:
+        operational = LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE
+        if not any(operational in rejected.diagnostics for rejected in rejected_matches):
+            return match
+        if operational in match.diagnostics:
+            return match
+        return LocationMatch(
+            match.country,
+            match.continent,
+            match.sublocation,
+            match.used_llm,
+            (operational, *match.diagnostics),
+        )
