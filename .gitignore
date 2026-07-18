@@ -1,4 +1,5 @@
 __pycache__/
+baccurate.egg-info
 .venv/
 .idea/
 .pytest_cache
@@ -8,13 +9,10 @@ __pycache__/
 *.gz
 *.7z
 *.xml
+*.history
+*.dmp
+*.log
 data/cache/
 data/raw
 !data/raw/README.md
 output/
-scripts_old/
-*.log
-TODO
-*.history
-*.dmp
-baccurate.egg-info
