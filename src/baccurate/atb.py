@@ -7,9 +7,13 @@ are stripped before matching against the pathogen registry.
 
 from __future__ import annotations
 
+import csv
 import re
+from collections import defaultdict
+from pathlib import Path
 
 from baccurate.pathogens import load_pathogens
+from baccurate.utils.compressed_io import open_text
 
 NA = "NA"
 
@@ -48,3 +52,16 @@ def sylph_to_keyword(
     if species is not None and (genus, species) in species_map:
         return species_map[(genus, species)]
     return genus_map.get(genus, NA)
+
+
+def load_atb_accessions_by_pathogen(index_path: Path) -> dict[str, set[str]]:
+    by_pathogen: dict[str, set[str]] = defaultdict(set)
+    with open_text(index_path, newline="") as stream:
+        for row in csv.DictReader(stream, delimiter="\t"):
+            if (row.get("in_ATB") or "").strip() != "True":
+                continue
+            accession = (row.get("accession") or "").strip()
+            pathogen = (row.get("pathogen_ATB") or "").strip()
+            if accession and pathogen:
+                by_pathogen[pathogen].add(accession)
+    return dict(by_pathogen)
