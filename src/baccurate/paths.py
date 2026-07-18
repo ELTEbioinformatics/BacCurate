@@ -10,6 +10,7 @@ DATA_DIR = REPO_ROOT / "data"
 OUTPUT_DIR = REPO_ROOT / "output"
 
 PATHOGENS_YAML = CONFIG_DIR / "pathogens.yaml"
+DEFAULT_SOURCE_SNAPSHOT_MANIFEST = CONFIG_DIR / "source_snapshot.yaml"
 
 RAW_DIR = DATA_DIR / "raw"
 CACHE_DIR = DATA_DIR / "cache"
@@ -35,14 +36,6 @@ DEFAULT_XML_INPUT = raw_input_paths().xml
 DEFAULT_INDEX_TSV = raw_input_paths().index
 
 DEFAULT_EXTRACTED_TSV = OUTPUT_DIR / "extracted_metadata.tsv"
-DEFAULT_PATHOGEN_OUTPUT_DIR = OUTPUT_DIR
-
-HOST_OUTPUT = "host_standardized.tsv"
-DATE_OUTPUT = "date_standardized.tsv"
-LOC_OUTPUT = "loc_standardized.tsv"
-ISO_OUTPUT = "iso_standardized.tsv"
-HOST_OVERFLOW = "host_overflow.tsv"
-MERGED_OUTPUT = "merged_output.tsv"
 
 DEFAULT_TAXONOMY_DIR = REFERENCE_DIR / "taxonomy"
 DEFAULT_TAXIDS_NCBI = DEFAULT_TAXONOMY_DIR / "taxids_ncbi.tsv"
