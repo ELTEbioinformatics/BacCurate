@@ -2,25 +2,23 @@
 
 from collections.abc import Iterable
 
+from baccurate.extraction.curation import CurationDecision
 from baccurate.extraction.metadata_types import ATTRIBUTES
-from baccurate.extraction.policy import PolicyDecision
 
-COLUMNS = ["accession", "bioproject", "pathogen", "package", "date_category"] + [
+COLUMNS = ["accession", "bioproject", "pathogen", "date_category"] + [
     f"{attribute}_{kind}_orig" for attribute in ATTRIBUTES for kind in ("attr", "val")
 ]
+
 
 def record_row(
     *,
     accession: str,
     pathogen: str,
-    package: str,
     bioproject: str,
-    candidates: Iterable[PolicyDecision],
+    candidates: Iterable[CurationDecision],
 ) -> list[str] | None:
     """Return one output row for one record, or None"""
-    raw_pairs: dict[str, tuple[list[str], list[str]]] = {
-        target: ([], []) for target in ATTRIBUTES
-    }
+    raw_pairs: dict[str, tuple[list[str], list[str]]] = {target: ([], []) for target in ATTRIBUTES}
     date_categories: list[str] = []
     found = False
 
@@ -36,7 +34,7 @@ def record_row(
     if not found:
         return None
 
-    row = [accession, bioproject, pathogen, package, "||".join(date_categories)]
+    row = [accession, bioproject, pathogen, "||".join(date_categories)]
     for target in ATTRIBUTES:
         attributes, values = raw_pairs[target]
         row.extend(("||".join(attributes), "||".join(values)))
