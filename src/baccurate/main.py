@@ -127,10 +127,7 @@ def main() -> None:
     parser.add_argument(
         "--run-name",
         default=None,
-        help=(
-            "Directory name used for the output path. "
-            "(default: current timestamp)."
-        ),
+        help=("Directory name used for the output path. (default: current timestamp)."),
     )
     parser.add_argument(
         "--force",
@@ -198,9 +195,7 @@ def main() -> None:
         parser.error(str(exc))
     collision = outputs.collision()
     if collision is not None and not args.force:
-        parser.error(
-            f"output already exists: {collision}. Pass --force to replace it."
-        )
+        parser.error(f"output already exists: {collision}. Pass --force to replace it.")
 
     raw_inputs = raw_input_paths(uncompressed=args.uncompressed)
     input_path = args.input if args.input is not None else raw_inputs.xml

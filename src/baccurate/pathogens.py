@@ -111,8 +111,14 @@ def pathogen_key_table(path: Path = PATHOGENS_YAML) -> str:
 if __name__ == "__main__":
     import argparse
 
-    ap = argparse.ArgumentParser(description="Emit the pathogen registry as a flat pathogen-key table.")
-    ap.add_argument("--pathogen-keys", action="store_true", help="emit pathogen_key/taxids/rank/group TSV")
+    ap = argparse.ArgumentParser(
+        description="Emit the pathogen registry as a flat pathogen-key table."
+    )
+    ap.add_argument(
+        "--pathogen-keys",
+        action="store_true",
+        help="emit pathogen_key/taxids/rank/group TSV",
+    )
     ap.parse_args()
     sys.stdout.reconfigure(newline="\n")
     sys.stdout.write(pathogen_key_table() + "\n")

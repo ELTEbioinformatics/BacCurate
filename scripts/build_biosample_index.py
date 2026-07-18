@@ -6,6 +6,7 @@ Output is a union of:
   - accessions in the ATB metadata whose ``sylph_species`` maps to a target
     pathogen key. Supplies ``pathogen_ATB``, ``in_ATB`` and ``osf_tarball_filename``.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -26,7 +27,15 @@ from baccurate.paths import DEFAULT_INDEX_TSV, RAW_DIR
 log = logging.getLogger("build_biosample_index")
 
 ID_LISTS_DIR = RAW_DIR / "id_lists"
-COLUMNS = ["accession", "in_ATB", "pathogen_biosample", "pathogen_ATB", "taxid", "organism_value", "osf_tarball_filename"]
+COLUMNS = [
+    "accession",
+    "in_ATB",
+    "pathogen_biosample",
+    "pathogen_ATB",
+    "taxid",
+    "organism_value",
+    "osf_tarball_filename",
+]
 
 
 def sha256(path: Path) -> str:
@@ -58,7 +67,10 @@ def load_taxonomy_branch(id_lists_dir: Path) -> pd.DataFrame:
     conflicts = tax[tax.duplicated("accession", keep=False)]
     if not conflicts.empty:
         n = conflicts["accession"].nunique()
-        log.warning("%d accession(s) matched more than one pathogen-key query. Keeping first by file order", n)
+        log.warning(
+            "%d accession(s) matched more than one pathogen-key query. Keeping first by file order",
+            n,
+        )
     return tax.drop_duplicates("accession", keep="first")
 
 
@@ -75,8 +87,14 @@ def setup_logging(out_dir: Path) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("atb_metadata", type=Path, help="ATB metadata TSV (accession, osf_tarball_filename, sylph_species)")
-    ap.add_argument("--id-lists-dir", type=Path, default=ID_LISTS_DIR, help="directory of per-pathogen-key TSVs")
+    ap.add_argument(
+        "atb_metadata",
+        type=Path,
+        help="ATB metadata TSV (accession, osf_tarball_filename, sylph_species)",
+    )
+    ap.add_argument(
+        "--id-lists-dir", type=Path, default=ID_LISTS_DIR, help="directory of per-pathogen-key TSVs"
+    )
     ap.add_argument("--output", type=Path, default=DEFAULT_INDEX_TSV, help="output index path")
     args = ap.parse_args()
 
@@ -94,7 +112,11 @@ def main() -> int:
     tax = load_taxonomy_branch(args.id_lists_dir)
     tax_acc = set(tax["accession"])
     pathogen_key_files = [f for f in args.id_lists_dir.glob("*.tsv") if f.name != "manifest.tsv"]
-    log.info("NCBI taxonomy: %d accessions across %d pathogen-key files", len(tax_acc), len(pathogen_key_files))
+    log.info(
+        "NCBI taxonomy: %d accessions across %d pathogen-key files",
+        len(tax_acc),
+        len(pathogen_key_files),
+    )
 
     manifest = args.id_lists_dir / "manifest.tsv"
     if manifest.exists():
@@ -102,17 +124,27 @@ def main() -> int:
         if "status" in m.columns:
             bad = m.loc[m["status"] != "ok", "pathogen_key"].tolist()
             if bad:
-                log.warning("Manifest flags incomplete pathogen-key fetch(es). re-fetch recommended: %s", ", ".join(bad))
+                log.warning(
+                    "Manifest flags incomplete pathogen-key fetch(es). re-fetch recommended: %s",
+                    ", ".join(bad),
+                )
 
     # ATB branch
     atb = pd.read_csv(args.atb_metadata, sep="\t", dtype=str, keep_default_na=False)
     genus_map, species_map = build_keyword_maps()
-    keyword_of = {s: sylph_to_keyword(s, genus_map, species_map) for s in atb["sylph_species"].drop_duplicates()}
+    keyword_of = {
+        s: sylph_to_keyword(s, genus_map, species_map)
+        for s in atb["sylph_species"].drop_duplicates()
+    }
     atb = atb.assign(_kw=atb["sylph_species"].map(keyword_of))
     tarball_by_acc = dict(zip(atb["accession"], atb["osf_tarball_filename"]))
     keyword_by_acc = dict(zip(atb["accession"], atb["_kw"]))
     atb_target_acc = set(atb.loc[atb["_kw"] != NA, "accession"])
-    log.info("ATB records: %d | atb accessions mapping to a target pathogen key: %d", len(atb), len(atb_target_acc))
+    log.info(
+        "ATB records: %d | atb accessions mapping to a target pathogen key: %d",
+        len(atb),
+        len(atb_target_acc),
+    )
 
     # union
     scope = sorted(tax_acc | atb_target_acc)
@@ -128,7 +160,9 @@ def main() -> int:
     df["in_ATB"] = df["accession"].map(lambda a: "True" if a in tarball_by_acc else "False")
     df["pathogen_biosample"] = df["accession"].map(bio_by_acc).fillna(NA)
     df["pathogen_ATB"] = df["accession"].map(keyword_by_acc).fillna(NA)
-    df["taxid"] = df["accession"].map(taxid_by_acc).fillna(NA).replace("", NA)  # NA for ATB-only records
+    df["taxid"] = (
+        df["accession"].map(taxid_by_acc).fillna(NA).replace("", NA)
+    )  # NA for ATB-only records
     df["organism_value"] = df["accession"].map(org_by_acc).fillna(NA)
     df["osf_tarball_filename"] = df["accession"].map(tarball_by_acc).fillna(NA)
     df = df[COLUMNS]
@@ -137,10 +171,19 @@ def main() -> int:
     only_tax = len(tax_acc - atb_target_acc)
     only_atb = len(atb_target_acc - tax_acc)
     both = len(tax_acc & atb_target_acc)
-    log.info("index rows: %d | taxonomy-only: %d | atb-only: %d | both: %d", len(df), only_tax, only_atb, both)
+    log.info(
+        "index rows: %d | taxonomy-only: %d | atb-only: %d | both: %d",
+        len(df),
+        only_tax,
+        only_atb,
+        both,
+    )
     log.info("in_ATB True: %d", int((df["in_ATB"] == "True").sum()))
-    log.info("pathogen_biosample=NA (atb-only): %d | pathogen_ATB=NA: %d",
-             int((df["pathogen_biosample"] == NA).sum()), int((df["pathogen_ATB"] == NA).sum()))
+    log.info(
+        "pathogen_biosample=NA (atb-only): %d | pathogen_ATB=NA: %d",
+        int((df["pathogen_biosample"] == NA).sum()),
+        int((df["pathogen_ATB"] == NA).sum()),
+    )
     for col in ("pathogen_biosample", "pathogen_ATB"):
         counts = df[col].value_counts().to_dict()
         log.info("%s counts: %s", col, {k: counts[k] for k in sorted(counts)})

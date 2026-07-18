@@ -4,6 +4,7 @@ Produces:
   1. ``data/raw/id_lists/<pathogen_key>.tsv`` (accession, taxid, organism)
   2. ``data/raw/biosamples.xml.gz`` a filtered subset of the dump
 """
+
 from __future__ import annotations
 
 import argparse
@@ -78,7 +79,13 @@ def build_closure(nodes_dmp: Path, merged_dmp: Path, seeds: dict[int, str]) -> d
             prev = closure.get(t)
             if prev is not None:
                 if prev != pathogen_key:
-                    log.warning("taxid %d in subtrees of both %s and %s; keeping %s", t, prev, pathogen_key, prev)
+                    log.warning(
+                        "taxid %d in subtrees of both %s and %s; keeping %s",
+                        t,
+                        prev,
+                        pathogen_key,
+                        prev,
+                    )
                 continue
             closure[t] = pathogen_key
             stack.extend(children.get(t, ()))
@@ -144,7 +151,9 @@ def stream(
 ) -> dict[str, int]:
     """Single pass over the dump: write per-pathogen-key id_lists and (optionally) the union-scope subset."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    handles = {m: (out_dir / f"{m}.tsv").open("w", encoding="utf-8", newline="\n") for m in pathogen_keys}
+    handles = {
+        m: (out_dir / f"{m}.tsv").open("w", encoding="utf-8", newline="\n") for m in pathogen_keys
+    }
     for h in handles.values():
         h.write("accession\ttaxid\torganism\n")
     counts = dict.fromkeys(pathogen_keys, 0)
@@ -170,7 +179,9 @@ def stream(
                         if raw and raw.isdigit():
                             pathogen_key = closure.get(int(raw))
                             if pathogen_key is not None:
-                                handles[pathogen_key].write(f"{accession}\t{raw}\t{org.get('taxonomy_name', '')}\n")
+                                handles[pathogen_key].write(
+                                    f"{accession}\t{raw}\t{org.get('taxonomy_name', '')}\n"
+                                )
                                 counts[pathogen_key] += 1
                     if subset is not None and (pathogen_key is not None or accession in atb_scope):
                         subset.write(etree.tostring(elem, encoding="unicode", with_tail=False))
@@ -183,7 +194,12 @@ def stream(
                     while elem.getprevious() is not None:
                         del parent[0]
                 if seen % PROGRESS_EVERY == 0:
-                    log.info("… %d records scanned, %d matched taxonomy, %d in subset", seen, sum(counts.values()), subset_kept)
+                    log.info(
+                        "… %d records scanned, %d matched taxonomy, %d in subset",
+                        seen,
+                        sum(counts.values()),
+                        subset_kept,
+                    )
             del context
     finally:
         for h in handles.values():
@@ -192,11 +208,18 @@ def stream(
             subset.write("</BioSampleSet>\n")
             subset.close()
 
-    log.info("done: %d records scanned, %d matched taxonomy, %d written to subset", seen, sum(counts.values()), subset_kept)
+    log.info(
+        "done: %d records scanned, %d matched taxonomy, %d written to subset",
+        seen,
+        sum(counts.values()),
+        subset_kept,
+    )
     return counts
 
 
-def write_manifest(out_dir: Path, counts: dict[str, int], taxids_of: dict[str, str], dump: Path) -> None:
+def write_manifest(
+    out_dir: Path, counts: dict[str, int], taxids_of: dict[str, str], dump: Path
+) -> None:
     manifest = out_dir / "manifest.tsv"
     run = date.today().isoformat()
     src = dump.name
@@ -209,14 +232,25 @@ def write_manifest(out_dir: Path, counts: dict[str, int], taxids_of: dict[str, s
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("dump", nargs="?", type=Path, default=DEFAULT_DUMP, help="BioSample dump (.xml or .xml.gz)")
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument(
+        "dump", nargs="?", type=Path, default=DEFAULT_DUMP, help="BioSample dump (.xml or .xml.gz)"
+    )
     ap.add_argument("--atb", type=Path, default=DEFAULT_ATB, help="ATB metadata TSV")
     ap.add_argument("--nodes-dmp", type=Path, default=DEFAULT_NODES_DMP)
     ap.add_argument("--merged-dmp", type=Path, default=DEFAULT_MERGED_DMP)
     ap.add_argument("--id-lists-dir", type=Path, default=ID_LISTS_DIR)
-    ap.add_argument("--subset", type=Path, default=DEFAULT_XML_INPUT, help="filtered subset XML for the downstream stage")
-    ap.add_argument("--no-subset", action="store_true", help="skip regenerating the filtered subset XML")
+    ap.add_argument(
+        "--subset",
+        type=Path,
+        default=DEFAULT_XML_INPUT,
+        help="filtered subset XML for the downstream stage",
+    )
+    ap.add_argument(
+        "--no-subset", action="store_true", help="skip regenerating the filtered subset XML"
+    )
     args = ap.parse_args()
 
     args.id_lists_dir.mkdir(parents=True, exist_ok=True)
