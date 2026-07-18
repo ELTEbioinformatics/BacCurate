@@ -34,11 +34,12 @@ See the [main README](../README.md#usage) for installation and the full set of o
 
 ## Configuration
 
-To blacklist/whitelist the attributes to process, see `config/location.yaml`.
+[`config/location.yaml`](../config/location.yaml) contains:
 
-Additional configurations:
+- `coordinate_attributes`: Parsing hints for values already identified as
+  location candidates.
 - `insdc_country_map`: Remaps `country_converter` names to their INSDC spelling (see below).
-- `llm_system_prompt`: System prompt for the LLM fallback                                         |
+- `llm_system_prompt`: System prompt for the LLM fallback.
 - `llm_user_prompt_template`: User-prompt template
 
 LLM connection details are read from environment variables (`.env` at the root):
@@ -53,10 +54,10 @@ If any of these are not set the LLM fallback is disabled and unresolved values r
 
 ## Inputs
 
-| Column      | Description                                                 |
-|-------------|-------------------------------------------------------------|
-| `accession` | Record ID                                                   |
-| `loc_attr_orig` | `\|\|`-separated attribute names                            |
+| Column          | Description                                                      |
+|-----------------|------------------------------------------------------------------|
+| `accession`     | Record ID                                                        |
+| `loc_attr_orig` | `\|\|`-separated attribute names                                 |
 | `loc_val_orig`  | `\|\|`-separated values, paired by position with `loc_attr_orig` |
 
 ## Outputs
@@ -64,8 +65,8 @@ If any of these are not set the LLM fallback is disabled and unresolved values r
 | Column          | Description                                        |
 |-----------------|----------------------------------------------------|
 | `accession`     | Record ID                                          |
-| `loc_attr_orig` | Unstandardized input attribute(s)                    |
-| `loc_val_orig`  | Unstandardized input value(s)                        |
+| `loc_attr_orig` | Unstandardized input attribute(s)                  |
+| `loc_val_orig`  | Unstandardized input value(s)                      |
 | `loc_continent` | Continent of the resolved country                  |
 | `loc_UNregion`  | UN geoscheme region of the resolved country        |
 | `loc_country`   | Standardized country name                          |

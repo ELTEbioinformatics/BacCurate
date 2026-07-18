@@ -30,30 +30,26 @@ uv run baccurate <pathogen> --attribute date
 See the [main README](../README.md#usage) for installation and the
 full set of options.
 
-## Configuration
-
-To change/add date regex patterns or blacklist/whitelist
-the attributes to process, see `config/date.yaml`.
 
 ## Inputs
 
-| Column          | Description                                                                       |
-|-----------------|-----------------------------------------------------------------------------------|
-| `accession`     | Record ID                                                                         |
+| Column           | Description                                                                       |
+|------------------|-----------------------------------------------------------------------------------|
+| `accession`      | Record ID                                                                         |
 | `date_attr_orig` | `\|\|`-separated attribute names                                                  |
 | `date_val_orig`  | `\|\|`-separated values, paired by position with `date_attr_orig`                 |
-| `date_category` | `\|\|`-separated single-letter categories. `s` for sampling, `o` for non-sampling |
+| `date_category`  | `\|\|`-separated single-letter categories. `s` for sampling, `o` for non-sampling |
 
 ## Outputs
 
-| Column       | Description                                  |
-|--------------|----------------------------------------------|
-| `accession`  | Record ID                                    |
-| `date_start` | ISO-format earliest possible collection date |
-| `date_end`   | ISO-format latest possible collection date   |
-| `date_score` | See [below](#reliability-score)              |
+| Column           | Description                                  |
+|------------------|----------------------------------------------|
+| `accession`      | Record ID                                    |
+| `date_start`     | ISO-format earliest possible collection date |
+| `date_end`       | ISO-format latest possible collection date   |
+| `date_score`     | See [below](#reliability-score)              |
 | `date_attr_orig` | Unstandardized input attribute(s)            |
-| `date_val_orig`  | Unstandardized input value(s)                  |
+| `date_val_orig`  | Unstandardized input value(s)                |
 
 ## Data usage recommendations
 

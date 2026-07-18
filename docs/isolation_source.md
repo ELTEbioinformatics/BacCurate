@@ -32,9 +32,9 @@ See the [main README](../README.md#usage) for installation and the full set of o
 
 ## Configuration
 
-To blacklist/whitelist the attributes to process, see `config/isolation_source.yaml`. 
 
-The config also includes `system_prompt` and `user_prompt` templates for the LLM.
+[`config/isolation_source.yaml`](../config/isolation_source.yaml) contains the
+`system_prompt` and `user_prompt` templates for the LLM.
 
 LLM connection details are read from environment variables (`.env` at the root):
 
@@ -46,21 +46,21 @@ LLM connection details are read from environment variables (`.env` at the root):
 
 ## Inputs
 
-| Column      | Description                                                 |
-|-------------|-------------------------------------------------------------|
-| `accession` | Record ID                                                   |
-| `iso_attr_orig` | `\|\|`-separated attribute names                            |
+| Column          | Description                                                      |
+|-----------------|------------------------------------------------------------------|
+| `accession`     | Record ID                                                        |
+| `iso_attr_orig` | `\|\|`-separated attribute names                                 |
 | `iso_val_orig`  | `\|\|`-separated values, paired by position with `iso_attr_orig` |
-| `host_val_orig` | Standardized host (used as additional context for the LLM)  |
-| `package`   | NCBI BioSample package name                                 |
+| `host_val_orig` | Standardized host (used as additional context for the LLM)       |
+| `package`       | NCBI BioSample package name                                      |
 
 ## Outputs
 
 | Column             | Description                                                       |
 |--------------------|-------------------------------------------------------------------|
 | `accession`        | Record ID                                                         |
-| `iso_attr_orig`    | Unstandardized input attribute(s)                                   |
-| `iso_val_orig`     | Unstandardized input value(s)                                       |
+| `iso_attr_orig`    | Unstandardized input attribute(s)                                 |
+| `iso_val_orig`     | Unstandardized input value(s)                                     |
 | `iso_terms`        | `\|\|`-joined, `:`-separated ontology paths of all selected nodes |
 | `iso_display_term` | `\|\|`-joined human readable terms of all selected nodes          |
 | `iso_ontology_id`  | `\|\|`-joined ontology IDs, `NA` for nodes without one            |
