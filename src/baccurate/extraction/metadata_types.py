@@ -1,4 +1,4 @@
-"""Neutral domain types shared by metadata extraction."""
+"""Types for metadata extraction."""
 
 from dataclasses import dataclass
 
