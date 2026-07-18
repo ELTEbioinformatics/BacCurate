@@ -1,14 +1,19 @@
 """BioSample XML metadata extraction stage."""
 
-from baccurate.extraction.cli import main
+from baccurate.extraction.cli import ExtractionReport, main
+from baccurate.extraction.curation import (
+    CurationDecision,
+    CurationEvent,
+    CurationSchema,
+    CurationSchemaError,
+)
 from baccurate.extraction.metadata_types import (
     ATTRIBUTES,
     DATE_OTHER,
     DATE_SAMPLING,
     AttributeMatch,
 )
-from baccurate.extraction.policy import ExtractionPolicy, PolicyDecision, PolicyEvent
-from baccurate.utils.xml import CandidateCounters
+from baccurate.extraction.xml import CandidateCounters
 
 __all__ = [
     "ATTRIBUTES",
@@ -16,8 +21,10 @@ __all__ = [
     "DATE_SAMPLING",
     "AttributeMatch",
     "CandidateCounters",
-    "ExtractionPolicy",
-    "PolicyDecision",
-    "PolicyEvent",
+    "CurationDecision",
+    "CurationEvent",
+    "CurationSchema",
+    "CurationSchemaError",
+    "ExtractionReport",
     "main",
 ]

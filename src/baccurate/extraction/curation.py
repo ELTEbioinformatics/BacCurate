@@ -1,4 +1,4 @@
-"""Validated extraction policy for identifying BioSample metadata candidates."""
+"""Validated curation schema for selecting BioSample metadata candidates."""
 
 from __future__ import annotations
 
@@ -22,13 +22,13 @@ _TOKEN_BOUNDARIES = re.compile(r"[\W_]+", re.UNICODE)
 _TARGETS = frozenset(ATTRIBUTES)
 
 
-class MetadataPolicyConfigError(ValueError):
-    """Raised when configuration is missing or invalid."""
+class CurationSchemaError(ValueError):
+    """Raised when the curation schema is missing or invalid."""
 
 
 @dataclass(frozen=True, slots=True)
-class PolicyEvent:
-    """One review or audit observation produced while evaluating a raw pair."""
+class CurationEvent:
+    """A finding from evaluating one raw attribute-value pair."""
 
     kind: str
     target: str
@@ -38,31 +38,31 @@ class PolicyEvent:
 
 
 @dataclass(frozen=True, slots=True)
-class PolicyDecision:
+class CurationDecision:
     """Candidate matches and review events for one unchanged raw pair."""
 
     attribute: str
     value: str
     matches: tuple[AttributeMatch, ...]
-    events: tuple[PolicyEvent, ...]
+    events: tuple[CurationEvent, ...]
     xml_source: str = ""
 
 
 @dataclass(frozen=True, slots=True)
-class _TargetPolicy:
+class _TargetRules:
     accepted: Mapping[str, str]
     ignored: frozenset[str]
     discoveries: tuple[_DiscoveryRule, ...]
-    rejections: tuple[_RejectionFamily, ...]
+    value_rejections: tuple[_ValueRejectionRule, ...]
 
 
 @dataclass(frozen=True, slots=True)
-class _RejectionFamily:
+class _ValueRejectionRule:
     family: str
     exact: frozenset[str]
     explanation_prefixes: tuple[str, ...] = ()
     explanation_suffixes: frozenset[str] = frozenset()
-    fuzzy: bool = False
+    fuzzy_references: frozenset[str] = frozenset()
 
     def classify(self, normalized_value: str, presentation_value: str) -> str | None:
         if self.family == "universal_missing" and not normalized_value:
@@ -71,17 +71,15 @@ class _RejectionFamily:
             normalized_value, presentation_value
         ):
             return "rejected_value"
-        if not self.fuzzy:
+        if not self.fuzzy_references:
             return None
-        return _fuzzy_classification(normalized_value, self.exact)
+        return _fuzzy_classification(normalized_value, self.fuzzy_references)
 
     def _matches_explanation(self, normalized_value: str, presentation_value: str) -> bool:
         allowed_suffixes = self.exact | self.explanation_suffixes
         for prefix in self.explanation_prefixes:
             if presentation_value.startswith(f"{prefix}:"):
-                suffix = _normalize_rejection_value(
-                    presentation_value.removeprefix(f"{prefix}:")
-                )
+                suffix = _normalize_rejection_value(presentation_value.removeprefix(f"{prefix}:"))
                 if suffix in allowed_suffixes:
                     return True
             for separator in (" due to ", " because "):
@@ -126,13 +124,13 @@ class _LocationRescue:
         return False
 
 
-class ExtractionPolicy:
-    """Identify candidates using reviewed, target-scoped attribute decisions."""
+class CurationSchema:
+    """Match raw attributes against reviewed per-target accept/ignore/reject lists."""
 
     def __init__(
         self,
-        targets: Mapping[str, _TargetPolicy],
-        universal_missing: _RejectionFamily,
+        targets: Mapping[str, _TargetRules],
+        universal_missing: _ValueRejectionRule,
         location_rescue: _LocationRescue | None,
     ) -> None:
         self._targets = dict(targets)
@@ -149,16 +147,16 @@ class ExtractionPolicy:
             {"schema_version", "universal_missing", "location_rescue", "targets"},
             "top level",
         )
-        if config.get("schema_version") != 1:
-            raise MetadataPolicyConfigError(f"{path}: schema_version must be 1")
+        if config.get("schema_version") != 2:
+            raise CurationSchemaError(f"{path}: schema_version must be 2")
         targets = _mapping(path, "targets", config.get("targets"))
         unknown_targets = set(targets) - _TARGETS
         if unknown_targets:
-            raise MetadataPolicyConfigError(
+            raise CurationSchemaError(
                 f"{path}: targets has unsupported target(s): "
                 f"{', '.join(sorted(str(target) for target in unknown_targets))}"
             )
-        universal_missing = _compile_rejection_family(
+        universal_missing = _compile_value_rejection_rule(
             path,
             "universal_missing",
             "universal_missing",
@@ -174,9 +172,7 @@ class ExtractionPolicy:
             location_rescue,
         )
 
-    def evaluate(self, *, attribute: str, value: str) -> PolicyDecision:
-        if not isinstance(attribute, str) or not isinstance(value, str):
-            raise TypeError("attribute and value must be strings")
+    def evaluate(self, *, attribute: str, value: str) -> CurationDecision:
         normalized_attribute = _normalize(attribute)
         normalized_value = _normalize_rejection_value(value)
         presentation_value = _presentation_normalize(value)
@@ -185,16 +181,16 @@ class ExtractionPolicy:
             for target in ATTRIBUTES
             if target in self._targets and normalized_attribute in self._targets[target].accepted
         ]
-        location_policy = self._targets.get("loc")
+        location_rules = self._targets.get("loc")
         if (
             self._location_rescue is not None
-            and location_policy is not None
-            and normalized_attribute not in location_policy.ignored
+            and location_rules is not None
+            and normalized_attribute not in location_rules.ignored
             and not any(match.target == "loc" for match in identified)
             and self._location_rescue.matches(value)
         ):
             identified.append(AttributeMatch("loc"))
-        events: list[PolicyEvent] = []
+        events: list[CurationEvent] = []
         matches = []
         for match in identified:
             rejection = self._universal_missing.classify(normalized_value, presentation_value)
@@ -209,7 +205,7 @@ class ExtractionPolicy:
                 matches.append(match)
                 continue
             events.append(
-                PolicyEvent(
+                CurationEvent(
                     rejection,
                     match.target,
                     family,
@@ -222,17 +218,17 @@ class ExtractionPolicy:
 
         matched_targets = {match.target for match in identified}
         for target in ATTRIBUTES:
-            target_policy = self._targets.get(target)
+            target_rules = self._targets.get(target)
             if (
-                target_policy is None
+                target_rules is None
                 or target in matched_targets
-                or normalized_attribute in target_policy.ignored
+                or normalized_attribute in target_rules.ignored
             ):
                 continue
-            for discovery in target_policy.discoveries:
+            for discovery in target_rules.discoveries:
                 if discovery.matches(normalized_attribute):
                     events.append(
-                        PolicyEvent(
+                        CurationEvent(
                             "unreviewed_attribute",
                             target,
                             discovery.family,
@@ -240,56 +236,83 @@ class ExtractionPolicy:
                         )
                     )
                     break
-        return PolicyDecision(attribute, value, tuple(matches), tuple(events))
+        return CurationDecision(attribute, value, tuple(matches), tuple(events))
 
 
 def _load_config(path: Path) -> Mapping[str, object]:
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as error:
-        raise MetadataPolicyConfigError(f"{path}: cannot read policy: {error}") from error
+        raise CurationSchemaError(f"{path}: cannot read curation schema: {error}") from error
     try:
         config = yaml.safe_load(text)
     except yaml.YAMLError as error:
-        raise MetadataPolicyConfigError(f"{path}: invalid YAML: {error}") from error
+        raise CurationSchemaError(f"{path}: invalid YAML: {error}") from error
     if not isinstance(config, Mapping):
-        raise MetadataPolicyConfigError(f"{path}: top level must be a mapping")
+        raise CurationSchemaError(f"{path}: top level must be a mapping")
     return config
 
 
-def _compile_target(path: Path, target: str, raw_config: object) -> _TargetPolicy:
+def _compile_target(path: Path, target: str, raw_config: object) -> _TargetRules:
     prefix = f"targets.{target}"
     config = _mapping(path, prefix, raw_config)
-    _reject_unknown_keys(path, config, {"discovery", "accept", "ignore", "reject"}, prefix)
-    accept_groups = _mapping(path, f"{prefix}.accept", config.get("accept", {}))
-    ignore_groups = _mapping(path, f"{prefix}.ignore", config.get("ignore", {}))
+    _reject_unknown_keys(
+        path,
+        config,
+        {
+            "attribute_discovery",
+            "accepted_attributes",
+            "ignored_attributes",
+            "value_rejections",
+        },
+        prefix,
+    )
+    accept_groups = _mapping(
+        path,
+        f"{prefix}.accepted_attributes",
+        config.get("accepted_attributes", {}),
+    )
+    ignore_groups = _mapping(
+        path,
+        f"{prefix}.ignored_attributes",
+        config.get("ignored_attributes", {}),
+    )
     if target == "date":
         unknown_categories = set(accept_groups) - {"sampling", "fallback"}
         if unknown_categories:
-            raise MetadataPolicyConfigError(
-                f"{path}: {prefix}.accept has invalid date category "
+            raise CurationSchemaError(
+                f"{path}: {prefix}.accepted_attributes has invalid date category "
                 f"{', '.join(sorted(str(item) for item in unknown_categories))!r}; "
                 "expected sampling or fallback"
             )
     accepted = _accepted_decisions(path, target, accept_groups)
     ignored = frozenset(
-        value for _family, value in _decision_values(path, f"{prefix}.ignore", ignore_groups)
+        value
+        for _family, value in _decision_values(path, f"{prefix}.ignored_attributes", ignore_groups)
     )
     overlap = set(accepted) & ignored
     if overlap:
-        raise MetadataPolicyConfigError(
+        raise CurationSchemaError(
             f"{path}: {prefix} attribute {sorted(overlap)[0]!r} is both accepted and ignored"
         )
-    discovery_groups = _mapping(path, f"{prefix}.discovery", config.get("discovery", {}))
+    discovery_groups = _mapping(
+        path,
+        f"{prefix}.attribute_discovery",
+        config.get("attribute_discovery", {}),
+    )
     discoveries = tuple(
         _compile_discovery(path, target, family, rule) for family, rule in discovery_groups.items()
     )
-    rejection_groups = _mapping(path, f"{prefix}.reject", config.get("reject", {}))
-    rejections = tuple(
-        _compile_rejection_family(path, f"{prefix}.reject.{family}", family, rule)
+    rejection_groups = _mapping(
+        path,
+        f"{prefix}.value_rejections",
+        config.get("value_rejections", {}),
+    )
+    value_rejections = tuple(
+        _compile_value_rejection_rule(path, f"{prefix}.value_rejections.{family}", family, rule)
         for family, rule in rejection_groups.items()
     )
-    return _TargetPolicy(accepted, ignored, discoveries, rejections)
+    return _TargetRules(accepted, ignored, discoveries, value_rejections)
 
 
 def _compile_location_rescue(path: Path, raw_config: object) -> _LocationRescue | None:
@@ -300,16 +323,14 @@ def _compile_location_rescue(path: Path, raw_config: object) -> _LocationRescue 
     _reject_unknown_keys(path, config, {"vocabulary_path", "aliases", "separators"}, prefix)
     raw_vocabulary_path = config.get("vocabulary_path")
     if not isinstance(raw_vocabulary_path, str) or not raw_vocabulary_path.strip():
-        raise MetadataPolicyConfigError(
-            f"{path}: {prefix}.vocabulary_path must be a non-empty string"
-        )
+        raise CurationSchemaError(f"{path}: {prefix}.vocabulary_path must be a non-empty string")
     vocabulary_path = Path(raw_vocabulary_path)
     if not vocabulary_path.is_absolute():
         vocabulary_path = path.parent / vocabulary_path
     try:
         vocabulary_text = vocabulary_path.read_text(encoding="utf-8-sig")
     except OSError as error:
-        raise MetadataPolicyConfigError(
+        raise CurationSchemaError(
             f"{path}: {prefix}.vocabulary_path cannot read {vocabulary_path}: {error}"
         ) from error
     prefixes = {
@@ -318,72 +339,88 @@ def _compile_location_rescue(path: Path, raw_config: object) -> _LocationRescue 
         if (normalized := _presentation_normalize(line))
     }
     if not prefixes:
-        raise MetadataPolicyConfigError(
+        raise CurationSchemaError(
             f"{path}: {prefix}.vocabulary_path {vocabulary_path} must not be empty"
         )
-    for alias in _raw_string_list(path, f"{prefix}.aliases", config.get("aliases", [])):
+    for alias in _literal_nonempty_string_list(
+        path, f"{prefix}.aliases", config.get("aliases", [])
+    ):
         normalized_alias = _presentation_normalize(alias)
         if not normalized_alias:
-            raise MetadataPolicyConfigError(
-                f"{path}: {prefix}.aliases must contain non-empty names"
-            )
+            raise CurationSchemaError(f"{path}: {prefix}.aliases must contain non-empty names")
         prefixes.add(normalized_alias)
-    separators = tuple(_raw_string_list(path, f"{prefix}.separators", config.get("separators")))
+    separators = tuple(
+        _literal_nonempty_string_list(path, f"{prefix}.separators", config.get("separators"))
+    )
     if not separators:
-        raise MetadataPolicyConfigError(f"{path}: {prefix}.separators must not be empty")
+        raise CurationSchemaError(f"{path}: {prefix}.separators must not be empty")
     return _LocationRescue(tuple(sorted(prefixes, key=lambda item: (-len(item), item))), separators)
 
 
-def _compile_rejection_family(
+def _compile_value_rejection_rule(
     path: Path, prefix: str, family: object, raw_rule: object
-) -> _RejectionFamily:
+) -> _ValueRejectionRule:
     if not isinstance(family, str) or not family:
-        raise MetadataPolicyConfigError(f"{path}: {prefix} family name must be a string")
+        raise CurationSchemaError(f"{path}: {prefix} family name must be a string")
     rule = _mapping(path, prefix, raw_rule)
     _reject_unknown_keys(
         path,
         rule,
-        {"exact", "explanation_prefixes", "explanation_suffixes", "fuzzy"},
+        {
+            "exact",
+            "observed_variants",
+            "explanation_prefixes",
+            "explanation_suffixes",
+            "fuzzy",
+        },
         prefix,
     )
-    exact = frozenset(
+    canonical_exact = frozenset(
         _normalize_rejection_value(value)
-        for value in _raw_string_list(path, f"{prefix}.exact", rule.get("exact", []))
+        for value in _literal_nonempty_string_list(path, f"{prefix}.exact", rule.get("exact", []))
+    )
+    observed_variants = frozenset(
+        _normalize_rejection_value(value)
+        for value in _literal_nonempty_string_list(
+            path,
+            f"{prefix}.observed_variants",
+            rule.get("observed_variants", []),
+        )
     )
     explanation_prefixes = tuple(
         _normalize(value)
-        for value in _string_list(
+        for value in _normalized_nonempty_string_list(
             path, f"{prefix}.explanation_prefixes", rule.get("explanation_prefixes", [])
         )
     )
     explanation_suffixes = frozenset(
         _normalize_rejection_value(value)
-        for value in _string_list(
+        for value in _normalized_nonempty_string_list(
             path, f"{prefix}.explanation_suffixes", rule.get("explanation_suffixes", [])
         )
     )
     fuzzy_setting = rule.get("fuzzy")
     if fuzzy_setting not in (None, "one_edit_unique"):
-        raise MetadataPolicyConfigError(
+        raise CurationSchemaError(
             f"{path}: {prefix}.fuzzy must be 'one_edit_unique' when configured"
         )
-    return _RejectionFamily(
+    return _ValueRejectionRule(
         family,
-        exact,
+        canonical_exact | observed_variants,
         explanation_prefixes,
         explanation_suffixes,
-        fuzzy_setting == "one_edit_unique",
+        canonical_exact if fuzzy_setting == "one_edit_unique" else frozenset(),
     )
 
 
 def _accepted_decisions(path: Path, target: str, groups: Mapping[str, object]) -> dict[str, str]:
     categories = {"sampling": DATE_SAMPLING, "fallback": DATE_OTHER} if target == "date" else {}
-    values = _decision_values(path, f"targets.{target}.accept", groups)
+    values = _decision_values(path, f"targets.{target}.accepted_attributes", groups)
     result = {}
     for family, normalized in values:
         if normalized in result:
-            raise MetadataPolicyConfigError(
-                f"{path}: targets.{target}.accept repeats attribute {normalized!r}"
+            raise CurationSchemaError(
+                f"{path}: targets.{target}.accepted_attributes repeats attribute {normalized!r}"
             )
         result[normalized] = categories.get(family, "")
     return result
@@ -395,46 +432,50 @@ def _decision_values(
     result = []
     for family, raw_values in groups.items():
         if not isinstance(family, str) or not family:
-            raise MetadataPolicyConfigError(f"{path}: {prefix} family names must be strings")
-        for value in _string_list(path, f"{prefix}.{family}", raw_values):
+            raise CurationSchemaError(f"{path}: {prefix} family names must be strings")
+        for value in _normalized_nonempty_string_list(path, f"{prefix}.{family}", raw_values):
             result.append((family, _normalize(value)))
     return result
 
 
 def _compile_discovery(path: Path, target: str, family: object, raw_rule: object) -> _DiscoveryRule:
-    prefix = f"targets.{target}.discovery.{family}"
+    prefix = f"targets.{target}.attribute_discovery.{family}"
     if not isinstance(family, str) or not family:
-        raise MetadataPolicyConfigError(
-            f"{path}: targets.{target}.discovery family names must be strings"
+        raise CurationSchemaError(
+            f"{path}: targets.{target}.attribute_discovery family names must be strings"
         )
     rule = _mapping(path, prefix, raw_rule)
     _reject_unknown_keys(path, rule, {"tokens", "phrases", "regex"}, prefix)
     tokens = frozenset(
         _normalize(value)
-        for value in _string_list(path, f"{prefix}.tokens", rule.get("tokens", []))
+        for value in _normalized_nonempty_string_list(
+            path, f"{prefix}.tokens", rule.get("tokens", [])
+        )
     )
     phrases = tuple(
         _normalize(value)
-        for value in _string_list(path, f"{prefix}.phrases", rule.get("phrases", []))
+        for value in _normalized_nonempty_string_list(
+            path, f"{prefix}.phrases", rule.get("phrases", [])
+        )
     )
     patterns = []
     for index, pattern in enumerate(
-        _raw_string_list(path, f"{prefix}.regex", rule.get("regex", []))
+        _literal_nonempty_string_list(path, f"{prefix}.regex", rule.get("regex", []))
     ):
         try:
             patterns.append(re.compile(pattern))
         except re.error as error:
-            raise MetadataPolicyConfigError(
+            raise CurationSchemaError(
                 f"{path}: {prefix}.regex[{index}] invalid regular expression {pattern!r}: {error}"
             ) from error
     return _DiscoveryRule(family, tokens, phrases, tuple(patterns))
 
 
 def _target_rejection(
-    target: _TargetPolicy, normalized_value: str, presentation_value: str
+    target: _TargetRules, normalized_value: str, presentation_value: str
 ) -> tuple[str, str] | None:
     uncertain_family = None
-    for family in target.rejections:
+    for family in target.value_rejections:
         outcome = family.classify(normalized_value, presentation_value)
         if outcome == "rejected_value":
             return outcome, family.family
@@ -515,25 +556,25 @@ def _optimal_string_alignment_distance_at_most_two(left: str, right: str) -> int
 
 def _mapping(path: Path, prefix: str, value: object) -> Mapping[str, object]:
     if not isinstance(value, Mapping):
-        raise MetadataPolicyConfigError(f"{path}: {prefix} must be a mapping")
+        raise CurationSchemaError(f"{path}: {prefix} must be a mapping")
     return value
 
 
-def _string_list(path: Path, prefix: str, value: object) -> Sequence[str]:
+def _normalized_nonempty_string_list(path: Path, prefix: str, value: object) -> Sequence[str]:
     if not isinstance(value, list):
-        raise MetadataPolicyConfigError(f"{path}: {prefix} must be a list")
+        raise CurationSchemaError(f"{path}: {prefix} must be a list")
     for index, item in enumerate(value):
         if not isinstance(item, str) or not _normalize(item):
-            raise MetadataPolicyConfigError(f"{path}: {prefix}[{index}] must be a non-empty string")
+            raise CurationSchemaError(f"{path}: {prefix}[{index}] must be a non-empty string")
     return value
 
 
-def _raw_string_list(path: Path, prefix: str, value: object) -> Sequence[str]:
+def _literal_nonempty_string_list(path: Path, prefix: str, value: object) -> Sequence[str]:
     if not isinstance(value, list):
-        raise MetadataPolicyConfigError(f"{path}: {prefix} must be a list")
+        raise CurationSchemaError(f"{path}: {prefix} must be a list")
     for index, item in enumerate(value):
         if not isinstance(item, str) or not item:
-            raise MetadataPolicyConfigError(f"{path}: {prefix}[{index}] must be a non-empty string")
+            raise CurationSchemaError(f"{path}: {prefix}[{index}] must be a non-empty string")
     return value
 
 
@@ -542,7 +583,7 @@ def _reject_unknown_keys(
 ) -> None:
     unknown = set(mapping) - allowed
     if unknown:
-        raise MetadataPolicyConfigError(
+        raise CurationSchemaError(
             f"{path}: {prefix} has unknown key(s): {', '.join(sorted(str(key) for key in unknown))}"
         )
 

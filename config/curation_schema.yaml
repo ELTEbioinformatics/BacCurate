@@ -1,31 +1,29 @@
-# Central extraction metadata rules.
-#
-# Note: Attribute names are compared after normalization.
-schema_version: 1
+# BioSample curation schema used during extraction, before standardization.
+# Reviewed raw metadata "candidates" are selected based on on the listed
+# attribute names and values.
+schema_version: 2
 
+# General attribute-value pairs where the values indicate
+# missing information are pre-filtered based on these.
 universal_missing:
   exact:
     - "-"
     - "/"
     - na
     - n/a
-    - n.a.
     - nan
     - "null"
     - none
     - nd
     - missing
     - unknown
-    - unkwon
     - unavailable
     - undetermined
     - unidentified
     - not available
     - not applicable
-    - not applicabable
     - not applied
     - not collected
-    - not collect
     - not provided
     - not known
     - not determined
@@ -34,13 +32,21 @@ universal_missing:
     - not supplied
     - not recorded
     - no data
-    - no collect
     - no information
-    - no collected
-    - no applicable
     - restricted access
     - withheld
     - confidential
+  # These are exact corpus spellings that should not broaden the fuzzy correction.
+  observed_variants:
+    - unknonwn
+    - unkonwn
+    - unkown
+    - unkwon
+    - not applicabable
+    - not collect
+    - no collect
+    - no collected
+    - no applicable
   explanation_prefixes:
     - missing
     - restricted access
@@ -62,11 +68,11 @@ location_rescue:
 
 targets:
   host:
-    discovery:
+    attribute_discovery:
       host_fields:
         tokens: [host]
         phrases: [source organism]
-    accept:
+    accepted_attributes:
       identity:
         - host
         - host_taxid
@@ -77,7 +83,7 @@ targets:
         - host_infra_specific_name
         - host_infra_specific_rank
         - host_subspecf_genlin
-    ignore:
+    ignored_attributes:
       properties:
         - host age
         - host disease
@@ -129,7 +135,7 @@ targets:
         - host symbiont
         - host tot mass
         - host variety
-    reject:
+    value_rejections:
       generic_non_host:
         exact: [reference, host, parent, isolate, genus, microbial, microbiology, bacteria, bacterial]
       bare_bacterial_taxon:
@@ -153,17 +159,16 @@ targets:
         fuzzy: one_edit_unique
 
   iso:
-    discovery:
+    attribute_discovery:
       physical_origin:
         tokens: [isolation, source, material, specimen, tissue]
         phrases:
-          - isolation source
           - isolated from
           - host body site
           - host body product
       environmental_origin:
         tokens: [environment, environmental, food]
-    accept:
+    accepted_attributes:
       physical_origin:
         - isolation_source
         - lab_host
@@ -178,6 +183,8 @@ targets:
         - farm_water_source
         - samp_source_mat_cat
         - surf_material
+        # Collection-site features mostly describe environments, not geographic places.
+        - coll_site_geo_feat
       environmental_origin:
         - env_broad_scale
         - env_local_scale
@@ -194,7 +201,9 @@ targets:
         - food_prod_synonym
         - food_prod_char
         - plant_product
-    ignore:
+        # Often complements a broad source_type with specific environmental context.
+        - metagenome_source
+    ignored_attributes:
       administrative:
         - biomaterial provider
         - ref biomaterial
@@ -214,34 +223,29 @@ targets:
         - food_pack_medium
         - food_product_qual
         - material_condition
-        - metagenome_source
         - food processing method
         - food quality date
         - food preserv proc
         - food contain wrap
         - food pack integrity
         - food clean proc
-    reject:
+      non_specimen_origin:
+        - food_origin
+    value_rejections:
       non_discriminative_process:
         exact: [GENOMIC, Culture]
 
   loc:
-    discovery:
+    attribute_discovery:
       geographic_origin:
         tokens: [geo, loc, location, country, region, lat, lon, latitude, longitude]
-        phrases:
-          - geographic location
-          - geo loc
-          - collection site
-      coordinate_fields:
-        phrases: [lat lon]
-    accept:
+        phrases: [collection site]
+    accepted_attributes:
       place:
         - geo_loc_name
       coordinates:
         - lat_lon
-        - coll_site_geo_feat
-    ignore:
+    ignored_attributes:
       non_geographic_position:
         - file location
         - plasmid location
@@ -255,18 +259,21 @@ targets:
         - geographic location depth
         - geographic location elevation
         - samp_store_loc
+      non_specimen_geography:
+        - food_origin        # Describes food source, which in a lot of cases is different from sampling location
+        - coll_site_geo_feat # Describes mostly isolation source
 
   date:
-    discovery:
+    attribute_discovery:
       dated_events:
         tokens: [date, year, time]
         phrases:
           - first public
           - last update
-    accept:
+    accepted_attributes:
       sampling:
         - collection_date
-      fallback:
+      fallback: # Non-sampling dates share one lower-confidence fallback output.
         - submission_date
         - last_update
         - publication_date
@@ -297,7 +304,7 @@ targets:
         - last_modified
         - first_public
         - date_for_experiment_in_lc
-    ignore:
+    ignored_attributes:
       unrelated_dates:
         - assembly date
         - passage date
