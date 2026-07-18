@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from baccurate.standardizers.isolation import OntologyManager
 
 TOP_LEVEL_ORDER = (
-    "environmental"
+    "environmental",
     "host-associated",
     "unspecified",
     "ambiguous",
