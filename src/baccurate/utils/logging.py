@@ -1,79 +1,113 @@
-"""Logging filter and per-script logger setup."""
+"""Logging helpers."""
 
 import logging
+import sys
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 
-class AccessionDedupFilter(logging.Filter):
-    """Suppresses repeat log records that differ only in their accession ID."""
+class BoundedDebugFilter(logging.Filter):
+    """Let each distinct DEBUG message through once per logger, dropping repeats."""
 
     def __init__(self) -> None:
         super().__init__()
-        self._seen: set[tuple] = set()
+        self._seen_debug_events: set[tuple[str, str]] = set()
 
     def filter(self, record: logging.LogRecord) -> bool:
-        args = record.args
-        if isinstance(args, tuple):
-            fingerprint_args = repr(args[1:])
-        else:
-            fingerprint_args = repr(args)
-        fingerprint = (record.levelno, record.msg, fingerprint_args)
-        if fingerprint in self._seen:
+        if getattr(record, "llm_trace_unbounded", False):
+            return True
+        if record.levelno != logging.DEBUG or not record.name.startswith("baccurate"):
+            return True
+        event = (record.name, str(record.msg))
+        if event in self._seen_debug_events:
             return False
-        self._seen.add(fingerprint)
+        self._seen_debug_events.add(event)
         return True
 
 
-def setup_logging(output_dir: str | Path, script_name: str, log_level_name: str = "INFO"):
+class ConsoleDetailFilter(logging.Filter):
+    """Keep file-only LLM details out of console output."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not getattr(record, "llm_file_only", False)
+
+
+class LifecycleInfoFilter(logging.Filter):
+    """Allow INFO only from the main CLI lifecycle logger."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.levelno != logging.INFO or record.name == "baccurate.main"
+
+
+class LocalOffsetFormatter(logging.Formatter):
+    """Format log timestamps in local time as ISO 8601 with the UTC offset."""
+
+    def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:
+        del datefmt
+        return datetime.fromtimestamp(record.created).astimezone().isoformat(timespec="seconds")
+
+
+@dataclass(slots=True)
+class RunLogging:
+    """Installed handlers and prior logger state for one CLI invocation."""
+
+    handlers: tuple[logging.Handler, logging.Handler]
+    root_level: int
+    package_level: int
+    package_propagate: bool
+
+    def close(self) -> None:
+        root_logger = logging.getLogger()
+        package_logger = logging.getLogger("baccurate")
+        for handler in self.handlers:
+            root_logger.removeHandler(handler)
+            package_logger.removeHandler(handler)
+            handler.close()
+        root_logger.setLevel(self.root_level)
+        package_logger.setLevel(self.package_level)
+        package_logger.propagate = self.package_propagate
+
+
+def configure_run_logging(log_path: Path, *, console_debug: bool) -> RunLogging:
+    """Install file and console logging for a single pipeline run.
+
+    The file handler at log_path records full DEBUG detail.
+
+    The console handler shows INFO (or DEBUG when console_debug is set)
+    and hides the file-only LLM traces. The root logger is pinned to
+    WARNING so third-party libraries stay quiet unless something goes wrong.
+
+    Returns the prior logger state so the caller can restore it with
+    ``RunLogging.close()`` once the run finishes.
     """
-    Attach a per-script log file to the root logger.
-
-    Adds a `FileHandler` writing to `<output_dir>/logs/<script_name>.log` and
-    sets the root logger's level. Existing stream handlers are left in place
-    so any tqdm-aware redirect set up by the caller (e.g. the pipeline
-    orchestrator's `progress_context`) stays in effect.
-
-    If a file handler for the same path is already attached, it is removed
-    first so re-runs start the log fresh.
-    """
-    output_dir = Path(output_dir)
-    log_dir = output_dir / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-
-    log_level = getattr(logging, log_level_name.upper(), logging.INFO)
-    log_format = "%(asctime)s - %(levelname)s - %(message)s"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    file_handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(
+        LocalOffsetFormatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+    )
+    file_handler.addFilter(BoundedDebugFilter())
+    file_handler.addFilter(LifecycleInfoFilter())
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.DEBUG if console_debug else logging.INFO)
+    console_handler.setFormatter(logging.Formatter("%(levelname)s | %(message)s"))
+    console_handler.addFilter(BoundedDebugFilter())
+    console_handler.addFilter(LifecycleInfoFilter())
+    console_handler.addFilter(ConsoleDetailFilter())
 
     root_logger = logging.getLogger()
-    root_logger.setLevel(log_level)
-
-    log_file_path = log_dir / f"{script_name}.log"
-    for handler in list(root_logger.handlers):
-        if isinstance(handler, logging.FileHandler) and Path(handler.baseFilename) == log_file_path:
-            root_logger.removeHandler(handler)
-            handler.close()
-
-    file_handler = logging.FileHandler(log_file_path, mode="w")
-    file_handler.setFormatter(logging.Formatter(log_format))
-    root_logger.addHandler(file_handler)
-
-
-def setup_standardizer_logging(
-    module_logger: logging.Logger,
-    output_path: str | Path,
-    script_name: str,
-    log_level: str = "INFO",
-) -> None:
-    """logging setup for a standardizer script's main() function.
-
-    Applies the shared stdout format, attaches a
-    per-script ``<output_dir>/logs/<script_name>.log`` file handler via
-    :func:`setup_logging`, and adds the accession-dedup filter to
-    ``module_logger``. ``output_path`` is the standardizer's output file, its
-    parent directory is used as the log location.
-    """
-    logging.basicConfig(
-        level=log_level.upper(),
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    package_logger = logging.getLogger("baccurate")
+    state = RunLogging(
+        handlers=(file_handler, console_handler),
+        root_level=root_logger.level,
+        package_level=package_logger.level,
+        package_propagate=package_logger.propagate,
     )
-    setup_logging(Path(output_path).parent, script_name, log_level)
-    module_logger.addFilter(AccessionDedupFilter())
+    root_logger.setLevel(logging.WARNING)
+    package_logger.setLevel(logging.DEBUG)
+    package_logger.propagate = False
+    for handler in state.handlers:
+        root_logger.addHandler(handler)
+        package_logger.addHandler(handler)
+    return state
