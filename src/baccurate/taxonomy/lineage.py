@@ -4,9 +4,8 @@ by walking NCBI taxonomy (names.dmp / nodes.dmp) for each host taxid.
 """
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
-
-import pandas as pd
 
 from baccurate.paths import DEFAULT_NAMES_DMP, DEFAULT_NODES_DMP
 
@@ -122,7 +121,7 @@ def _walk_lineage(
     chain.reverse()  # root-to-tip
     taxids: list[int] = []
     names: list[str] = []
-    for tid, rank, name in chain:
+    for tid, _rank, name in chain:
         taxids.append(tid)
         names.append(name)
     return taxids, names
@@ -131,68 +130,40 @@ def _walk_lineage(
 # --- Column generation ---
 
 
-def add_lineage_columns(
-    merged_path: Path,
-    names_dmp: Path,
-    nodes_dmp: Path,
-) -> None:
-    """Add host_common_names, host_lineage_names, host_lineage_taxids columns to the merged TSV."""
-    allowed_ranks = set(RANK_ORDER)
+@dataclass(frozen=True, slots=True)
+class HostLineage:
+    """The common names and lineage strings emitted as output columns for one host."""
 
-    # bioproject is an integer id with blanks; read as str so pandas doesn't
-    # infer float64 and write back trailing ".0" when re-saving the merged TSV.
-    df = pd.read_csv(merged_path, sep="\t", dtype={"host_taxid": "Int64", "bioproject": str})
+    common_names: str
+    lineage_names: str
+    lineage_taxids: str
 
-    parent_rank, sciname, common = _load_ncbi_taxonomy(names_dmp, nodes_dmp)
 
-    common_cache: dict[int, str] = {}
-    lineage_cache: dict[int, tuple[str, str]] = {}
+class HostLineageEnricher:
+    """Load taxonomy and add lineage columns to host outcomes (before rows are written)."""
 
-    def _common_for(taxid: int) -> str:
-        if taxid in common_cache:
-            return common_cache[taxid]
-        result = ",".join(common.get(taxid, []))
-        common_cache[taxid] = result
-        return result
+    def __init__(self, names_dmp: Path, nodes_dmp: Path) -> None:
+        self._parent_rank, self._sciname, self._common = _load_ncbi_taxonomy(
+            names_dmp,
+            nodes_dmp,
+        )
+        self._allowed_ranks = set(RANK_ORDER)
+        self._cache: dict[int, HostLineage] = {}
 
-    def _lineage_for(taxid: int) -> tuple[str, str]:
-        if taxid in lineage_cache:
-            return lineage_cache[taxid]
-        taxids, names = _walk_lineage(taxid, parent_rank, sciname)
-        # Filter again to RANK_ORDER membership in case the dmp carries ranks
-        # outside the configured set entirely.
+    def enrich(self, taxid: int) -> HostLineage:
+        cached = self._cache.get(taxid)
+        if cached is not None:
+            return cached
+        taxids, names = _walk_lineage(taxid, self._parent_rank, self._sciname)
         filtered = [
-            (t, n) for t, n in zip(taxids, names) if parent_rank.get(t, (0, ""))[1] in allowed_ranks
+            (lineage_taxid, name)
+            for lineage_taxid, name in zip(taxids, names, strict=True)
+            if self._parent_rank.get(lineage_taxid, (0, ""))[1] in self._allowed_ranks
         ]
-        names_str = ",".join(n for _, n in filtered)
-        taxids_str = ",".join(str(t) for t, _ in filtered)
-        result = (names_str, taxids_str)
-        lineage_cache[taxid] = result
+        result = HostLineage(
+            common_names=",".join(self._common.get(taxid, [])),
+            lineage_names=",".join(name for _, name in filtered),
+            lineage_taxids=",".join(str(lineage_taxid) for lineage_taxid, _ in filtered),
+        )
+        self._cache[taxid] = result
         return result
-
-    common_col: list[str] = []
-    lineage_names_col: list[str] = []
-    lineage_taxids_col: list[str] = []
-
-    for taxid in df["host_taxid"]:
-        if pd.isna(taxid):
-            common_col.append("")
-            lineage_names_col.append("")
-            lineage_taxids_col.append("")
-            continue
-        tid = int(taxid)
-        common_col.append(_common_for(tid))
-        names_str, taxids_str = _lineage_for(tid)
-        lineage_names_col.append(names_str)
-        lineage_taxids_col.append(taxids_str)
-
-    df["host_common_names"] = common_col
-    df["host_lineage_names"] = lineage_names_col
-    df["host_lineage_taxids"] = lineage_taxids_col
-
-    df.to_csv(merged_path, sep="\t", index=False)
-    logger.info(
-        "Added lineage columns to %s (%d unique taxids walked).",
-        merged_path,
-        len(lineage_cache),
-    )
