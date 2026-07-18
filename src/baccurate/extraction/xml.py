@@ -14,7 +14,7 @@ from lxml import etree
 from baccurate.utils.compressed_io import open_binary
 
 if TYPE_CHECKING:
-    from baccurate.extraction.policy import PolicyDecision
+    from baccurate.extraction.curation import CurationDecision
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ class CandidateCounters:
     filtered: int = 0
     multiply_matched: int = 0
 
-    def record(self, decision: PolicyDecision) -> None:
+    def record(self, decision: CurationDecision) -> None:
         self.inspected += 1
         event_kinds = {event.kind for event in decision.events}
         if decision.matches or "rejected_value" in event_kinds:
@@ -118,10 +118,10 @@ def iter_biosample_records(input_file: str | Path) -> Iterator[etree._Element]:
 
 def parse_xml(
     record: etree._Element,
-    evaluate_function: Callable[..., PolicyDecision],
+    evaluate_function: Callable[..., CurationDecision],
     check_root_attributes: bool = False,
     counters: CandidateCounters | None = None,
-) -> list[PolicyDecision]:
+) -> list[CurationDecision]:
     candidates = []
 
     for attr_name, value, xml_source in _iter_biosample_candidates_with_source(
@@ -148,36 +148,20 @@ def _extract_bioproject(elem: etree._Element) -> str:
 
 def process_biosample_xml(
     input_file: str | Path,
-    evaluate_function: Callable[..., PolicyDecision],
+    evaluate_function: Callable[..., CurationDecision],
     counters: CandidateCounters | None = None,
-) -> Iterator[tuple[str, list[PolicyDecision], str, str]]:
-    """Stream XML, yielding accession, candidate decisions, package, and BioProject."""
-    records_processed = 0
+) -> Iterator[tuple[str, list[CurationDecision], str]]:
+    """Stream XML, yielding accession, candidate decisions, and BioProject."""
+    for elem in iter_biosample_records(input_file):
+        accession = elem.get("accession", "unknown")
 
-    try:
-        for elem in iter_biosample_records(input_file):
-            records_processed += 1
+        bioproject = _extract_bioproject(elem)
 
-            try:
-                accession = elem.get("accession", "unknown")
-
-                package_elem = elem.find("Package")
-                package_name = package_elem.text if package_elem is not None else ""
-
-                bioproject = _extract_bioproject(elem)
-
-                candidates = parse_xml(
-                    elem,
-                    evaluate_function,
-                    check_root_attributes=True,
-                    counters=counters,
-                )
-                if candidates:
-                    yield accession, candidates, package_name, bioproject
-
-            except Exception as e:
-                logger.error("Error parsing record %d: %s", records_processed, e, exc_info=True)
-
-    except Exception as e:
-        logger.critical(f"XML Iteration Error: {e}", exc_info=True)
-        raise
+        candidates = parse_xml(
+            elem,
+            evaluate_function,
+            check_root_attributes=True,
+            counters=counters,
+        )
+        if candidates:
+            yield accession, candidates, bioproject
