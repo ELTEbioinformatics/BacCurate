@@ -1,15 +1,3 @@
-expected:
-  food_source: food
-
-default_model: mistral-small3.2:24b
-available_models:
-  - mistral-small3.2:24b
-  - gemma3:27b
-  - llama3.3:70b
-  - qwen3.6:27b
-  - gpt-oss:120b
-  - llama3.1:8b
-
 system_prompt: |
   You are an expert biology ontologist specialized in classifying BioSample
   isolation-source metadata into one or more nodes of the ontology tree below.
