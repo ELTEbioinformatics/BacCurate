@@ -2,7 +2,6 @@ taxid	scientific_name	keywords
 9615	Canis lupus familiaris	Lupus familiaris;Canis lupus familaris;lupus canis domesticus
 9825	Sus scrofa domesticus	Sus scofa domesticus;Sus scrofa f. domestica;Sus scrofa domestic;sus scrofa domesticus
 51351	Brassica rapa subsp. pekinensis	cantonese cabbage
-3562	Spinacia oleracea	human body lice
 3589	Basella alba	Basella alba (malabar spinach)
 3659	Cucumis sativus	wild cucumber
 3847	Glycine max	Glycine max  (L.) Merr.
@@ -23,7 +22,7 @@ taxid	scientific_name	keywords
 8839	Anas platyrhynchos	Anas platyrhynchos javanica;Anas platyrhynchos domesticus
 8853	Branta canadensis	canade geese
 8962	Aquila chrysaetos	Aquila chrysaetus
-9031	Gallus gallus	Chiken;rooster;domestic chicken;broiler;broilers;Chichen;Gallas gallas domesticus
+9031	Gallus gallus	Chiken;rooster;domestic chicken;broiler;broilers;Chichen;Gallas gallas domesticus;hen;laying hen;laying hens
 9078	Alectoris chukar	chukar
 9103	Meleagris gallopavo	domestic turkey
 9261	Tachyglossus aculeatus	Short beaked echidna
@@ -36,7 +35,7 @@ taxid	scientific_name	keywords
 9739	Tursiops truncatus	Tursiops truncatus (Bottlenose dolphin)
 9796	Equus caballus	Equus ferus caballus
 9801	Tapirus terrestris	South american tapirus terrestris
-9823	Sus scrofa	piglet;boar;boars;porcine;Sus scrofa scrofa;feral pig;feral swine;healthy swine
+9823	Sus scrofa	piglet;boar;boars;porcine;Sus scrofa scrofa;feral pig;feral swine;healthy swine;sow
 9858	Capreolus capreolus	roe buck;european roe;roe deer
 9863	Cervus nippon	Cervus nippon mandarinus
 9870	Rangifer tarandus	raindeer
