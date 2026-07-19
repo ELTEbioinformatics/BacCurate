@@ -749,12 +749,13 @@ class DatasetBuilder:
                     and host_outcome.standardized is None
                     and isolation_outcome is not None
                     and isolation_outcome.host_retry_eligible
+                    and isolation_outcome.sample_origins
                 ):
                     isolation_stats[pathogen].host_retries += 1
                     retry_result = host_standardizer.retry(
                         accession,
-                        "||".join(origin.attribute for origin in isolation_outcome.origins),
-                        "||".join(origin.value for origin in isolation_outcome.origins),
+                        "||".join(origin.attribute for origin in isolation_outcome.sample_origins),
+                        "||".join(origin.value for origin in isolation_outcome.sample_origins),
                     )
                     host_stats[pathogen].retry_eligible += 1
                     host_stats[pathogen].diagnostics.update(retry_result.diagnostics)

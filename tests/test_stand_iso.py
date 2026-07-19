@@ -35,11 +35,11 @@ from baccurate.source_snapshot import (
     provenance_path_for,
     sha256_file,
 )
-from baccurate.standardizers.host import HostOverflowContext
-from baccurate.standardizers.iso_renderer import render_ontology
+from baccurate.standardizers.host import HostOverflowContext, HostStandardizer
 from baccurate.standardizers.isolation import (
     IsolationDiagnostic,
     IsolationEvidenceLevel,
+    IsolationOrigin,
     IsolationOutcome,
     IsoStandardizer,
     LLMClassifier,
@@ -47,6 +47,7 @@ from baccurate.standardizers.isolation import (
     SQLiteCache,
     StandardizedSource,
 )
+from baccurate.taxonomy.lineage import HostLineage
 from baccurate.utils.config import load_config
 from baccurate.utils.text import normalize_keyword
 
@@ -237,6 +238,116 @@ def _build_isolation_dataset(
     ).dataset
 
 
+def test_project_supported_host_retry_uses_only_raw_sample_origins(tmp_path: Path) -> None:
+    rows = [
+        {
+            "accession": "PROJECT_UNLOCKED",
+            "pathogen": "ecoli",
+            "bioproject_accession": "PRJNA1",
+            "iso_attr_orig": "food_source",
+            "iso_val_orig": "chicken meat",
+        },
+        {
+            "accession": "PROJECT_ONLY",
+            "pathogen": "ecoli",
+            "bioproject_accession": "PRJNA2",
+        },
+    ]
+    projects = [
+        {
+            "id": "1",
+            "accession": "PRJNA1",
+            "title": "Human microbiome project",
+            "description": "Human clinical samples",
+            "relevance": ["Medical"],
+        },
+        {
+            "id": "2",
+            "accession": "PRJNA2",
+            "title": "Chicken survey",
+            "description": "Poultry meat surveillance",
+            "relevance": ["Agricultural"],
+        },
+    ]
+    extracted, manifest = _write_derived_bundle(tmp_path, rows=rows, projects=projects)
+    atb_index = tmp_path / "atb.tsv"
+    atb_index.write_text("accession\tin_ATB\tpathogen_ATB\n", encoding="utf-8")
+
+    class ProjectSupportedIsolationStandardizer:
+        def standardize(self, record, *, host_context, overflow=None):
+            origins = (
+                (IsolationOrigin("food_source", "chicken meat"),)
+                if record["accession"] == "PROJECT_UNLOCKED"
+                else ()
+            )
+            return IsolationOutcome(
+                categories="environmental",
+                display_terms="meat product",
+                ontology_links="FOODON:00001006",
+                term_paths=(
+                    "environmental:anthropogenic environment:food:animal product:meat product"
+                ),
+                evidence_level=IsolationEvidenceLevel.PROJECT,
+                host_context=host_context,
+                origins=origins,
+                sample_origins=origins,
+                reasoning=(),
+                diagnostics=(IsolationDiagnostic.LLM_CALL,),
+                exact_matches=0,
+                cache_hits=0,
+                llm_calls=1,
+            )
+
+        def close(self) -> None:
+            pass
+
+    class RecordingHostStandardizer(HostStandardizer):
+        def __init__(self, config_path: Path, result_logger) -> None:
+            super().__init__(config_path, result_logger=result_logger)
+            self.retry_calls: list[tuple[str, str, str]] = []
+
+        def retry(self, accession: str, attributes: str, values: str):
+            self.retry_calls.append((accession, attributes, values))
+            return super().retry(accession, attributes, values)
+
+    host_standardizer: RecordingHostStandardizer | None = None
+
+    def host_factory(config_path: Path, result_logger) -> RecordingHostStandardizer:
+        nonlocal host_standardizer
+        host_standardizer = RecordingHostStandardizer(config_path, result_logger)
+        return host_standardizer
+
+    report = DatasetBuilder(
+        host_standardizer_factory=host_factory,
+        host_lineage_factory=lambda *_args: SimpleNamespace(
+            enrich=lambda _taxid: HostLineage("chicken", "Gallus gallus", "9031")
+        ),
+        isolation_standardizer_factory=lambda *_args: ProjectSupportedIsolationStandardizer(),
+    ).build(
+        DatasetBuildRequest(
+            extracted_metadata=extracted,
+            source_snapshot_manifest=manifest,
+            requested_pathogens=("ecoli",),
+            requested_attributes=(
+                StandardizationAttribute.HOST,
+                StandardizationAttribute.ISOLATION_SOURCE,
+            ),
+            final_destination=tmp_path / "final.tsv",
+            atb_index=atb_index,
+            disable_progress=True,
+        )
+    )
+
+    assert host_standardizer is not None
+    assert host_standardizer.retry_calls == [("PROJECT_UNLOCKED", "food_source", "chicken meat")]
+    assert report.isolation is not None
+    assert report.isolation.aggregate.host_retries == 1
+    with (tmp_path / "final.tsv").open(encoding="utf-8", newline="") as stream:
+        output = {row["accession"]: row for row in csv.DictReader(stream, delimiter="\t")}
+    assert output["PROJECT_UNLOCKED"]["host_sci_name"] == "Gallus gallus"
+    assert output["PROJECT_ONLY"]["host_sci_name"] == ""
+
+
 def _empty_extracted_bundle(tmp_path: Path) -> Path:
     extracted = tmp_path / "unit-extracted.tsv"
     bioproject_catalog_path_for(extracted).write_text("", encoding="utf-8")
@@ -291,6 +402,7 @@ def classifier(config, ontology, cache, monkeypatch) -> LLMClassifier:
 # =============================================================================
 # Record-level outcomes
 # =============================================================================
+
 
 def test_dataset_build_conditionally_supplies_every_resolved_project_in_accession_order(
     tmp_path: Path,
@@ -883,6 +995,9 @@ def test_typed_record_outcome_preserves_context_origins_and_diagnostics(tmp_path
     assert [(origin.attribute, origin.value) for origin in result.origins] == [
         ("isolation_source", "stool"),
         ("host sample", "blood"),
+    ]
+    assert [(origin.attribute, origin.value) for origin in result.sample_origins] == [
+        ("isolation_source", "stool")
     ]
     assert FECES in result.term_paths.split("||")
     assert BLOOD in result.term_paths.split("||")

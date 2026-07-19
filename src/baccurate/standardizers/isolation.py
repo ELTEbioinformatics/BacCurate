@@ -115,6 +115,26 @@ class IsolationOrigin:
     value: str
 
 
+def _isolation_origins(
+    accession: str,
+    attributes: str,
+    values: str,
+) -> tuple[IsolationOrigin, ...]:
+    """Parse aligned isolation-source candidates while preserving their raw pairing."""
+    attribute_parts = split_pipe_separated(attributes)
+    value_parts = split_pipe_separated(values)
+    if len(attribute_parts) != len(value_parts):
+        raise ValueError(
+            f"Malformed isolation-source candidates for accession {accession}: "
+            f"{len(attribute_parts)} attributes for {len(value_parts)} values"
+        )
+    return tuple(
+        IsolationOrigin(attribute.strip(), value.strip())
+        for attribute, value in zip(attribute_parts, value_parts, strict=True)
+        if value.strip()
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class IsolationOutcome:
     """Typed isolation-source classification for one extracted record."""
@@ -126,6 +146,7 @@ class IsolationOutcome:
     evidence_level: IsolationEvidenceLevel
     host_context: str
     origins: tuple[IsolationOrigin, ...]
+    sample_origins: tuple[IsolationOrigin, ...]
     reasoning: tuple[dict, ...]
     diagnostics: tuple[IsolationDiagnostic, ...]
     exact_matches: int
@@ -669,11 +690,14 @@ class LLMClassifier:
         reasoning_history: list[dict] = []
 
         direct_covers_all = bool(valid_vals) and direct_match_count == len(valid_vals)
-        evidence_level = IsolationEvidenceLevel.NONE
 
         if direct_covers_all:
             final_nodes |= direct_paths
-            evidence_level = IsolationEvidenceLevel.SAMPLE
+            evidence_level = _resolve_evidence_level(
+                direct_paths=direct_paths,
+                llm_paths=set(),
+                claimed_level=IsolationEvidenceLevel.NONE,
+            )
             reasoning_history.append(
                 {
                     "node": "direct_match",
@@ -757,7 +781,7 @@ class LLMClassifier:
                     evidence_level = IsolationEvidenceLevel(resp.evidence_level)
                     if evidence_level not in permitted_evidence_levels:
                         raise ValueError(
-                            f"Invalid evidence level {evidence_level.value!r} "
+                            f"Invalid isolation evidence level {evidence_level.value!r} "
                             "for the available record context"
                         )
                     for term in resp.terms:
@@ -829,11 +853,7 @@ class LLMClassifier:
                 ontology_links="||".join(link_list),
                 term_paths="||".join(sorted(final_nodes)),
                 reasoning=reasoning_history,
-                evidence_level=(
-                    IsolationEvidenceLevel.NONE
-                    if final_nodes == {"unspecified"}
-                    else evidence_level
-                ),
+                evidence_level=evidence_level,
             )
 
         if not direct_covers_all and self.client is not None:
@@ -881,35 +901,25 @@ class IsoStandardizer:
         overflow: HostOverflowContext | None = None,
     ) -> IsolationOutcome | IsolationRejection:
         """Classify one record with optional in-memory host overflow context."""
-        attributes = str(record.get("iso_attr_orig", "") or "")
-        values = str(record.get("iso_val_orig", "") or "")
+        accession = str(record.get("accession", "") or "")
+        sample_attributes = str(record.get("iso_attr_orig", "") or "")
+        sample_values = str(record.get("iso_val_orig", "") or "")
+        sample_origins = _isolation_origins(accession, sample_attributes, sample_values)
+        attributes = sample_attributes
+        values = sample_values
         if overflow is not None and overflow.value.strip():
             attributes = "||".join(part for part in (attributes, overflow.attribute) if part)
             values = "||".join(part for part in (values, overflow.value) if part)
 
-        attribute_parts = split_pipe_separated(attributes)
-        value_parts = split_pipe_separated(values)
-        if len(attribute_parts) != len(value_parts):
-            accession = str(record.get("accession", "") or "")
-            raise ValueError(
-                f"Malformed isolation-source candidates for accession {accession}: "
-                f"{len(attribute_parts)} attributes for {len(value_parts)} values"
-            )
-        origins = tuple(
-            IsolationOrigin(attribute.strip(), value.strip())
-            for attribute, value in zip(
-                attribute_parts,
-                value_parts,
-                strict=True,
-            )
-            if value.strip()
-        )
+        origins = _isolation_origins(accession, attributes, values)
         # Resolve linked accessions to catalog projects, dropping unresolved
         # ones, deduping, and ordering canonically by accession.
         resolved_projects = {
-            accession: project
-            for accession in split_pipe_separated(str(record.get("bioproject_accession", "") or ""))
-            if (project := self._projects_by_accession.get(accession)) is not None
+            linked_accession: project
+            for linked_accession in split_pipe_separated(
+                str(record.get("bioproject_accession", "") or "")
+            )
+            if (project := self._projects_by_accession.get(linked_accession)) is not None
         }
         project_contexts = tuple(
             resolved_projects[accession] for accession in sorted(resolved_projects)
@@ -919,7 +929,7 @@ class IsoStandardizer:
 
         before = dict(self.pipeline.stats)
         standardized = self.pipeline.standardize_record(
-            str(record.get("accession", "") or ""),
+            accession,
             "||".join(origin.attribute for origin in origins),
             "||".join(origin.value for origin in origins),
             host_context,
@@ -945,6 +955,7 @@ class IsoStandardizer:
             evidence_level=standardized.evidence_level,
             host_context=host_context,
             origins=origins,
+            sample_origins=sample_origins,
             reasoning=tuple(standardized.reasoning),
             diagnostics=tuple(diagnostics),
             exact_matches=exact_matches,
