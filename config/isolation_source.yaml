@@ -74,6 +74,11 @@ bioproject_system_prompt: |-
   Use the BioProject context only to break ties when the sample's own
   evidence is a homonym or otherwise ambiguous; otherwise ignore it.
 
+  When there is no sample-level isolation-source evidence, classify from
+  BioProject context only when its title or description consistently supports
+  a specific source. If the resolved projects are mixed or uninformative,
+  return ["unspecified"]. Relevance values alone never support a source.
+
   Do not assign a category merely because a relevance value is present,
   and never override a specific source named by the sample.
 

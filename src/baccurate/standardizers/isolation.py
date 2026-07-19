@@ -13,11 +13,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+from typing import Literal
 
 import instructor
 import openai
 import pandas as pd
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, create_model, field_validator
 
 from baccurate.llm.client import LLMSettings, load_llm_client, load_llm_settings
 from baccurate.llm.diagnostics import LLMFailureCategory, observe_llm_call
@@ -50,10 +51,38 @@ HOST_RETRY_TRIGGERS: tuple[str, ...] = (
 
 ISOLATION_LLM_PARAMETERS: dict[str, object] = {"temperature": 0, "seed": 100}
 ISOLATION_RESPONSE_SCHEMA_ID = "baccurate.isolation.classification.v1"
-# BioProject "relevance" field (Medical/Evolution excluded).
+# Relevance flags that count as origin evidence (spec excludes Medical/Evolution).
 _ORIGIN_RELEVANCE = frozenset({"Agricultural", "Environmental", "Veterinary"})
 
 # --- Data structures ---
+
+
+class IsolationEvidenceLevel(StrEnum):
+    """The BioSample or BioProject level evidence supporting an isolation-source result."""
+
+    SAMPLE = "sample"
+    PROJECT = "project"
+    SAMPLE_AND_PROJECT = "sample_and_project"
+    NONE = "none"
+
+
+class _IsolationRequestMode(StrEnum):
+    SAMPLE_ONLY = "sample_only"
+    PROJECT_ONLY = "project_only"
+    COMBINED = "combined"
+
+
+_EVIDENCE_LEVELS_BY_REQUEST_MODE = {
+    _IsolationRequestMode.SAMPLE_ONLY: (
+        IsolationEvidenceLevel.SAMPLE,
+        IsolationEvidenceLevel.NONE,
+    ),
+    _IsolationRequestMode.PROJECT_ONLY: (
+        IsolationEvidenceLevel.PROJECT,
+        IsolationEvidenceLevel.NONE,
+    ),
+    _IsolationRequestMode.COMBINED: tuple(IsolationEvidenceLevel),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +94,7 @@ class StandardizedSource:
     ontology_links: str
     term_paths: str
     reasoning: list[dict]
+    evidence_level: IsolationEvidenceLevel = IsolationEvidenceLevel.NONE
 
 
 class IsolationDiagnostic(StrEnum):
@@ -93,6 +123,7 @@ class IsolationOutcome:
     display_terms: str
     ontology_links: str
     term_paths: str
+    evidence_level: IsolationEvidenceLevel
     host_context: str
     origins: tuple[IsolationOrigin, ...]
     reasoning: tuple[dict, ...]
@@ -152,6 +183,8 @@ def _load_bioproject_catalog(
     projects: dict[str, ResolvedBioProjectContext] = {}
     project_ids: set[str] = set()
     try:
+        # A well-formed bundle always pairs a (possibly empty) catalog with the
+        # TSV; a missing file means a broken bundle, not an unlinked sample set.
         stream = catalog_path.open("r", encoding="utf-8")
     except OSError as exc:
         raise SourceSnapshotError(
@@ -245,16 +278,24 @@ class SQLiteCache(SQLiteKVCache):
             display_term TEXT,
             ontology_link TEXT,
             term_path TEXT,
-            reasoning TEXT
+            reasoning TEXT,
+            evidence_level TEXT NOT NULL DEFAULT 'none'
         )
     """
 
     def __init__(self, db_path: Path | str = DEFAULT_ISO_CACHE_DB) -> None:
         super().__init__(db_path)
+        columns = {row[1] for row in self.cursor.execute("PRAGMA table_info(cache)").fetchall()}
+        if "evidence_level" not in columns:
+            self.cursor.execute(
+                "ALTER TABLE cache ADD COLUMN evidence_level TEXT NOT NULL DEFAULT 'none'"
+            )
+            self.conn.commit()
 
     def get(self, request_fingerprint: str) -> StandardizedSource | None:
         self.cursor.execute(
-            "SELECT category, display_term, ontology_link, term_path, reasoning "
+            "SELECT category, display_term, ontology_link, term_path, reasoning, "
+            "evidence_level "
             "FROM cache WHERE hash_id=?",
             (request_fingerprint,),
         )
@@ -275,6 +316,7 @@ class SQLiteCache(SQLiteKVCache):
             ontology_links=row[2],
             term_paths=row[3] or "",
             reasoning=reasoning,
+            evidence_level=IsolationEvidenceLevel(row[5]),
         )
 
     def set(
@@ -285,8 +327,9 @@ class SQLiteCache(SQLiteKVCache):
         self.cursor.execute(
             """
             INSERT OR REPLACE INTO cache
-                (hash_id, category, display_term, ontology_link, term_path, reasoning)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (hash_id, category, display_term, ontology_link, term_path, reasoning,
+                 evidence_level)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 request_fingerprint,
@@ -295,6 +338,7 @@ class SQLiteCache(SQLiteKVCache):
                 record.ontology_links,
                 record.term_paths,
                 json.dumps(record.reasoning),
+                record.evidence_level.value,
             ),
         )
         self.conn.commit()
@@ -438,12 +482,15 @@ class OntologyManager:
 # --- LLM classifier ---
 
 
-def _build_schema(valid_display_terms_normalized: set[str]) -> type[BaseModel]:
+def _build_schema(
+    valid_display_terms_normalized: set[str],
+    request_mode: _IsolationRequestMode,
+) -> type[BaseModel]:
     """Build a Pydantic model whose `terms` is validated against the ontology."""
 
     valid = valid_display_terms_normalized
 
-    class IsolationClassification(BaseModel):
+    class IsolationClassificationBase(BaseModel):
         reasoning: str = Field(..., description="Brief reason for the chosen terms.")
         terms: list[str] = Field(
             ...,
@@ -467,7 +514,46 @@ def _build_schema(valid_display_terms_normalized: set[str]) -> type[BaseModel]:
                 )
             return v
 
-    return IsolationClassification
+    permitted_evidence_levels = _EVIDENCE_LEVELS_BY_REQUEST_MODE[request_mode]
+    evidence_description = (
+        "Evidence provenance for the selected terms: 'sample' when only BioSample "
+        "metadata supports them, 'project' when only BioProject context supports "
+        "them, 'sample_and_project' when both support them, and 'none' only for an "
+        "unspecified or unsupported result. Permitted values for this request: "
+        + ", ".join(level.value for level in permitted_evidence_levels)
+        + "."
+    )
+    evidence_literal = Literal.__getitem__(
+        tuple(level.value for level in permitted_evidence_levels)
+    )
+    return create_model(
+        "IsolationClassification",
+        __base__=IsolationClassificationBase,
+        evidence_level=(evidence_literal, Field(..., description=evidence_description)),
+    )
+
+
+def _resolve_evidence_level(
+    *,
+    direct_paths: set[str],
+    llm_paths: set[str],
+    claimed_level: IsolationEvidenceLevel,
+) -> IsolationEvidenceLevel:
+    """Reconcile model provenance with the specific terms in the final result."""
+    specific_direct_paths = direct_paths - {"unspecified"}
+    specific_llm_paths = llm_paths - {"unspecified"}
+    if not specific_direct_paths and not specific_llm_paths:
+        return IsolationEvidenceLevel.NONE
+    if specific_direct_paths and not specific_llm_paths:
+        return IsolationEvidenceLevel.SAMPLE
+    if specific_direct_paths and claimed_level in {
+        IsolationEvidenceLevel.PROJECT,
+        IsolationEvidenceLevel.SAMPLE_AND_PROJECT,
+    }:
+        return IsolationEvidenceLevel.SAMPLE_AND_PROJECT
+    if claimed_level is IsolationEvidenceLevel.NONE:
+        raise ValueError("A specific isolation source must name supporting evidence")
+    return claimed_level
 
 
 class LLMClassifier:
@@ -498,7 +584,10 @@ class LLMClassifier:
             self.client = instructor.from_openai(raw_client) if raw_client else None
 
             valid_set = {normalize_keyword(t) for t in valid_display_terms(self.ont)}
-            self._schema = _build_schema(valid_set)
+            self._response_schemas = {
+                request_mode: _build_schema(valid_set, request_mode)
+                for request_mode in _IsolationRequestMode
+            }
             self._ontology_block = render_ontology(self.ont)
 
             system_template = self.config.get("system_prompt") or ""
@@ -551,7 +640,7 @@ class LLMClassifier:
             valid_attrs.append(a.strip())
             valid_vals.append(v.strip())
 
-        if not valid_vals:
+        if not valid_vals and not bioproject_contexts:
             return StandardizedSource(
                 categories="unspecified",
                 display_terms="unspecified",
@@ -579,10 +668,12 @@ class LLMClassifier:
         final_nodes: set[str] = set()
         reasoning_history: list[dict] = []
 
-        direct_covers_all = direct_match_count == len(valid_vals)
+        direct_covers_all = bool(valid_vals) and direct_match_count == len(valid_vals)
+        evidence_level = IsolationEvidenceLevel.NONE
 
         if direct_covers_all:
             final_nodes |= direct_paths
+            evidence_level = IsolationEvidenceLevel.SAMPLE
             reasoning_history.append(
                 {
                     "node": "direct_match",
@@ -591,6 +682,15 @@ class LLMClassifier:
                 }
             )
         else:
+            request_mode = (
+                _IsolationRequestMode.PROJECT_ONLY
+                if not valid_vals
+                else _IsolationRequestMode.COMBINED
+                if bioproject_contexts
+                else _IsolationRequestMode.SAMPLE_ONLY
+            )
+            response_schema = self._response_schemas[request_mode]
+            permitted_evidence_levels = _EVIDENCE_LEVELS_BY_REQUEST_MODE[request_mode]
             metadata_block = self._format_metadata(valid_attrs, valid_vals, host)
             system_prompt = self.system_prompt
             bioproject_context = ""
@@ -617,7 +717,7 @@ class LLMClassifier:
                 parameters=ISOLATION_LLM_PARAMETERS,
                 response_schema_id=(
                     f"{ISOLATION_RESPONSE_SCHEMA_ID}:"
-                    f"{canonical_json_sha256(self._schema.model_json_schema())}"
+                    f"{canonical_json_sha256(response_schema.model_json_schema())}"
                 ),
             )
             cached_result = self.cache.get(request.fingerprint)
@@ -627,6 +727,11 @@ class LLMClassifier:
 
             if self.client is None:
                 final_nodes |= direct_paths
+                evidence_level = _resolve_evidence_level(
+                    direct_paths=direct_paths,
+                    llm_paths=set(),
+                    claimed_level=IsolationEvidenceLevel.NONE,
+                )
                 reasoning_history.append(
                     {
                         "node": "classifier",
@@ -635,6 +740,7 @@ class LLMClassifier:
                     }
                 )
             else:
+                llm_paths: set[str] = set()
                 try:
                     self.stats["llm_calls"] += 1
                     with observe_llm_call(
@@ -644,10 +750,25 @@ class LLMClassifier:
                     ) as call:
                         resp = self.client.chat.completions.create(
                             model=request.model,
-                            response_model=self._schema,
+                            response_model=response_schema,
                             messages=list(request.messages),
                             **request.parameters,
                         )
+                    evidence_level = IsolationEvidenceLevel(resp.evidence_level)
+                    if evidence_level not in permitted_evidence_levels:
+                        raise ValueError(
+                            f"Invalid evidence level {evidence_level.value!r} "
+                            "for the available record context"
+                        )
+                    for term in resp.terms:
+                        path = self.ont.display_term_to_path.get(normalize_keyword(term))
+                        if path is not None:
+                            llm_paths.add(path)
+                    evidence_level = _resolve_evidence_level(
+                        direct_paths=direct_paths,
+                        llm_paths=llm_paths,
+                        claimed_level=evidence_level,
+                    )
                     call.accepted()
                 except Exception as e:
                     if isinstance(e, openai.APIError):
@@ -658,11 +779,6 @@ class LLMClassifier:
                         f"Isolation-source LLM failed for accession {accession}"
                     ) from e
 
-                llm_paths: set[str] = set()
-                for term in resp.terms:
-                    path = self.ont.display_term_to_path.get(normalize_keyword(term))
-                    if path is not None:
-                        llm_paths.add(path)
                 final_nodes |= direct_paths
                 final_nodes |= llm_paths
 
@@ -697,6 +813,7 @@ class LLMClassifier:
                 ontology_links="NA",
                 term_paths="",
                 reasoning=reasoning_history,
+                evidence_level=IsolationEvidenceLevel.NONE,
             )
         else:
             cat_list, term_list, link_list = [], [], []
@@ -712,6 +829,11 @@ class LLMClassifier:
                 ontology_links="||".join(link_list),
                 term_paths="||".join(sorted(final_nodes)),
                 reasoning=reasoning_history,
+                evidence_level=(
+                    IsolationEvidenceLevel.NONE
+                    if final_nodes == {"unspecified"}
+                    else evidence_level
+                ),
             )
 
         if not direct_covers_all and self.client is not None:
@@ -782,12 +904,8 @@ class IsoStandardizer:
             )
             if value.strip()
         )
-        if not origins:
-            return IsolationRejection((IsolationDiagnostic.NO_CANDIDATES,))
-
-        before = dict(self.pipeline.stats)
         # Resolve linked accessions to catalog projects, dropping unresolved
-        # ones, deduping, and ordering by accession.
+        # ones, deduping, and ordering canonically by accession.
         resolved_projects = {
             accession: project
             for accession in split_pipe_separated(str(record.get("bioproject_accession", "") or ""))
@@ -796,6 +914,10 @@ class IsoStandardizer:
         project_contexts = tuple(
             resolved_projects[accession] for accession in sorted(resolved_projects)
         )
+        if not origins and not project_contexts:
+            return IsolationRejection((IsolationDiagnostic.NO_CANDIDATES,))
+
+        before = dict(self.pipeline.stats)
         standardized = self.pipeline.standardize_record(
             str(record.get("accession", "") or ""),
             "||".join(origin.attribute for origin in origins),
@@ -820,6 +942,7 @@ class IsoStandardizer:
             display_terms=standardized.display_terms,
             ontology_links=standardized.ontology_links,
             term_paths=standardized.term_paths,
+            evidence_level=standardized.evidence_level,
             host_context=host_context,
             origins=origins,
             reasoning=tuple(standardized.reasoning),

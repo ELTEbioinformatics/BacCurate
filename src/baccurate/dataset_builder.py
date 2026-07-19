@@ -20,6 +20,7 @@ from baccurate.standardizers._date_record import DateDiagnostic, DateOutcome, Re
 from baccurate.standardizers.host import HostDiagnostic, HostOutcome, HostStandardizer
 from baccurate.standardizers.isolation import (
     IsolationDiagnostic,
+    IsolationEvidenceLevel,
     IsolationOutcome,
     IsolationRejection,
     IsoStandardizer,
@@ -165,6 +166,7 @@ class IsolationBuildStatistics:
     llm_calls: int
     host_contexts: int
     host_retries: int
+    evidence_levels: Mapping[IsolationEvidenceLevel, int]
     diagnostics: Mapping[IsolationDiagnostic, int]
 
 
@@ -216,6 +218,7 @@ class _MutableIsolationStatistics:
     llm_calls: int = 0
     host_contexts: int = 0
     host_retries: int = 0
+    evidence_levels: Counter[IsolationEvidenceLevel] = field(default_factory=Counter)
     diagnostics: Counter[IsolationDiagnostic] = field(default_factory=Counter)
 
 
@@ -738,6 +741,7 @@ class DatasetBuilder:
                         stats.exact_matches += isolation_result.exact_matches
                         stats.cache_hits += isolation_result.cache_hits
                         stats.llm_calls += isolation_result.llm_calls
+                        stats.evidence_levels[isolation_result.evidence_level] += 1
 
                 if (
                     host_standardizer is not None
@@ -933,13 +937,16 @@ class DatasetBuilder:
                 llm_calls=stats.llm_calls,
                 host_contexts=stats.host_contexts,
                 host_retries=stats.host_retries,
+                evidence_levels=dict(sorted(stats.evidence_levels.items())),
                 diagnostics=dict(sorted(stats.diagnostics.items())),
             )
 
         by_pathogen = {pathogen: freeze(stats) for pathogen, stats in mutable_stats.items()}
         aggregate_diagnostics: Counter[IsolationDiagnostic] = Counter()
+        aggregate_evidence_levels: Counter[IsolationEvidenceLevel] = Counter()
         for stats in mutable_stats.values():
             aggregate_diagnostics.update(stats.diagnostics)
+            aggregate_evidence_levels.update(stats.evidence_levels)
         aggregate = IsolationBuildStatistics(
             processed=sum(stats.processed for stats in mutable_stats.values()),
             matched=sum(stats.matched for stats in mutable_stats.values()),
@@ -949,6 +956,7 @@ class DatasetBuilder:
             llm_calls=sum(stats.llm_calls for stats in mutable_stats.values()),
             host_contexts=sum(stats.host_contexts for stats in mutable_stats.values()),
             host_retries=sum(stats.host_retries for stats in mutable_stats.values()),
+            evidence_levels=dict(sorted(aggregate_evidence_levels.items())),
             diagnostics=dict(sorted(aggregate_diagnostics.items())),
         )
         return IsolationBuildReport(aggregate=aggregate, by_pathogen=by_pathogen)
@@ -994,6 +1002,7 @@ def _isolation_reasoning_json(
         "term_paths": outcome.term_paths,
         "display_terms": outcome.display_terms,
         "ontology_links": outcome.ontology_links,
+        "evidence_level": outcome.evidence_level.value,
         "diagnostics": [diagnostic.value for diagnostic in outcome.diagnostics],
         "reasoning": list(outcome.reasoning),
     }
