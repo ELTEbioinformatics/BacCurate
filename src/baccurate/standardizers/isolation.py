@@ -23,6 +23,10 @@ from baccurate.llm.client import LLMSettings, load_llm_client, load_llm_settings
 from baccurate.llm.diagnostics import LLMFailureCategory, observe_llm_call
 from baccurate.llm.request import CanonicalLLMRequest, canonical_json_sha256
 from baccurate.paths import DEFAULT_ISO_CACHE_DB, DEFAULT_ONTOLOGY_TSV
+from baccurate.source_snapshot import (
+    SourceSnapshotError,
+    bioproject_catalog_path_for,
+)
 from baccurate.standardizers.host import HostOverflowContext
 from baccurate.standardizers.iso_renderer import (
     render_ontology,
@@ -46,6 +50,8 @@ HOST_RETRY_TRIGGERS: tuple[str, ...] = (
 
 ISOLATION_LLM_PARAMETERS: dict[str, object] = {"temperature": 0, "seed": 100}
 ISOLATION_RESPONSE_SCHEMA_ID = "baccurate.isolation.classification.v1"
+# BioProject "relevance" field (Medical/Evolution excluded).
+_ORIGIN_RELEVANCE = frozenset({"Agricultural", "Environmental", "Veterinary"})
 
 # --- Data structures ---
 
@@ -115,6 +121,115 @@ class IsolationRejection:
     """A record with no isolation-source candidates to classify."""
 
     diagnostics: tuple[IsolationDiagnostic, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedBioProjectContext:
+    """Validated study-level context for one canonical BioProject accession."""
+
+    id: str
+    accession: str
+    title: str
+    description: str
+    relevance: tuple[str, ...]
+
+    def prompt_object(self) -> dict[str, object]:
+        """Return the stable JSON shape supplied to the isolation prompt."""
+        return {
+            "id": self.id,
+            "accession": self.accession,
+            "title": self.title,
+            "description": self.description,
+            "relevance": list(self.relevance),
+        }
+
+
+def _load_bioproject_catalog(
+    extracted_metadata_path: Path | str,
+) -> dict[str, ResolvedBioProjectContext]:
+    """Discover and validate the BioProject catalog paired with an extracted TSV."""
+    catalog_path = bioproject_catalog_path_for(extracted_metadata_path)
+    projects: dict[str, ResolvedBioProjectContext] = {}
+    project_ids: set[str] = set()
+    try:
+        stream = catalog_path.open("r", encoding="utf-8")
+    except OSError as exc:
+        raise SourceSnapshotError(
+            f"Invalid BioProject context catalog {catalog_path}: {exc}"
+        ) from exc
+
+    with stream:
+        for line_number, line in enumerate(stream, start=1):
+            try:
+                raw = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise SourceSnapshotError(
+                    f"Invalid BioProject context catalog {catalog_path} line {line_number}: {exc}"
+                ) from exc
+            project = _validate_bioproject_context(raw, catalog_path, line_number)
+            if project.id in project_ids:
+                raise SourceSnapshotError(
+                    f"Invalid BioProject context catalog {catalog_path} line "
+                    f"{line_number}: duplicate project ID {project.id!r}"
+                )
+            if project.accession in projects:
+                raise SourceSnapshotError(
+                    f"Invalid BioProject context catalog {catalog_path} line "
+                    f"{line_number}: duplicate project accession {project.accession!r}"
+                )
+            project_ids.add(project.id)
+            projects[project.accession] = project
+    return projects
+
+
+def _validate_bioproject_context(
+    raw: object,
+    catalog_path: Path,
+    line_number: int,
+) -> ResolvedBioProjectContext:
+    """Validate one catalog line into a ResolvedBioProjectContext, or raise."""
+    expected_fields = {"id", "accession", "title", "description", "relevance"}
+    if not isinstance(raw, dict) or set(raw) != expected_fields:
+        raise SourceSnapshotError(
+            f"Invalid BioProject context catalog {catalog_path} line {line_number}: "
+            f"expected fields {', '.join(sorted(expected_fields))}"
+        )
+    project_id = raw["id"]
+    accession = raw["accession"]
+    title = raw["title"]
+    description = raw["description"]
+    relevance = raw["relevance"]
+    if not isinstance(project_id, str) or not project_id.isascii() or not project_id.isdecimal():
+        raise SourceSnapshotError(
+            f"Invalid BioProject context catalog {catalog_path} line {line_number}: "
+            "project ID must be a numeric string"
+        )
+    for field_name, value, allow_empty in (
+        ("accession", accession, False),
+        ("title", title, False),
+        ("description", description, True),
+    ):
+        if not isinstance(value, str) or (not allow_empty and not value.strip()):
+            raise SourceSnapshotError(
+                f"Invalid BioProject context catalog {catalog_path} line {line_number}: "
+                f"{field_name} must be {'a string' if allow_empty else 'a non-empty string'}"
+            )
+    if (
+        not isinstance(relevance, list)
+        or any(not isinstance(flag, str) or flag not in _ORIGIN_RELEVANCE for flag in relevance)
+        or len(relevance) != len(set(relevance))
+    ):
+        raise SourceSnapshotError(
+            f"Invalid BioProject context catalog {catalog_path} line {line_number}: "
+            "relevance must contain distinct Agricultural, Environmental, or Veterinary flags"
+        )
+    return ResolvedBioProjectContext(
+        id=project_id,
+        accession=accession,
+        title=title,
+        description=description,
+        relevance=tuple(relevance),
+    )
 
 
 # --- Cache ---
@@ -389,6 +504,8 @@ class LLMClassifier:
             system_template = self.config.get("system_prompt") or ""
             self.system_prompt = system_template.replace("{ontology_tree}", self._ontology_block)
             self.user_template = self.config.get("user_prompt")
+            self.bioproject_system_prompt = self.config.get("bioproject_system_prompt") or ""
+            self.bioproject_user_prompt = self.config.get("bioproject_user_prompt") or ""
         except BaseException:
             if raw_client is not None:
                 raw_client.close()
@@ -421,6 +538,7 @@ class LLMClassifier:
         attr_name: str,
         value: str,
         host: str,
+        bioproject_contexts: tuple[ResolvedBioProjectContext, ...] = (),
     ) -> StandardizedSource:
         """Classify one record through deterministic matching, cache, and model fallback."""
 
@@ -474,14 +592,26 @@ class LLMClassifier:
             )
         else:
             metadata_block = self._format_metadata(valid_attrs, valid_vals, host)
+            system_prompt = self.system_prompt
+            bioproject_context = ""
+            if bioproject_contexts:
+                rendered_context = json.dumps(
+                    [project.prompt_object() for project in bioproject_contexts],
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                system_prompt += "\n" + self.bioproject_system_prompt
+                bioproject_context = self.bioproject_user_prompt.format(
+                    bioproject_context=rendered_context,
+                )
             user_prompt = self.user_template.format(
                 metadata=metadata_block,
-                bioproject_context="",
+                bioproject_context=bioproject_context,
             )
             request = CanonicalLLMRequest(
                 model=self.model,
                 messages=(
-                    {"role": "system", "content": self.system_prompt},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ),
                 parameters=ISOLATION_LLM_PARAMETERS,
@@ -593,12 +723,14 @@ class IsoStandardizer:
     def __init__(
         self,
         config_path: Path | str,
+        extracted_metadata_path: Path | str,
         result_logger: logging.Logger | None = None,
         client: object = _LOAD_CONFIGURED_CLIENT,
         llm_settings: LLMSettings | None = None,
     ) -> None:
         self.logger = result_logger or logger
         self.config = load_config(config_path)
+        self._projects_by_accession = _load_bioproject_catalog(extracted_metadata_path)
 
         db_path = self.config.get("cache_db_path", DEFAULT_ISO_CACHE_DB)
         ontology_path = self.config.get("ontology_tsv_path", DEFAULT_ONTOLOGY_TSV)
@@ -654,11 +786,22 @@ class IsoStandardizer:
             return IsolationRejection((IsolationDiagnostic.NO_CANDIDATES,))
 
         before = dict(self.pipeline.stats)
+        # Resolve linked accessions to catalog projects, dropping unresolved
+        # ones, deduping, and ordering by accession.
+        resolved_projects = {
+            accession: project
+            for accession in split_pipe_separated(str(record.get("bioproject_accession", "") or ""))
+            if (project := self._projects_by_accession.get(accession)) is not None
+        }
+        project_contexts = tuple(
+            resolved_projects[accession] for accession in sorted(resolved_projects)
+        )
         standardized = self.pipeline.standardize_record(
             str(record.get("accession", "") or ""),
             "||".join(origin.attribute for origin in origins),
             "||".join(origin.value for origin in origins),
             host_context,
+            project_contexts,
         )
         exact_matches = self.pipeline.stats["exact_matches"] - before["exact_matches"]
         cache_hits = self.pipeline.stats["cache_hits"] - before["cache_hits"]

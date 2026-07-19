@@ -62,19 +62,21 @@ system_prompt: |
   {"reasoning": "A bare 'swab' is a homonym with no resolving context.", "terms": ["unspecified"]}
 
 user_prompt: |
-  Classify this biosample's isolation source:
+  Classify this BioSample's isolation source:
 
   {metadata}
   {bioproject_context}
 
-# Rendered into {bioproject_context} above only when the sample belongs to a BioProject.
+# Appended when at least one linked BioProject resolves for a BioSample.
 # Possible relevance values: (Agricultural, Environmental, Veterinary)
-bioproject_context_template: |
+bioproject_system_prompt: |-
+  # BioProject context rules
+  Use the BioProject context only to break ties when the sample's own
+  evidence is a homonym or otherwise ambiguous; otherwise ignore it.
 
-  Use the following study-level background to disambiguate the
-  sample's isolation source when that source is missing or ambiguous. 
-  It does NOT override a specific source named above.
-  
-  title = {title}
-  description = {description}
-  relevance = {relevance}
+  Do not assign a category merely because a relevance value is present,
+  and never override a specific source named by the sample.
+
+bioproject_user_prompt: |-
+  # BioProject context
+  {bioproject_context}

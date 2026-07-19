@@ -407,7 +407,7 @@ class DatasetBuilder:
         ) = None,
         host_lineage_factory: Callable[[Path, Path], HostLineageEnricher] | None = None,
         isolation_standardizer_factory: (
-            Callable[[Path, logging.Logger], IsoStandardizer] | None
+            Callable[[Path, Path, logging.Logger], IsoStandardizer] | None
         ) = None,
     ) -> None:
         self._location_standardizer_factory = location_standardizer_factory
@@ -498,6 +498,7 @@ class DatasetBuilder:
                 if self._isolation_standardizer_factory is not None:
                     isolation_standardizer = self._isolation_standardizer_factory(
                         request.isolation_config,
+                        request.extracted_metadata,
                         request.logger,
                     )
                 else:
@@ -508,7 +509,9 @@ class DatasetBuilder:
                     if request.skip_llm:
                         isolation_options["client"] = None
                     isolation_standardizer = IsoStandardizer(
-                        request.isolation_config, **isolation_options
+                        request.isolation_config,
+                        request.extracted_metadata,
+                        **isolation_options,
                     )
             if isolation_standardizer is not None:
                 resources.callback(isolation_standardizer.close)
