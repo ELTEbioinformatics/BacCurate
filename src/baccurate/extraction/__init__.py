@@ -1,6 +1,6 @@
 """BioSample XML metadata extraction stage."""
 
-from baccurate.extraction.cli import ExtractionReport, main
+from baccurate.extraction.cli import ExtractionReport, run_extraction
 from baccurate.extraction.curation import (
     CurationDecision,
     CurationEvent,
@@ -26,5 +26,5 @@ __all__ = [
     "CurationSchema",
     "CurationSchemaError",
     "ExtractionReport",
-    "main",
+    "run_extraction",
 ]

@@ -8,8 +8,10 @@ from pathlib import Path
 import pytest
 import yaml
 
+from baccurate import paths
 from baccurate.extraction.cli import ExtractionReport
-from baccurate.extraction.cli import main as run_extraction
+from baccurate.extraction.cli import cli as run_extraction_cli
+from baccurate.extraction.cli import run_extraction
 from baccurate.extraction.xml import CandidateCounters
 from baccurate.paths import (
     DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
@@ -82,6 +84,13 @@ def _paired_sources(tmp_path: Path) -> _PairedSources:
     )
 
 
+def _configure_internal_paths(monkeypatch: pytest.MonkeyPatch, sources: _PairedSources) -> None:
+    monkeypatch.setattr(paths, "DEFAULT_BIOSAMPLE_XML_INPUT", sources.biosample)
+    monkeypatch.setattr(paths, "DEFAULT_BIOPROJECT_XML_INPUT", sources.bioproject)
+    monkeypatch.setattr(paths, "DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST", sources.biosample_manifest)
+    monkeypatch.setattr(paths, "DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST", sources.bioproject_manifest)
+
+
 def test_paired_source_contract_validates_both_compressed_snapshots(tmp_path: Path) -> None:
     sources = _paired_sources(tmp_path)
 
@@ -123,38 +132,69 @@ def test_default_paired_source_locations_are_internal_compressed_paths() -> None
     assert DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST.name == "bioproject_snapshot.yaml"
 
 
-def test_extraction_validates_paired_source_before_other_work(tmp_path: Path) -> None:
+def test_extraction_uses_internal_paired_sources_without_raw_arguments(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sources = _paired_sources(tmp_path)
+    index = tmp_path / "biosample_index.tsv"
+    index.write_text("accession\tpathogen_biosample\n", encoding="utf-8")
+    _configure_internal_paths(monkeypatch, sources)
+
+    report = run_extraction(
+        output_path=tmp_path / "extracted.tsv",
+        index_path=index,
+        disable_progress=True,
+    )
+
+    assert report.source_xml_paths == (sources.biosample, sources.bioproject)
+    assert report.source_snapshot_id == "biosample-test"
+    assert report.bioproject_snapshot_id == "bioproject-test"
+
+
+def test_extraction_cli_accepts_simplified_supported_invocation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sources = _paired_sources(tmp_path)
+    _configure_internal_paths(monkeypatch, sources)
+    index = tmp_path / "biosample_index.tsv"
+    index.write_text("accession\tpathogen_biosample\n", encoding="utf-8")
+    output = tmp_path / "extracted.tsv"
+
+    run_extraction_cli(["--output", str(output), "--index", str(index), "--quiet"])
+
+    assert output.exists()
+
+
+def test_extraction_validates_paired_source_before_other_work(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     sources = _paired_sources(tmp_path)
     sources.bioproject.unlink()
+    _configure_internal_paths(monkeypatch, sources)
     output = tmp_path / "extracted.tsv"
 
     with pytest.raises(SourceSnapshotError, match=r"BioProject.*missing"):
         run_extraction(
-            input_path=sources.biosample,
-            bioproject_input_path=sources.bioproject,
             output_path=output,
             index_path=tmp_path / "missing-index.tsv.gz",
             config_dir=tmp_path / "missing-config",
-            source_manifest_path=sources.biosample_manifest,
-            bioproject_manifest_path=sources.bioproject_manifest,
             disable_progress=True,
         )
 
     assert not output.exists()
 
 
-def test_extraction_report_carries_both_validated_source_identities(tmp_path: Path) -> None:
+def test_extraction_report_carries_both_validated_source_identities(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     sources = _paired_sources(tmp_path)
+    _configure_internal_paths(monkeypatch, sources)
     index = tmp_path / "biosample_index.tsv"
     index.write_text("accession\tpathogen_biosample\n", encoding="utf-8")
 
     report = run_extraction(
-        input_path=sources.biosample,
-        bioproject_input_path=sources.bioproject,
         output_path=tmp_path / "extracted.tsv",
         index_path=index,
-        source_manifest_path=sources.biosample_manifest,
-        bioproject_manifest_path=sources.bioproject_manifest,
         disable_progress=True,
     )
 

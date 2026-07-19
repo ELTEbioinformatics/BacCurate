@@ -1,8 +1,9 @@
-"""BacCurate command-line entry point."""
+"""Main command-line entry point."""
 
 import argparse
 import csv
 import logging
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 from time import monotonic
@@ -13,21 +14,21 @@ from baccurate.dataset_builder import (
     DatasetBuildRequest,
     StandardizationAttribute,
 )
-from baccurate.extraction import main as run_extraction
+from baccurate.extraction import run_extraction
 from baccurate.llm.client import LLMSettings, load_llm_settings
 from baccurate.pathogens import all_keywords, expand_keys, pathogen_keys
 from baccurate.paths import (
     CONFIG_DIR,
     DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
     DEFAULT_BIOPROJECT_XML_INPUT,
+    DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
+    DEFAULT_BIOSAMPLE_XML_INPUT,
     DEFAULT_EXTRACTED_TSV,
+    DEFAULT_INDEX_TSV,
     DEFAULT_NAMES_DMP,
     DEFAULT_NODES_DMP,
-    DEFAULT_SOURCE_SNAPSHOT_MANIFEST,
-    DEFAULT_XML_INPUT,
     OUTPUT_DIR,
     PATHOGENS_YAML,
-    raw_input_paths,
 )
 from baccurate.run_outputs import (
     RunContext,
@@ -77,7 +78,7 @@ def _model_identifiers(
     return identifiers
 
 
-def main() -> None:
+def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "names",
@@ -92,27 +93,10 @@ def main() -> None:
         + ". If omitted, every pathogen is processed.",
     )
     parser.add_argument(
-        "--input",
-        type=Path,
-        default=None,
-        help=f"BioSample XML to process (default: {DEFAULT_XML_INPUT}).",
-    )
-    parser.add_argument(
-        "--uncompressed",
-        action="store_true",
-        help="Use uncompressed .xml and .tsv inputs instead of .gz files.",
-    )
-    parser.add_argument(
         "--config-dir",
         type=Path,
         default=CONFIG_DIR,
         help="Directory containing YAML configs.",
-    )
-    parser.add_argument(
-        "--source-manifest",
-        type=Path,
-        default=DEFAULT_SOURCE_SNAPSHOT_MANIFEST,
-        help="Manifest identifying the raw BioSample snapshot.",
     )
     parser.add_argument(
         "--output-dir",
@@ -172,7 +156,7 @@ def main() -> None:
         help="Disable progress bars (auto-disabled on non-TTY anyway).",
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     log_level = "DEBUG" if args.debug else "INFO"
     active_attributes = (
@@ -199,9 +183,8 @@ def main() -> None:
     if collision is not None and not args.force:
         parser.error(f"output already exists: {collision}. Pass --force to replace it.")
 
-    raw_inputs = raw_input_paths(uncompressed=args.uncompressed)
-    input_path = args.input if args.input is not None else raw_inputs.xml
-    index_path = raw_inputs.index
+    biosample_input_path = DEFAULT_BIOSAMPLE_XML_INPUT
+    index_path = DEFAULT_INDEX_TSV
 
     names = expand_keys(args.names) if args.names else _discover_pathogens(index_path)
 
@@ -217,7 +200,7 @@ def main() -> None:
     extraction_required = not extracted_metadata_path.exists()
     configuration_paths = [
         PATHOGENS_YAML,
-        args.source_manifest,
+        DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
         DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
     ]
     if extraction_required:
@@ -231,12 +214,7 @@ def main() -> None:
     normalized_options = {
         "pathogens": list(names),
         "attributes": [attribute.value for attribute in active_attributes],
-        "input": str(input_path),
-        "uncompressed": args.uncompressed,
         "config_dir": str(args.config_dir),
-        "source_manifest": str(args.source_manifest),
-        "bioproject_input": str(DEFAULT_BIOPROJECT_XML_INPUT),
-        "bioproject_source_manifest": str(DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST),
         "output_dir": str(args.output_dir),
         "output_file": str(args.output_file) if args.output_file is not None else None,
         "run_name": run_name,
@@ -277,30 +255,25 @@ def main() -> None:
             if extraction_required:
                 diagnostics.transition(RunPhase.EXTRACTION)
                 diagnostics.begin_performed_extraction(
-                    source_xml_path=input_path,
+                    source_xml_path=biosample_input_path,
                     bioproject_source_xml_path=DEFAULT_BIOPROJECT_XML_INPUT,
                     extracted_metadata_path=extracted_metadata_path,
-                    source_manifest_path=args.source_manifest,
+                    source_manifest_path=DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
                     bioproject_manifest_path=DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
                 )
                 extraction_started = monotonic()
                 logger.info(
                     "Extraction started: input=%s output=%s",
-                    input_path,
+                    biosample_input_path,
                     extracted_metadata_path,
                 )
                 extraction_report = run_extraction(
-                    input_path=input_path,
                     output_path=extracted_metadata_path,
                     index_path=index_path,
                     names=extraction_names,
                     log_level=log_level,
                     config_dir=args.config_dir,
                     disable_progress=disable_progress,
-                    uncompressed=args.uncompressed,
-                    source_manifest_path=args.source_manifest,
-                    bioproject_input_path=DEFAULT_BIOPROJECT_XML_INPUT,
-                    bioproject_manifest_path=DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
                 )
                 extraction_elapsed = monotonic() - extraction_started
                 diagnostics.record_performed_extraction(
@@ -312,7 +285,7 @@ def main() -> None:
             else:
                 diagnostics.record_reused_extraction(
                     extracted_metadata_path=extracted_metadata_path,
-                    source_manifest_path=args.source_manifest,
+                    source_manifest_path=DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
                     bioproject_manifest_path=DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
                 )
                 diagnostics.transition(RunPhase.DATASET_STREAMING)
@@ -321,7 +294,7 @@ def main() -> None:
             logger.info("Streaming started")
             request = DatasetBuildRequest(
                 extracted_metadata=extracted_metadata_path,
-                source_snapshot_manifest=args.source_manifest,
+                source_snapshot_manifest=DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
                 requested_pathogens=tuple(names),
                 requested_attributes=active_attributes,
                 final_destination=outputs.dataset,

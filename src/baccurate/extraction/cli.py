@@ -3,22 +3,17 @@
 import argparse
 import csv
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from baccurate import paths
 from baccurate.extraction._review_reports import ReviewReports
 from baccurate.extraction.curation import CurationSchema
-from baccurate.extraction.io import load_pathogen_map, resolve_input_files
+from baccurate.extraction.io import load_pathogen_map
 from baccurate.extraction.tables import COLUMNS, record_row
 from baccurate.extraction.xml import CandidateCounters, process_biosample_xml
-from baccurate.paths import (
-    CONFIG_DIR,
-    DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
-    DEFAULT_BIOPROJECT_XML_INPUT,
-    DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
-    DEFAULT_INDEX_TSV,
-)
 from baccurate.source_snapshot import (
     DerivedSourceRecord,
     provenance_path_for,
@@ -55,31 +50,26 @@ class ExtractionReport:
         return self.source_snapshot_id
 
 
-def main(
-    input_path: Path,
+def run_extraction(
     output_path: Path,
-    index_path: Path = DEFAULT_INDEX_TSV,
+    index_path: Path = paths.DEFAULT_INDEX_TSV,
     names: list[str] | None = None,
     log_level: str = "INFO",
-    config_dir: Path = CONFIG_DIR,
+    config_dir: Path = paths.CONFIG_DIR,
     disable_progress: bool = False,
-    uncompressed: bool = False,
     curation_schema: CurationSchema | None = None,
-    source_manifest_path: Path = DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
-    bioproject_input_path: Path = DEFAULT_BIOPROJECT_XML_INPUT,
-    bioproject_manifest_path: Path = DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
 ) -> ExtractionReport:
     logging.basicConfig(
         level=log_level.upper(),
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
-    files = resolve_input_files(input_path, uncompressed=uncompressed)
+    biosample_paths = (paths.DEFAULT_BIOSAMPLE_XML_INPUT,)
     source_contract = validate_paired_source_contract(
-        biosample_path=files,
-        bioproject_path=bioproject_input_path,
-        biosample_manifest_path=source_manifest_path,
-        bioproject_manifest_path=bioproject_manifest_path,
+        biosample_path=biosample_paths,
+        bioproject_path=paths.DEFAULT_BIOPROJECT_XML_INPUT,
+        biosample_manifest_path=paths.DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
+        bioproject_manifest_path=paths.DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
     )
 
     if curation_schema is None:
@@ -96,9 +86,9 @@ def main(
         writer = csv.writer(output_stream, delimiter="\t")
         writer.writerow(COLUMNS)
         with make_progress_bar(
-            len(files), "extracting BioSample XML", disable=disable_progress
+            len(biosample_paths), "extracting BioSample XML", disable=disable_progress
         ) as bar:
-            for xml_file in files:
+            for xml_file in biosample_paths:
                 logger.info("Parsing %s...", xml_file)
                 for accession, candidates, bioproject in process_biosample_xml(
                     str(xml_file), curation_schema.evaluate, counters
@@ -126,11 +116,11 @@ def main(
         )
     review_reports.log_automatic_rejections(logger)
     logger.info("Curation summary: %s", counters.summary())
-    DerivedSourceRecord.from_manifest(source_contract.biosample, source_manifest_path).write_for(
-        output_path
-    )
+    DerivedSourceRecord.from_manifest(
+        source_contract.biosample, paths.DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST
+    ).write_for(output_path)
     return ExtractionReport(
-        source_xml_paths=(*files, bioproject_input_path),
+        source_xml_paths=(*biosample_paths, paths.DEFAULT_BIOPROJECT_XML_INPUT),
         extracted_metadata_path=output_path,
         extracted_record_count=extracted_record_count,
         counters=counters,
@@ -145,36 +135,28 @@ def main(
     )
 
 
-if __name__ == "__main__":
+def cli(argv: Sequence[str] | None = None) -> None:
+    """Run the extraction command-line interface."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", required=True, help="BioSample XML file.")
     parser.add_argument("--output", required=True)
     parser.add_argument(
-        "--index", default=str(DEFAULT_INDEX_TSV), help="TSV mapping accession -> pathogen)."
+        "--index",
+        default=str(paths.DEFAULT_INDEX_TSV),
+        help="TSV mapping accession to pathogen.",
     )
     parser.add_argument("--names", nargs="*")
     parser.add_argument("--log-level", default="INFO")
-    parser.add_argument(
-        "--source-manifest",
-        type=Path,
-        default=DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
-        help="Manifest identifying the raw BioSample snapshot.",
-    )
     parser.add_argument("--quiet", action="store_true", help="Disable progress bars.")
-    parser.add_argument(
-        "--uncompressed",
-        action="store_true",
-        help="Discover uncompressed .xml files when --input is a directory.",
-    )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
-    main(
-        Path(args.input),
-        Path(args.output),
+    run_extraction(
+        output_path=Path(args.output),
         index_path=Path(args.index),
         names=args.names,
         log_level=args.log_level,
         disable_progress=args.quiet,
-        uncompressed=args.uncompressed,
-        source_manifest_path=args.source_manifest,
     )
+
+
+if __name__ == "__main__":
+    cli()
