@@ -8,7 +8,7 @@ import platform
 import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass, fields, is_dataclass
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 from pathlib import Path
 from time import monotonic
@@ -16,7 +16,11 @@ from time import monotonic
 from baccurate.dataset_builder import DatasetBuildProgress, DatasetBuildReport
 from baccurate.extraction import ExtractionReport
 from baccurate.llm.diagnostics import LLMObservability
-from baccurate.paths import REPO_ROOT
+from baccurate.paths import (
+    DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
+    DEFAULT_BIOPROJECT_XML_INPUT,
+    REPO_ROOT,
+)
 from baccurate.source_snapshot import (
     SourceSnapshotError,
     SourceSnapshotManifest,
@@ -197,10 +201,11 @@ class RunDiagnostics:
         elapsed_seconds: float,
     ) -> None:
         """Record what a completed extraction produced."""
-        self._document["source"] = {
-            "snapshot_id": report.source_snapshot_id,
-            "metadata_reference_date": report.metadata_reference_date.isoformat(),
-        }
+        self._document["source"] = _source_document(
+            biosample_snapshot_id=report.biosample_snapshot_id,
+            bioproject_snapshot_id=report.bioproject_snapshot_id,
+            metadata_reference_date=report.metadata_reference_date,
+        )
         self._document["extraction"] = _extraction_document(
             mode="performed",
             source_xml_paths=report.source_xml_paths,
@@ -230,17 +235,21 @@ class RunDiagnostics:
         source_xml_path: Path,
         extracted_metadata_path: Path,
         source_manifest_path: Path,
+        bioproject_source_xml_path: Path = DEFAULT_BIOPROJECT_XML_INPUT,
+        bioproject_manifest_path: Path = DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
     ) -> None:
         """Record what is known before extraction starts."""
         try:
-            manifest = SourceSnapshotManifest.load(source_manifest_path)
+            biosample_manifest = SourceSnapshotManifest.load(source_manifest_path)
+            bioproject_manifest = SourceSnapshotManifest.load(bioproject_manifest_path)
         except SourceSnapshotError:
-            manifest = None
-        if manifest is not None:
-            self._record_source(manifest)
+            biosample_manifest = None
+            bioproject_manifest = None
+        if biosample_manifest is not None and bioproject_manifest is not None:
+            self._record_source(biosample_manifest, bioproject_manifest)
         self._document["extraction"] = _extraction_document(
             mode="performed",
-            source_xml_paths=(source_xml_path,),
+            source_xml_paths=(source_xml_path, bioproject_source_xml_path),
             extracted_metadata_path=extracted_metadata_path,
             source_record_path=provenance_path_for(extracted_metadata_path),
         )
@@ -252,6 +261,7 @@ class RunDiagnostics:
         *,
         extracted_metadata_path: Path,
         source_manifest_path: Path,
+        bioproject_manifest_path: Path = DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
     ) -> None:
         """Record what can be verified about a reused extracted TSV."""
         with extracted_metadata_path.open(newline="", encoding="utf-8") as stream:
@@ -260,15 +270,22 @@ class RunDiagnostics:
             extracted_record_count = sum(1 for row in reader if row)
 
         try:
-            manifest = validate_derived_metadata_source(
+            biosample_manifest = validate_derived_metadata_source(
                 extracted_metadata_path,
                 source_manifest_path,
             )
+            bioproject_manifest = SourceSnapshotManifest.load(bioproject_manifest_path)
         except SourceSnapshotError:
-            manifest = None
-        if manifest is not None:
-            self._record_source(manifest)
-        source_xml_paths = tuple(Path(source.name) for source in manifest.files) if manifest else ()
+            # Keep both identities or neither, so a failed
+            # BioProject load never leaves a half-populated source document.
+            biosample_manifest = None
+            bioproject_manifest = None
+        manifests = (biosample_manifest, bioproject_manifest) if biosample_manifest else ()
+        if manifests:
+            self._record_source(biosample_manifest, bioproject_manifest)
+        source_xml_paths = tuple(
+            Path(source.name) for manifest in manifests for source in manifest.files
+        )
         self._document["extraction"] = _extraction_document(
             mode="reused",
             source_xml_paths=source_xml_paths,
@@ -279,11 +296,16 @@ class RunDiagnostics:
         self._document["updated_at"] = local_timestamp()
         self._write()
 
-    def _record_source(self, manifest: SourceSnapshotManifest) -> None:
-        self._document["source"] = {
-            "snapshot_id": manifest.snapshot_id,
-            "metadata_reference_date": manifest.metadata_reference_date.isoformat(),
-        }
+    def _record_source(
+        self,
+        biosample_manifest: SourceSnapshotManifest,
+        bioproject_manifest: SourceSnapshotManifest,
+    ) -> None:
+        self._document["source"] = _source_document(
+            biosample_snapshot_id=biosample_manifest.snapshot_id,
+            bioproject_snapshot_id=bioproject_manifest.snapshot_id,
+            metadata_reference_date=biosample_manifest.metadata_reference_date,
+        )
 
     def finish(
         self,
@@ -450,6 +472,25 @@ def _extraction_document(
             name: str(path) for name, path in sorted((review_artifact_paths or {}).items())
         },
         "source_record_path": str(source_record_path),
+    }
+
+
+def _source_document(
+    *,
+    biosample_snapshot_id: str,
+    bioproject_snapshot_id: str,
+    metadata_reference_date: date,
+) -> dict[str, object]:
+    reference_date = metadata_reference_date.isoformat()
+    return {
+        # Retained during expansion for existing diagnostics consumers.
+        "snapshot_id": biosample_snapshot_id,
+        "metadata_reference_date": reference_date,
+        "biosample": {
+            "snapshot_id": biosample_snapshot_id,
+            "metadata_reference_date": reference_date,
+        },
+        "bioproject": {"snapshot_id": bioproject_snapshot_id},
     }
 
 

@@ -1,7 +1,9 @@
-"""Check a raw BioSample snapshot and the TSVs derived from it."""
+"""Validate raw extraction snapshots and the metadata derived from them."""
 
 import hashlib
 from collections import Counter
+from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Literal
@@ -91,12 +93,16 @@ class SourceSnapshotManifest(BaseModel):
             if missing:
                 details.append(f"missing inputs: {', '.join(missing)}")
             if extra:
-                details.append(f"unlisted inputs: {', '.join(extra)}")
+                details.append(f"unexpected inputs: {', '.join(extra)}")
             raise SourceSnapshotError(
                 "Raw extraction input set does not match source snapshot manifest ("
                 + "; ".join(details)
                 + ")"
             )
+
+        absent_on_disk = sorted(name for name, path in actual_by_name.items() if not path.is_file())
+        if absent_on_disk:
+            raise SourceSnapshotError(f"missing input files: {', '.join(absent_on_disk)}")
 
         for name, source_file in expected_by_name.items():
             actual_hash = sha256_file(actual_by_name[name])
@@ -105,6 +111,61 @@ class SourceSnapshotManifest(BaseModel):
                     f"Raw input checksum mismatch for {name}: expected "
                     f"{source_file.sha256}, calculated {actual_hash}"
                 )
+
+
+@dataclass(frozen=True, slots=True)
+class PairedSourceContract:
+    """Validated BioSample and BioProject source snapshot identities."""
+
+    biosample: SourceSnapshotManifest
+    bioproject: SourceSnapshotManifest
+
+    @property
+    def metadata_reference_date(self) -> date:
+        return self.biosample.metadata_reference_date
+
+
+def validate_paired_source_contract(
+    *,
+    biosample_path: Path | str | Iterable[Path | str],
+    bioproject_path: Path | str,
+    biosample_manifest_path: Path | str,
+    bioproject_manifest_path: Path | str,
+) -> PairedSourceContract:
+    """Load and validate the two independently versioned extraction snapshots."""
+    biosample_paths = (
+        [Path(biosample_path)]
+        if isinstance(biosample_path, (str, Path))
+        else [Path(path) for path in biosample_path]
+    )
+    biosample_manifest = _validate_snapshot_source(
+        role="BioSample",
+        source_paths=biosample_paths,
+        manifest_path=biosample_manifest_path,
+    )
+    bioproject_manifest = _validate_snapshot_source(
+        role="BioProject",
+        source_paths=[Path(bioproject_path)],
+        manifest_path=bioproject_manifest_path,
+    )
+    return PairedSourceContract(
+        biosample=biosample_manifest,
+        bioproject=bioproject_manifest,
+    )
+
+
+def _validate_snapshot_source(
+    *,
+    role: Literal["BioSample", "BioProject"],
+    source_paths: list[Path],
+    manifest_path: Path | str,
+) -> SourceSnapshotManifest:
+    try:
+        manifest = SourceSnapshotManifest.load(manifest_path)
+        manifest.validate_raw_inputs(source_paths)
+    except SourceSnapshotError as exc:
+        raise SourceSnapshotError(f"{role} source validation failed: {exc}") from exc
+    return manifest
 
 
 class DerivedSourceRecord(BaseModel):

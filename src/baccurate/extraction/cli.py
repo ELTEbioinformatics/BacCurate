@@ -12,11 +12,17 @@ from baccurate.extraction.curation import CurationSchema
 from baccurate.extraction.io import load_pathogen_map, resolve_input_files
 from baccurate.extraction.tables import COLUMNS, record_row
 from baccurate.extraction.xml import CandidateCounters, process_biosample_xml
-from baccurate.paths import CONFIG_DIR, DEFAULT_INDEX_TSV, DEFAULT_SOURCE_SNAPSHOT_MANIFEST
+from baccurate.paths import (
+    CONFIG_DIR,
+    DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
+    DEFAULT_BIOPROJECT_XML_INPUT,
+    DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
+    DEFAULT_INDEX_TSV,
+)
 from baccurate.source_snapshot import (
     DerivedSourceRecord,
-    SourceSnapshotManifest,
     provenance_path_for,
+    validate_paired_source_contract,
 )
 from baccurate.utils.progress import make_progress_bar
 
@@ -40,8 +46,13 @@ class ExtractionReport:
     uncertain_count: int
     review_artifact_paths: dict[str, Path]
     source_snapshot_id: str
+    bioproject_snapshot_id: str
     metadata_reference_date: date
     source_record_path: Path
+
+    @property
+    def biosample_snapshot_id(self) -> str:
+        return self.source_snapshot_id
 
 
 def main(
@@ -54,11 +65,21 @@ def main(
     disable_progress: bool = False,
     uncompressed: bool = False,
     curation_schema: CurationSchema | None = None,
-    source_manifest_path: Path = DEFAULT_SOURCE_SNAPSHOT_MANIFEST,
+    source_manifest_path: Path = DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
+    bioproject_input_path: Path = DEFAULT_BIOPROJECT_XML_INPUT,
+    bioproject_manifest_path: Path = DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
 ) -> ExtractionReport:
     logging.basicConfig(
         level=log_level.upper(),
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+    files = resolve_input_files(input_path, uncompressed=uncompressed)
+    source_contract = validate_paired_source_contract(
+        biosample_path=files,
+        bioproject_path=bioproject_input_path,
+        biosample_manifest_path=source_manifest_path,
+        bioproject_manifest_path=bioproject_manifest_path,
     )
 
     if curation_schema is None:
@@ -67,10 +88,6 @@ def main(
     review_reports = ReviewReports()
 
     pathogen_by_accession = load_pathogen_map(index_path, names)
-
-    files = resolve_input_files(input_path, uncompressed=uncompressed)
-    source_manifest = SourceSnapshotManifest.load(source_manifest_path)
-    source_manifest.validate_raw_inputs(files)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     provenance_path_for(output_path).unlink(missing_ok=True)
@@ -109,9 +126,11 @@ def main(
         )
     review_reports.log_automatic_rejections(logger)
     logger.info("Curation summary: %s", counters.summary())
-    DerivedSourceRecord.from_manifest(source_manifest, source_manifest_path).write_for(output_path)
+    DerivedSourceRecord.from_manifest(source_contract.biosample, source_manifest_path).write_for(
+        output_path
+    )
     return ExtractionReport(
-        source_xml_paths=tuple(files),
+        source_xml_paths=(*files, bioproject_input_path),
         extracted_metadata_path=output_path,
         extracted_record_count=extracted_record_count,
         counters=counters,
@@ -119,8 +138,9 @@ def main(
         unreviewed_count=review_reports.unreviewed_count,
         uncertain_count=review_reports.uncertain_count,
         review_artifact_paths=review_artifact_paths,
-        source_snapshot_id=source_manifest.snapshot_id,
-        metadata_reference_date=source_manifest.metadata_reference_date,
+        source_snapshot_id=source_contract.biosample.snapshot_id,
+        bioproject_snapshot_id=source_contract.bioproject.snapshot_id,
+        metadata_reference_date=source_contract.metadata_reference_date,
         source_record_path=provenance_path_for(output_path),
     )
 
@@ -137,7 +157,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--source-manifest",
         type=Path,
-        default=DEFAULT_SOURCE_SNAPSHOT_MANIFEST,
+        default=DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
         help="Manifest identifying the raw BioSample snapshot.",
     )
     parser.add_argument("--quiet", action="store_true", help="Disable progress bars.")

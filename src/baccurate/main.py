@@ -18,6 +18,8 @@ from baccurate.llm.client import LLMSettings, load_llm_settings
 from baccurate.pathogens import all_keywords, expand_keys, pathogen_keys
 from baccurate.paths import (
     CONFIG_DIR,
+    DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
+    DEFAULT_BIOPROJECT_XML_INPUT,
     DEFAULT_EXTRACTED_TSV,
     DEFAULT_NAMES_DMP,
     DEFAULT_NODES_DMP,
@@ -213,7 +215,11 @@ def main() -> None:
 
     disable_progress = args.quiet
     extraction_required = not extracted_metadata_path.exists()
-    configuration_paths = [PATHOGENS_YAML, args.source_manifest]
+    configuration_paths = [
+        PATHOGENS_YAML,
+        args.source_manifest,
+        DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
+    ]
     if extraction_required:
         configuration_paths.append(args.config_dir / "curation_schema.yaml")
     if StandardizationAttribute.HOST in active_attributes:
@@ -229,6 +235,8 @@ def main() -> None:
         "uncompressed": args.uncompressed,
         "config_dir": str(args.config_dir),
         "source_manifest": str(args.source_manifest),
+        "bioproject_input": str(DEFAULT_BIOPROJECT_XML_INPUT),
+        "bioproject_source_manifest": str(DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST),
         "output_dir": str(args.output_dir),
         "output_file": str(args.output_file) if args.output_file is not None else None,
         "run_name": run_name,
@@ -270,8 +278,10 @@ def main() -> None:
                 diagnostics.transition(RunPhase.EXTRACTION)
                 diagnostics.begin_performed_extraction(
                     source_xml_path=input_path,
+                    bioproject_source_xml_path=DEFAULT_BIOPROJECT_XML_INPUT,
                     extracted_metadata_path=extracted_metadata_path,
                     source_manifest_path=args.source_manifest,
+                    bioproject_manifest_path=DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
                 )
                 extraction_started = monotonic()
                 logger.info(
@@ -289,6 +299,8 @@ def main() -> None:
                     disable_progress=disable_progress,
                     uncompressed=args.uncompressed,
                     source_manifest_path=args.source_manifest,
+                    bioproject_input_path=DEFAULT_BIOPROJECT_XML_INPUT,
+                    bioproject_manifest_path=DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
                 )
                 extraction_elapsed = monotonic() - extraction_started
                 diagnostics.record_performed_extraction(
@@ -301,6 +313,7 @@ def main() -> None:
                 diagnostics.record_reused_extraction(
                     extracted_metadata_path=extracted_metadata_path,
                     source_manifest_path=args.source_manifest,
+                    bioproject_manifest_path=DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
                 )
                 diagnostics.transition(RunPhase.DATASET_STREAMING)
                 logger.info("Using extracted metadata from: %s", extracted_metadata_path)

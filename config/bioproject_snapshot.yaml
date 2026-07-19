@@ -1,0 +1,11 @@
+manifest_version: 1
+snapshot_id: ncbi-bioproject-2026-07-19
+provider: NCBI BioProject
+retrieved_on: 2026-07-19
+snapshot_as_of: null
+metadata_reference_date: 2026-07-19
+source_url: https://ftp.ncbi.nlm.nih.gov/bioproject/
+files:
+  - name: bioproject.xml.gz
+    sha256: 3aed46c741e5ce6db9f277a6877dad4083a0714b804bba1673d3a897e3722455
+notes: See docs/data_acquisition.md for more info.
