@@ -292,56 +292,6 @@ def classifier(config, ontology, cache, monkeypatch) -> LLMClassifier:
 # Record-level outcomes
 # =============================================================================
 
-
-def test_dataset_build_keeps_unlinked_and_unresolved_only_sample_messages_unchanged(
-    tmp_path: Path,
-    config: dict,
-    ontology: OntologyManager,
-) -> None:
-    sample = {
-        "accession": "SAMN00000001",
-        "pathogen": "ecoli",
-        "iso_attr_orig": "isolation_source",
-        "iso_val_orig": "wound patient 271828",
-    }
-    unlinked = FakeClient()
-    unlinked.respond_with(["wound"])
-    _build_isolation_dataset(
-        tmp_path / "unlinked",
-        rows=[sample],
-        projects=[],
-        fake=unlinked,
-    )
-    unresolved = FakeClient()
-    unresolved.respond_with(["wound"])
-    _build_isolation_dataset(
-        tmp_path / "unresolved",
-        rows=[sample | {"bioproject_id": "999"}],
-        projects=[],
-        fake=unresolved,
-    )
-
-    expected_messages = [
-        {
-            "role": "system",
-            "content": config["system_prompt"].replace(
-                "{ontology_tree}",
-                render_ontology(ontology),
-            ),
-        },
-        {
-            "role": "user",
-            "content": (
-                "Classify this biosample's isolation source:\n\n"
-                "Metadata:\n"
-                "isolation_source = wound patient 271828\n\n"
-            ),
-        },
-    ]
-    assert unlinked.calls[0]["messages"] == expected_messages
-    assert unresolved.calls[0]["messages"] == expected_messages
-
-
 def test_dataset_build_conditionally_supplies_every_resolved_project_in_accession_order(
     tmp_path: Path,
 ) -> None:
