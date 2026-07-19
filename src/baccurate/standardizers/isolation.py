@@ -399,7 +399,7 @@ class LLMClassifier:
             self._ontology_block = render_ontology(self.ont)
 
             system_template = self.config.get("system_prompt") or ""
-            self.system_prompt = system_template.format(ontology_tree=self._ontology_block)
+            self.system_prompt = system_template.replace("{ontology_tree}", self._ontology_block)
             self.user_template = self.config.get("user_prompt")
         except BaseException:
             if raw_client is not None:
@@ -504,7 +504,10 @@ class LLMClassifier:
                 )
             else:
                 metadata_block = self._format_metadata(valid_attrs, valid_vals, host)
-                user_prompt = self.user_template.format(metadata=metadata_block)
+                user_prompt = self.user_template.format(
+                    metadata=metadata_block,
+                    bioproject_context="",
+                )
 
                 try:
                     self.stats["llm_calls"] += 1
