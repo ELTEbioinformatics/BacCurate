@@ -8,7 +8,17 @@ import baccurate.main as main_module
 from baccurate.extraction.cli import cli as extraction_cli
 from baccurate.extraction.tables import COLUMNS
 from baccurate.main import main as pipeline_cli
-from baccurate.source_snapshot import DerivedSourceRecord, SourceSnapshotManifest
+from baccurate.source_snapshot import (
+    ArtifactReference,
+    DerivedArtifactReferences,
+    DerivedBundleProvenance,
+    ManifestReference,
+    PairedManifestReferences,
+    SourceSnapshotManifest,
+    bioproject_catalog_path_for,
+    provenance_path_for,
+    sha256_file,
+)
 
 RETIRED_RAW_SOURCE_OPTIONS = ("--input", "--source-manifest", "--uncompressed")
 
@@ -64,9 +74,37 @@ def test_pipeline_cli_uses_custom_extracted_metadata_bundle(
 ) -> None:
     extracted_metadata = tmp_path / "custom_metadata.tsv"
     extracted_metadata.write_text("\t".join(COLUMNS) + "\n", encoding="utf-8")
-    manifest_path = main_module.DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST
-    manifest = SourceSnapshotManifest.load(manifest_path)
-    DerivedSourceRecord.from_manifest(manifest, manifest_path).write_for(extracted_metadata)
+    catalog = bioproject_catalog_path_for(extracted_metadata)
+    catalog.write_text("", encoding="utf-8")
+    biosample_manifest_path = main_module.DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST
+    bioproject_manifest_path = main_module.DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST
+    biosample_manifest = SourceSnapshotManifest.load(biosample_manifest_path)
+    bioproject_manifest = SourceSnapshotManifest.load(bioproject_manifest_path)
+    DerivedBundleProvenance(
+        bundle_version=1,
+        source_manifests=PairedManifestReferences(
+            biosample=ManifestReference(
+                snapshot_id=biosample_manifest.snapshot_id,
+                path=str(biosample_manifest_path),
+                sha256=sha256_file(biosample_manifest_path),
+            ),
+            bioproject=ManifestReference(
+                snapshot_id=bioproject_manifest.snapshot_id,
+                path=str(bioproject_manifest_path),
+                sha256=sha256_file(bioproject_manifest_path),
+            ),
+        ),
+        artifacts=DerivedArtifactReferences(
+            extracted_metadata=ArtifactReference(
+                path=extracted_metadata.name,
+                sha256=sha256_file(extracted_metadata),
+            ),
+            bioproject_context=ArtifactReference(
+                path=catalog.name,
+                sha256=sha256_file(catalog),
+            ),
+        ),
+    ).write(provenance_path_for(extracted_metadata))
     atb_index = tmp_path / "biosample_index.tsv"
     atb_index.write_text("accession\tin_ATB\tpathogen_ATB\n", encoding="utf-8")
     monkeypatch.setattr(main_module, "DEFAULT_INDEX_TSV", atb_index)

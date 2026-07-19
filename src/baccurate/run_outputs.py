@@ -224,7 +224,7 @@ class RunDiagnostics:
             unreviewed_count=report.unreviewed_count,
             uncertain_count=report.uncertain_count,
             review_artifact_paths=report.review_artifact_paths,
-            source_record_path=report.source_record_path,
+            source_record_path=report.bundle_provenance_path,
         )
         self._document["updated_at"] = local_timestamp()
         self._write()

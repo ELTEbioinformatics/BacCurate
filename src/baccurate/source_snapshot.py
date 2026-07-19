@@ -168,45 +168,101 @@ def _validate_snapshot_source(
     return manifest
 
 
-class DerivedSourceRecord(BaseModel):
-    """Reference from an extracted TSV back to its source snapshot manifest."""
+class ManifestReference(BaseModel):
+    """One raw manifest bound into a derived bundle."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    source_snapshot_id: str = Field(min_length=1)
-    source_manifest_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    snapshot_id: str = Field(min_length=1)
+    path: str = Field(min_length=1)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class PairedManifestReferences(BaseModel):
+    """The independently versioned sources used by extraction."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    biosample: ManifestReference
+    bioproject: ManifestReference
+
+
+class ArtifactReference(BaseModel):
+    """One published member of a derived bundle."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    path: str = Field(min_length=1)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class DerivedArtifactReferences(BaseModel):
+    """The data artifacts committed by one provenance record."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    extracted_metadata: ArtifactReference
+    bioproject_context: ArtifactReference
+
+
+class DerivedBundleProvenance(BaseModel):
+    """Hash binding for a paired-source, two-artifact extraction bundle."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    bundle_version: Literal[1]
+    source_manifests: PairedManifestReferences
+    artifacts: DerivedArtifactReferences
 
     @classmethod
-    def from_manifest(
-        cls, manifest: SourceSnapshotManifest, manifest_path: Path | str
-    ) -> "DerivedSourceRecord":
+    def create(
+        cls,
+        *,
+        source_contract: PairedSourceContract,
+        biosample_manifest_path: Path | str,
+        bioproject_manifest_path: Path | str,
+        extracted_metadata_path: Path | str,
+        bioproject_context_path: Path | str,
+    ) -> "DerivedBundleProvenance":
+        """Bind validated raw manifests to completed temporary artifacts."""
+        biosample_manifest_path = Path(biosample_manifest_path)
+        bioproject_manifest_path = Path(bioproject_manifest_path)
+        extracted_metadata_path = Path(extracted_metadata_path)
+        bioproject_context_path = Path(bioproject_context_path)
         return cls(
-            source_snapshot_id=manifest.snapshot_id,
-            source_manifest_sha256=sha256_file(manifest_path),
+            bundle_version=1,
+            source_manifests=PairedManifestReferences(
+                biosample=ManifestReference(
+                    snapshot_id=source_contract.biosample.snapshot_id,
+                    path=str(biosample_manifest_path),
+                    sha256=sha256_file(biosample_manifest_path),
+                ),
+                bioproject=ManifestReference(
+                    snapshot_id=source_contract.bioproject.snapshot_id,
+                    path=str(bioproject_manifest_path),
+                    sha256=sha256_file(bioproject_manifest_path),
+                ),
+            ),
+            artifacts=DerivedArtifactReferences(
+                extracted_metadata=ArtifactReference(
+                    path=extracted_metadata_path.name,
+                    sha256=sha256_file(extracted_metadata_path),
+                ),
+                bioproject_context=ArtifactReference(
+                    path=bioproject_context_path.name,
+                    sha256=sha256_file(bioproject_context_path),
+                ),
+            ),
         )
 
-    def write_for(self, extracted_metadata_path: Path | str) -> Path:
-        """Write this record beside an extracted metadata TSV."""
-        provenance_path = provenance_path_for(extracted_metadata_path)
-        provenance_path.write_text(
+    def write(self, path: Path | str) -> Path:
+        """Write this provenance record as deterministic YAML."""
+        destination = Path(path)
+        destination.write_text(
             yaml.safe_dump(self.model_dump(mode="json"), sort_keys=False),
             encoding="utf-8",
         )
-        return provenance_path
-
-    @classmethod
-    def load_for(cls, extracted_metadata_path: Path | str) -> "DerivedSourceRecord":
-        """Load the derived source record beside an extracted metadata TSV."""
-        provenance_path = provenance_path_for(extracted_metadata_path)
-        if not provenance_path.exists():
-            raise SourceSnapshotError(f"derived source record not found: {provenance_path}")
-        try:
-            raw = yaml.safe_load(provenance_path.read_text(encoding="utf-8"))
-            return cls.model_validate(raw)
-        except (OSError, yaml.YAMLError, ValidationError) as exc:
-            raise SourceSnapshotError(
-                f"Invalid derived source record {provenance_path}: {exc}"
-            ) from exc
+        return destination
 
 
 def sha256_file(path: Path | str) -> str:
@@ -224,21 +280,68 @@ def provenance_path_for(extracted_metadata_path: Path | str) -> Path:
     return path.with_name(f"{path.stem}.provenance.yaml")
 
 
+def bioproject_catalog_path_for(extracted_metadata_path: Path | str) -> Path:
+    """Return the BioProject context catalog paired with an extracted TSV."""
+    path = Path(extracted_metadata_path)
+    return path.with_name(f"{path.stem}.bioproject_context.jsonl")
+
+
 def validate_derived_metadata_source(
     extracted_metadata_path: Path | str, manifest_path: Path | str
 ) -> SourceSnapshotManifest:
-    """Validate a derived TSV's reference and return its source manifest."""
+    """Validate a derived bundle's provenance and return its source manifest."""
     manifest = SourceSnapshotManifest.load(manifest_path)
-    record = DerivedSourceRecord.load_for(extracted_metadata_path)
-    if record.source_snapshot_id != manifest.snapshot_id:
+    provenance_path = provenance_path_for(extracted_metadata_path)
+    try:
+        raw = yaml.safe_load(provenance_path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        raise SourceSnapshotError(
+            f"Invalid derived bundle provenance {provenance_path}: {exc}"
+        ) from exc
+    try:
+        bundle = DerivedBundleProvenance.model_validate(raw)
+    except ValidationError as exc:
+        raise SourceSnapshotError(
+            f"Invalid derived bundle provenance {provenance_path}: {exc}"
+        ) from exc
+
+    source_reference = bundle.source_manifests.biosample
+    if source_reference.snapshot_id != manifest.snapshot_id:
         raise SourceSnapshotError(
             "Derived metadata snapshot identity mismatch: expected "
-            f"{manifest.snapshot_id}, found {record.source_snapshot_id}"
+            f"{manifest.snapshot_id}, found {source_reference.snapshot_id}"
         )
     expected_hash = sha256_file(manifest_path)
-    if record.source_manifest_sha256 != expected_hash:
+    if source_reference.sha256 != expected_hash:
         raise SourceSnapshotError(
             "Derived metadata source manifest checksum mismatch: expected "
-            f"{expected_hash}, found {record.source_manifest_sha256}"
+            f"{expected_hash}, found {source_reference.sha256}"
         )
+    _validate_bundle_artifact(
+        role="extracted TSV",
+        expected_path=Path(extracted_metadata_path),
+        reference=bundle.artifacts.extracted_metadata,
+    )
+    _validate_bundle_artifact(
+        role="BioProject context catalog",
+        expected_path=bioproject_catalog_path_for(extracted_metadata_path),
+        reference=bundle.artifacts.bioproject_context,
+    )
     return manifest
+
+
+def _validate_bundle_artifact(
+    *, role: str, expected_path: Path, reference: ArtifactReference
+) -> None:
+    if reference.path != expected_path.name:
+        raise SourceSnapshotError(
+            f"Derived {role} path mismatch: expected {expected_path.name}, found {reference.path}"
+        )
+    if not expected_path.is_file():
+        raise SourceSnapshotError(f"Derived {role} not found: {expected_path}")
+    actual_hash = sha256_file(expected_path)
+    if reference.sha256 != actual_hash:
+        raise SourceSnapshotError(
+            f"Derived {role} checksum mismatch: expected {reference.sha256}, "
+            f"calculated {actual_hash}"
+        )

@@ -319,7 +319,7 @@ class _RecordAssembler:
             pathogen=pathogen,
             pathogen_sci_name=scientific_name(pathogen),
             in_atb=accession in self.atb_by_pathogen.get(pathogen, set()),
-            bioproject=record.get("bioproject", ""),
+            bioproject=record.get("bioproject_accession", ""),
             date=date,
             location=location,
             isolation=isolation,
@@ -958,7 +958,7 @@ def _require_columns(
     required = {
         "accession",
         "pathogen",
-        "bioproject",
+        "bioproject_accession",
     }
     if StandardizationAttribute.DATE in attributes:
         required.update({"date_attr_orig", "date_val_orig", "date_category"})

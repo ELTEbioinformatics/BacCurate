@@ -1,17 +1,18 @@
+import csv
 import gzip
 import hashlib
 import json
 from dataclasses import dataclass
 from datetime import date
+from os import replace
 from pathlib import Path
 
 import pytest
 import yaml
 
 from baccurate import paths
-from baccurate.extraction.cli import ExtractionReport
+from baccurate.extraction.cli import ExtractionReport, run_extraction
 from baccurate.extraction.cli import cli as run_extraction_cli
-from baccurate.extraction.cli import run_extraction
 from baccurate.extraction.xml import CandidateCounters
 from baccurate.paths import (
     DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
@@ -20,7 +21,14 @@ from baccurate.paths import (
     DEFAULT_BIOSAMPLE_XML_INPUT,
 )
 from baccurate.run_outputs import RunContext, RunDiagnostics, RunOutputs
-from baccurate.source_snapshot import SourceSnapshotError, validate_paired_source_contract
+from baccurate.source_snapshot import (
+    SourceSnapshotError,
+    bioproject_catalog_path_for,
+    provenance_path_for,
+    sha256_file,
+    validate_derived_metadata_source,
+    validate_paired_source_contract,
+)
 
 
 def _write_snapshot(path: Path, contents: bytes) -> str:
@@ -204,6 +212,156 @@ def test_extraction_report_carries_both_validated_source_identities(
     assert report.source_xml_paths == (sources.biosample, sources.bioproject)
 
 
+def test_extraction_publishes_provenance_bound_bioproject_context_bundle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sources = _paired_sources(tmp_path)
+    biosample_xml = b"""\
+<BioSampleSet>
+  <BioSample accession="SAMN00000001">
+    <Attributes>
+      <Attribute attribute="isolation_source">farm soil</Attribute>
+    </Attributes>
+    <Links><Link target="bioproject">1050647</Link></Links>
+  </BioSample>
+</BioSampleSet>
+"""
+    bioproject_xml = b"""\
+<PackageSet>
+  <Package>
+    <Project>
+      <Project>
+        <ProjectID>
+          <ArchiveID accession="PRJNA1050647" archive="NCBI" id="1050647" />
+        </ProjectID>
+        <ProjectDescr>
+          <Title>&lt;b&gt;One &amp;amp; Health&lt;/b&gt; study</Title>
+          <Description>&lt;p&gt;Farm &amp;amp;&lt;/p&gt;&lt;p&gt;soil context.&lt;/p&gt;</Description>
+          <Relevance>
+            <Agricultural>yes</Agricultural>
+            <Environmental>Yes</Environmental>
+            <Veterinary>no</Veterinary>
+            <Medical>yes</Medical>
+            <Evolution>yes</Evolution>
+          </Relevance>
+        </ProjectDescr>
+      </Project>
+    </Project>
+  </Package>
+</PackageSet>
+"""
+    biosample_hash = _write_snapshot(sources.biosample, biosample_xml)
+    bioproject_hash = _write_snapshot(sources.bioproject, bioproject_xml)
+    _write_manifest(
+        sources.biosample_manifest,
+        snapshot_id="biosample-test",
+        source=sources.biosample,
+        sha256=biosample_hash,
+    )
+    _write_manifest(
+        sources.bioproject_manifest,
+        snapshot_id="bioproject-test",
+        source=sources.bioproject,
+        sha256=bioproject_hash,
+    )
+    _configure_internal_paths(monkeypatch, sources)
+    index = tmp_path / "biosample_index.tsv"
+    index.write_text(
+        "accession\tpathogen_biosample\nSAMN00000001\tecoli\n",
+        encoding="utf-8",
+    )
+    extracted = tmp_path / "custom_metadata.tsv"
+
+    report = run_extraction(
+        output_path=extracted,
+        index_path=index,
+        disable_progress=True,
+    )
+
+    catalog = bioproject_catalog_path_for(extracted)
+    provenance = provenance_path_for(extracted)
+    assert report.bioproject_catalog_path == catalog
+    assert report.bundle_provenance_path == provenance
+    assert catalog.name == "custom_metadata.bioproject_context.jsonl"
+    assert provenance.name == "custom_metadata.provenance.yaml"
+
+    with extracted.open(newline="", encoding="utf-8") as stream:
+        rows = list(csv.DictReader(stream, delimiter="\t"))
+    assert len(rows) == 1
+    assert rows[0]["bioproject_id"] == "1050647"
+    assert rows[0]["bioproject_accession"] == "PRJNA1050647"
+    assert "title" not in rows[0]
+    assert "description" not in rows[0]
+
+    catalog_objects = [
+        json.loads(line) for line in catalog.read_text(encoding="utf-8").splitlines()
+    ]
+    assert catalog_objects == [
+        {
+            "id": "1050647",
+            "accession": "PRJNA1050647",
+            "title": "One & Health study",
+            "description": "Farm & soil context.",
+            "relevance": ["Agricultural", "Environmental"],
+        }
+    ]
+
+    provenance_record = yaml.safe_load(provenance.read_text(encoding="utf-8"))
+    assert provenance_record["bundle_version"] == 1
+    assert provenance_record["source_manifests"] == {
+        "biosample": {
+            "snapshot_id": "biosample-test",
+            "path": str(sources.biosample_manifest),
+            "sha256": sha256_file(sources.biosample_manifest),
+        },
+        "bioproject": {
+            "snapshot_id": "bioproject-test",
+            "path": str(sources.bioproject_manifest),
+            "sha256": sha256_file(sources.bioproject_manifest),
+        },
+    }
+    assert provenance_record["artifacts"] == {
+        "extracted_metadata": {
+            "path": extracted.name,
+            "sha256": sha256_file(extracted),
+        },
+        "bioproject_context": {
+            "path": catalog.name,
+            "sha256": sha256_file(catalog),
+        },
+    }
+
+
+def test_interrupted_bundle_publication_cannot_leave_valid_provenance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sources = _paired_sources(tmp_path)
+    _configure_internal_paths(monkeypatch, sources)
+    index = tmp_path / "biosample_index.tsv"
+    index.write_text("accession\tpathogen_biosample\n", encoding="utf-8")
+    extracted = tmp_path / "interrupted.tsv"
+    catalog = bioproject_catalog_path_for(extracted)
+    real_replace = replace
+
+    def interrupt_catalog_publication(source: Path | str, destination: Path | str) -> None:
+        if Path(destination) == catalog:
+            raise OSError("simulated publication interruption")
+        real_replace(source, destination)
+
+    monkeypatch.setattr("baccurate.extraction.cli.os.replace", interrupt_catalog_publication)
+
+    with pytest.raises(OSError, match="simulated publication interruption"):
+        run_extraction(
+            output_path=extracted,
+            index_path=index,
+            disable_progress=True,
+        )
+
+    assert not provenance_path_for(extracted).exists()
+    with pytest.raises(SourceSnapshotError, match="derived bundle provenance"):
+        validate_derived_metadata_source(extracted, sources.biosample_manifest)
+
+
 @pytest.mark.parametrize(
     ("unexpected_role", "message"),
     [("biosample", "BioSample.*unexpected"), ("bioproject", "BioProject.*unexpected")],
@@ -285,7 +443,8 @@ def test_run_source_reporting_preserves_both_identities_and_biosample_date(
             source_snapshot_id="biosample-test",
             bioproject_snapshot_id="bioproject-test",
             metadata_reference_date=date(2026, 7, 9),
-            source_record_path=tmp_path / "extracted.provenance.yaml",
+            bundle_provenance_path=tmp_path / "extracted.provenance.yaml",
+            bioproject_catalog_path=tmp_path / "extracted.bioproject_context.jsonl",
         ),
         elapsed_seconds=1.0,
     )
