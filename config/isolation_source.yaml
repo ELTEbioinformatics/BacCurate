@@ -1,3 +1,5 @@
+prompt_version: "1"
+
 system_prompt: |
   You are an expert biology ontologist specialized in One Health surveillance,
   classifying BioSample isolation-source metadata into one or more nodes of the

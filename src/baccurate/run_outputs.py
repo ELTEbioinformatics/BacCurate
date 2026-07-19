@@ -43,6 +43,7 @@ class RunOutputs:
     log: Path
     diagnostics: Path
     isolation_reasoning: Path | None
+    prompt_snapshot: Path | None
 
     @classmethod
     def plan(
@@ -52,6 +53,7 @@ class RunOutputs:
         run_name: str,
         output_file: Path | None,
         include_isolation: bool,
+        include_prompt_snapshot: bool = False,
     ) -> "RunOutputs":
         if output_file is None:
             run_dir = output_dir / run_name
@@ -66,6 +68,7 @@ class RunOutputs:
             isolation_reasoning=(
                 run_dir / "isolation_reasoning.jsonl" if include_isolation else None
             ),
+            prompt_snapshot=run_dir / "prompts.txt" if include_prompt_snapshot else None,
         )
         if len(set(outputs.paths())) != len(outputs.paths()):
             raise ValueError("output filename aliases another run output path")
@@ -79,6 +82,7 @@ class RunOutputs:
                 self.log,
                 self.diagnostics,
                 self.isolation_reasoning,
+                self.prompt_snapshot,
             )
             if path is not None
         )
@@ -184,6 +188,11 @@ class RunDiagnostics:
                 "model_identifiers": dict(context.model_identifiers),
             },
         }
+        if outputs.prompt_snapshot is not None:
+            self._document["prompt_artifact"] = {
+                "path": str(outputs.prompt_snapshot),
+                "sha256": sha256_file(outputs.prompt_snapshot),
+            }
         self._write()
 
     def transition(self, phase: RunPhase) -> None:

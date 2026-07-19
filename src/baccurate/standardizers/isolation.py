@@ -49,6 +49,28 @@ HOST_RETRY_TRIGGERS: tuple[str, ...] = (
     "environmental:anthropogenic environment:food:plant food product",
 )
 
+
+@dataclass(frozen=True, slots=True)
+class IsolationPrompts:
+    """The isolation source prompt text used in canonical LLM requests."""
+
+    system: str
+    user_template: str
+    bioproject_system: str
+    bioproject_user: str
+
+
+def effective_isolation_prompts(config: dict, ontology: "OntologyManager") -> IsolationPrompts:
+    """Return prompt text with the run's ontology rendered into the system prompt."""
+    system_template = config.get("system_prompt") or ""
+    return IsolationPrompts(
+        system=system_template.replace("{ontology_tree}", render_ontology(ontology)),
+        user_template=config.get("user_prompt") or "",
+        bioproject_system=config.get("bioproject_system_prompt") or "",
+        bioproject_user=config.get("bioproject_user_prompt") or "",
+    )
+
+
 ISOLATION_LLM_PARAMETERS: dict[str, object] = {"temperature": 0, "seed": 100}
 ISOLATION_RESPONSE_SCHEMA_ID = "baccurate.isolation.classification.v1"
 # Relevance flags that count as origin evidence (spec excludes Medical/Evolution).
@@ -120,7 +142,7 @@ def _isolation_origins(
     attributes: str,
     values: str,
 ) -> tuple[IsolationOrigin, ...]:
-    """Parse aligned isolation-source candidates while preserving their raw pairing."""
+    """Parse aligned isolation candidates while preserving their raw pairing."""
     attribute_parts = split_pipe_separated(attributes)
     value_parts = split_pipe_separated(values)
     if len(attribute_parts) != len(value_parts):
@@ -609,13 +631,11 @@ class LLMClassifier:
                 request_mode: _build_schema(valid_set, request_mode)
                 for request_mode in _IsolationRequestMode
             }
-            self._ontology_block = render_ontology(self.ont)
-
-            system_template = self.config.get("system_prompt") or ""
-            self.system_prompt = system_template.replace("{ontology_tree}", self._ontology_block)
-            self.user_template = self.config.get("user_prompt")
-            self.bioproject_system_prompt = self.config.get("bioproject_system_prompt") or ""
-            self.bioproject_user_prompt = self.config.get("bioproject_user_prompt") or ""
+            prompts = effective_isolation_prompts(self.config, self.ont)
+            self.system_prompt = prompts.system
+            self.user_template = prompts.user_template
+            self.bioproject_system_prompt = prompts.bioproject_system
+            self.bioproject_user_prompt = prompts.bioproject_user
         except BaseException:
             if raw_client is not None:
                 raw_client.close()
@@ -690,6 +710,7 @@ class LLMClassifier:
         reasoning_history: list[dict] = []
 
         direct_covers_all = bool(valid_vals) and direct_match_count == len(valid_vals)
+        evidence_level = IsolationEvidenceLevel.NONE
 
         if direct_covers_all:
             final_nodes |= direct_paths

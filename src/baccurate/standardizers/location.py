@@ -37,6 +37,23 @@ LOCATION_LLM_PARAMETERS: dict[str, object] = {"temperature": 0, "seed": 100}
 # This needs to be bumped by hand whenever parsing/response changes
 LOCATION_RESPONSE_SCHEMA_ID = "baccurate.location.country.v1"
 
+
+@dataclass(frozen=True, slots=True)
+class LocationPrompts:
+    """The geographical location prompt text used in canonical LLM requests."""
+
+    system: str
+    user_template: str
+
+
+def effective_location_prompts(config: dict) -> LocationPrompts:
+    """Return the prompt text selected by the location standardizer."""
+    return LocationPrompts(
+        system=config.get("llm_system_prompt") or "",
+        user_template=config.get("llm_user_prompt_template") or "",
+    )
+
+
 # --- Coordinate patterns ---
 
 # "DD.DDD N/S DD.DDD E/W" e.g. "51.9194 N 19.1451 E"
@@ -231,8 +248,9 @@ class LocationStandardizer:
         self.insdc_map = dict(self.config.get("insdc_country_map", {}))
         geo_loc_path = self.config.get("geo_loc_list_path", DEFAULT_GEO_LOC_LIST)
         self.insdc_names = self._load_insdc_names(geo_loc_path)
-        self.llm_system_prompt = self.config.get("llm_system_prompt")
-        self.llm_user_prompt_template = self.config.get("llm_user_prompt_template")
+        prompts = effective_location_prompts(self.config)
+        self.llm_system_prompt = prompts.system
+        self.llm_user_prompt_template = prompts.user_template
 
         if client is _LOAD_CONFIGURED_CLIENT:
             self.client, self.llm_model = load_llm_client(llm_settings)

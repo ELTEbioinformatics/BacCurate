@@ -38,6 +38,7 @@ from baccurate.run_outputs import (
     RunStatus,
     processed_rows,
 )
+from baccurate.prompt_snapshot import write_prompt_snapshot
 from baccurate.utils.compressed_io import open_text
 from baccurate.utils.logging import configure_run_logging
 from baccurate.utils.progress import progress_context
@@ -171,11 +172,20 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     run_name = args.run_name or datetime.now().strftime("%Y-%m-%d_%H-%M")
     try:
+        include_prompt_snapshot = not args.skip_llm and any(
+            attribute
+            in (
+                StandardizationAttribute.LOCATION,
+                StandardizationAttribute.ISOLATION_SOURCE,
+            )
+            for attribute in active_attributes
+        )
         outputs = RunOutputs.plan(
             output_dir=args.output_dir,
             run_name=run_name,
             output_file=args.output_file,
             include_isolation=StandardizationAttribute.ISOLATION_SOURCE in active_attributes,
+            include_prompt_snapshot=include_prompt_snapshot,
         )
     except ValueError as exc:
         parser.error(str(exc))
@@ -227,7 +237,23 @@ def main(argv: Sequence[str] | None = None) -> None:
         "quiet": args.quiet,
     }
     llm_settings = load_llm_settings()
+    model_identifiers = _model_identifiers(active_attributes, llm_settings)
     outputs.initialize()
+    if outputs.prompt_snapshot is not None:
+        write_prompt_snapshot(
+            outputs.prompt_snapshot,
+            model_identifiers=model_identifiers,
+            location_config=(
+                args.config_dir / "location.yaml"
+                if StandardizationAttribute.LOCATION in active_attributes
+                else None
+            ),
+            isolation_config=(
+                args.config_dir / "isolation_source.yaml"
+                if StandardizationAttribute.ISOLATION_SOURCE in active_attributes
+                else None
+            ),
+        )
     logging_state = configure_run_logging(outputs.log, console_debug=args.debug)
     diagnostics = RunDiagnostics(
         outputs,
@@ -238,7 +264,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             options=normalized_options,
             configuration_paths=tuple(configuration_paths),
             skip_llm=args.skip_llm,
-            model_identifiers=_model_identifiers(active_attributes, llm_settings),
+            model_identifiers=model_identifiers,
             trace_llm_calls=args.debug,
         ),
     )
