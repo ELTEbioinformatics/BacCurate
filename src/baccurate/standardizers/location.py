@@ -24,6 +24,7 @@ from baccurate.llm.diagnostics import (
     LLMFailureCategory,
     observe_llm_call,
 )
+from baccurate.llm.request import CanonicalLLMRequest
 from baccurate.paths import DEFAULT_GEO_LOC_LIST, DEFAULT_LOC_CACHE_DB
 from baccurate.utils.cache import SQLiteKVCache
 from baccurate.utils.config import load_config
@@ -31,6 +32,10 @@ from baccurate.utils.text import split_pipe_separated
 
 logger = logging.getLogger(__name__)
 _LOAD_CONFIGURED_CLIENT = object()
+
+LOCATION_MODEL_PARAMETERS: dict[str, object] = {"temperature": 0, "seed": 100}
+# This needs to be bumped by hand whenever parsing/response changes
+LOCATION_RESPONSE_SCHEMA_ID = "baccurate.location.country.v1"
 
 # --- Coordinate patterns ---
 
@@ -192,18 +197,18 @@ class SQLiteCache(SQLiteKVCache):
     def __init__(self, db_path: Path | str = DEFAULT_LOC_CACHE_DB) -> None:
         super().__init__(db_path)
 
-    def get(self, context_string: str) -> tuple[str, str] | None:
+    def get(self, request_fingerprint: str) -> tuple[str, str] | None:
         self.cursor.execute(
             "SELECT country, continent FROM cache WHERE hash_id=?",
-            (self._sha256(context_string),),
+            (request_fingerprint,),
         )
         row = self.cursor.fetchone()
         return (row[0], row[1]) if row else None
 
-    def set(self, context_string: str, country: str, continent: str) -> None:
+    def set(self, request_fingerprint: str, country: str, continent: str) -> None:
         self.cursor.execute(
             "INSERT OR REPLACE INTO cache (hash_id, country, continent) VALUES (?, ?, ?)",
-            (self._sha256(context_string), country, continent),
+            (request_fingerprint, country, continent),
         )
         self.conn.commit()
 
@@ -391,27 +396,20 @@ class LocationStandardizer:
     def _call_llm(
         self,
         accession: str,
-        system_prompt: str | None,
-        user_prompt: str,
+        request: CanonicalLLMRequest,
         timeout: int = 30,
     ) -> _ModelResponse:
-        messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": user_prompt})
-
         try:
             with observe_llm_call(
                 accession=accession,
                 target="location",
-                model=self.llm_model or "",
+                model=request.model,
             ) as call:
                 response = self.client.chat.completions.create(
-                    model=self.llm_model,
-                    messages=messages,
-                    temperature=0,
+                    model=request.model,
+                    messages=list(request.messages),
+                    **request.parameters,
                     timeout=timeout,
-                    seed=100,
                 )
         except openai.APITimeoutError:
             return _ModelResponse(None, diagnostic=LocationDiagnostic.RECOVERABLE_MODEL_FAILURE)
@@ -456,7 +454,18 @@ class LocationStandardizer:
         return _ModelResponse(country.strip())
 
     def _llm_fallback(self, accession: str, context_string: str) -> LocationMatch:
-        cached = self.cache.get(context_string)
+        user_prompt = self.llm_user_prompt_template.format(attr_val_pairs=context_string)
+        messages = []
+        if self.llm_system_prompt:
+            messages.append({"role": "system", "content": self.llm_system_prompt})
+        messages.append({"role": "user", "content": user_prompt})
+        request = CanonicalLLMRequest(
+            model=self.llm_model or "",
+            messages=tuple(messages),
+            parameters=LOCATION_MODEL_PARAMETERS,
+            response_schema_id=LOCATION_RESPONSE_SCHEMA_ID,
+        )
+        cached = self.cache.get(request.fingerprint)
         if cached is not None:
             self.stats["cache_hits"] += 1
             diagnostic = (
@@ -469,8 +478,7 @@ class LocationStandardizer:
         if self.client is None:
             return LocationMatch("NA", "NA", None, True, (LocationDiagnostic.MODEL_DISABLED,))
 
-        user_prompt = self.llm_user_prompt_template.format(attr_val_pairs=context_string)
-        response = self._call_llm(accession, self.llm_system_prompt, user_prompt)
+        response = self._call_llm(accession, request)
         self.stats["llm_calls"] += 1
 
         if response.diagnostic is not None:
@@ -481,7 +489,7 @@ class LocationStandardizer:
             raise AssertionError("Successful model response has no country")
 
         if llm_country == "NA":
-            self.cache.set(context_string, "NA", "NA")
+            self.cache.set(request.fingerprint, "NA", "NA")
             return LocationMatch("NA", "NA", None, True, (LocationDiagnostic.UNMAPPABLE_RESULT,))
 
         # Standardize the LLM's country through cc
@@ -496,7 +504,7 @@ class LocationStandardizer:
         else:
             result = (llm_country, "NA")
 
-        self.cache.set(context_string, *result)
+        self.cache.set(request.fingerprint, *result)
         return self._to_insdc(
             LocationMatch(
                 *result,

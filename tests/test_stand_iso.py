@@ -11,6 +11,8 @@ from types import SimpleNamespace
 
 import pytest
 
+import baccurate.standardizers.isolation as isolation_module
+from baccurate.llm.client import LLMSettings
 from baccurate.standardizers.host import HostOverflowContext
 from baccurate.standardizers.isolation import (
     IsolationDiagnostic,
@@ -242,35 +244,135 @@ def test_typed_record_outcome_preserves_model_reasoning_on_exact_cache_hit(tmp_p
     assert cached.diagnostics == (IsolationDiagnostic.CACHE_HIT,)
 
 
+def _isolation_config(tmp_path: Path, *, suffix: str = "") -> Path:
+    config_path = tmp_path / f"isolation-{len(list(tmp_path.glob('isolation-*.yaml')))}.yaml"
+    config_path.write_text(
+        CONFIG_PATH.read_text(encoding="utf-8")
+        + f'\ncache_db_path: "{(tmp_path / "isolation-cache.db").as_posix()}"\n'
+        + suffix,
+        encoding="utf-8",
+    )
+    return config_path
+
+
+def _standardize_model_isolation(
+    config_path: Path,
+    fake: FakeClient,
+    *,
+    model: str = "test-model",
+    schema_override: object | None = None,
+) -> IsolationOutcome:
+    standardizer = IsoStandardizer(
+        config_path,
+        client=None,
+        llm_settings=LLMSettings(None, None, model),
+    )
+    standardizer.pipeline.client = fake
+    if schema_override is not None:
+        standardizer.pipeline._schema = schema_override
+    try:
+        result = standardizer.standardize(
+            {
+                "accession": "REQUEST_FINGERPRINT",
+                "iso_attr_orig": "isolation_source",
+                "iso_val_orig": "wound patient 739105",
+            },
+            host_context="Homo sapiens",
+        )
+    finally:
+        standardizer.close()
+    assert isinstance(result, IsolationOutcome)
+    return result
+
+
+def test_isolation_cache_reuses_identical_request_when_only_prompt_metadata_changes(tmp_path):
+    fake = FakeClient()
+    fake.respond_with(["wound"], reasoning="clinical wound")
+    first_config = _isolation_config(tmp_path, suffix="prompt_version: first\n")
+    second_config = _isolation_config(tmp_path, suffix="prompt_version: second\n")
+
+    first = _standardize_model_isolation(first_config, fake)
+    second = _standardize_model_isolation(second_config, fake)
+
+    assert first.diagnostics == (IsolationDiagnostic.LLM_CALL,)
+    assert second.diagnostics == (IsolationDiagnostic.CACHE_HIT,)
+    assert second.reasoning == first.reasoning
+    assert len(fake.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "changed_component",
+    ["message", "model", "parameter", "schema_id", "schema_contract"],
+)
+def test_isolation_cache_misses_when_canonical_request_changes(
+    tmp_path, monkeypatch, changed_component
+):
+    fake = FakeClient()
+    fake.respond_with(["wound"], reasoning="clinical wound")
+    first_config = _isolation_config(tmp_path)
+    _standardize_model_isolation(first_config, fake)
+
+    second_config = _isolation_config(tmp_path)
+    second_model = "test-model"
+    schema_override = None
+    if changed_component == "message":
+        second_config = _isolation_config(
+            tmp_path,
+            suffix="system_prompt: A changed fully rendered system prompt.\n",
+        )
+    elif changed_component == "model":
+        second_model = "changed-model"
+    elif changed_component == "parameter":
+        monkeypatch.setattr(
+            isolation_module,
+            "ISOLATION_MODEL_PARAMETERS",
+            {"temperature": 0, "seed": 101},
+        )
+    elif changed_component == "schema_id":
+        monkeypatch.setattr(
+            isolation_module,
+            "ISOLATION_RESPONSE_SCHEMA_ID",
+            "baccurate.isolation.classification.changed",
+        )
+    else:
+
+        class ChangedResponseModel:
+            @classmethod
+            def model_json_schema(cls):
+                return {
+                    "type": "object",
+                    "properties": {"changed": {"type": "string"}},
+                    "required": ["changed"],
+                }
+
+        schema_override = ChangedResponseModel
+
+    second = _standardize_model_isolation(
+        second_config,
+        fake,
+        model=second_model,
+        schema_override=schema_override,
+    )
+
+    assert second.diagnostics == (IsolationDiagnostic.LLM_CALL,)
+    assert len(fake.calls) == 2
+
+
 # =============================================================================
 # SQLite cache
 # =============================================================================
 
 
-@pytest.mark.parametrize(
-    "stored_value,changed_value",
-    [
-        ("sampled 2020-02-01", "sampled 2020-02-02"),
-        ("37.9 N", "38.0 N"),
-        ("10 mg", "11 mg"),
-        ("1x4 cm", "1x5 cm"),
-        ("Patient-1", "Patient-2"),
-        ("50%", "90%"),
-        ("patient 1", "patient 2"),
-        ("patient1", "patient2"),
-        ("ENVO:00002003", "ENVO:00002005"),
-    ],
-)
-def test_cache_does_not_reuse_changed_evidence(cache, feces_source, stored_value, changed_value):
-    cache.set("isolation_source", stored_value, "human", feces_source, "m1")
+def test_cache_does_not_reuse_changed_request_fingerprint(cache, feces_source):
+    cache.set("fingerprint-a", feces_source)
 
-    assert cache.get("isolation_source", changed_value, "human", "m1") is None
+    assert cache.get("fingerprint-b") is None
 
 
-def test_cache_reuses_the_same_normalized_evidence(cache, feces_source):
-    cache.set(" Isolation Source ", " Stool Sample ", " Homo sapiens ", feces_source, " M1 ")
+def test_cache_reuses_the_same_request_fingerprint(cache, feces_source):
+    cache.set("fingerprint", feces_source)
 
-    assert cache.get("isolation_source", "stool sample", "homo sapiens", "m1") == feces_source
+    assert cache.get("fingerprint") == feces_source
 
 
 def test_set_then_get_round_trips_the_record(cache):
@@ -281,9 +383,9 @@ def test_set_then_get_round_trips_the_record(cache):
         term_paths=FECES,
         reasoning=[{"node": "direct_match", "reasoning": "x", "selections": [FECES]}],
     )
-    cache.set("isolation_source", "stool", "human", rec, "m1")
+    cache.set("fingerprint", rec)
 
-    got = cache.get("isolation_source", "stool", "human", "m1")
+    got = cache.get("fingerprint")
 
     assert got is not None
     assert got.categories == "host-associated"
@@ -294,7 +396,7 @@ def test_set_then_get_round_trips_the_record(cache):
 
 
 def test_get_on_unknown_key_returns_none(cache):
-    assert cache.get("isolation_source", "never stored", "human", "m1") is None
+    assert cache.get("never-stored") is None
 
 
 # =============================================================================

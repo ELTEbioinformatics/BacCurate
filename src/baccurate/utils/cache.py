@@ -1,6 +1,5 @@
 """Shared SQLite key-value cache base for the standardizer caches."""
 
-import hashlib
 import sqlite3
 from pathlib import Path
 from typing import ClassVar
@@ -9,8 +8,7 @@ from typing import ClassVar
 class SQLiteKVCache:
     """Base for the SQLite-backed standardizer caches.
 
-    Handles connection setup, table creation, teardown, and
-    the SHA-256 primitive.
+    Handles connection setup, table creation, and teardown.
     """
 
     _CREATE_TABLE_SQL: ClassVar[str]
@@ -24,7 +22,3 @@ class SQLiteKVCache:
 
     def close(self) -> None:
         self.conn.close()
-
-    @staticmethod
-    def _sha256(s: str) -> str:
-        return hashlib.sha256(s.encode("utf-8")).hexdigest()

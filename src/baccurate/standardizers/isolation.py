@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from baccurate.llm.client import LLMSettings, load_llm_client, load_llm_settings
 from baccurate.llm.diagnostics import LLMFailureCategory, observe_llm_call
+from baccurate.llm.request import CanonicalLLMRequest, canonical_json_sha256
 from baccurate.paths import DEFAULT_ISO_CACHE_DB, DEFAULT_ONTOLOGY_TSV
 from baccurate.standardizers.host import HostOverflowContext
 from baccurate.standardizers.iso_renderer import (
@@ -42,6 +43,9 @@ HOST_RETRY_TRIGGERS: tuple[str, ...] = (
     "environmental:anthropogenic environment:food:animal product",
     "environmental:anthropogenic environment:food:plant food product",
 )
+
+ISOLATION_MODEL_PARAMETERS: dict[str, object] = {"temperature": 0, "seed": 100}
+ISOLATION_RESPONSE_SCHEMA_ID = "baccurate.isolation.classification.v1"
 
 # --- Data structures ---
 
@@ -117,7 +121,7 @@ class IsolationRejection:
 
 
 class SQLiteCache(SQLiteKVCache):
-    """SQLite-backed cache keyed on normalized evidence and model hashes."""
+    """SQLite-backed store keyed by canonical LLM request fingerprints."""
 
     _CREATE_TABLE_SQL = """
         CREATE TABLE IF NOT EXISTS cache (
@@ -133,23 +137,11 @@ class SQLiteCache(SQLiteKVCache):
     def __init__(self, db_path: Path | str = DEFAULT_ISO_CACHE_DB) -> None:
         super().__init__(db_path)
 
-    def _generate_hash(self, attr_name: str, value: str, host: str, model: str = "") -> str:
-        norm_attr = normalize_keyword(str(attr_name).strip())
-        norm_value = normalize_keyword(str(value).strip())
-        norm_host = normalize_keyword(str(host).strip())
-        norm_model = (model or "").strip().lower()
-
-        raw_string = f"{norm_attr}|{norm_value}|{norm_host}|{norm_model}"
-        return self._sha256(raw_string)
-
-    def get(
-        self, attr_name: str, value: str, host: str, model: str = ""
-    ) -> StandardizedSource | None:
-        hash_id = self._generate_hash(attr_name, value, host, model)
+    def get(self, request_fingerprint: str) -> StandardizedSource | None:
         self.cursor.execute(
             "SELECT category, display_term, ontology_link, term_path, reasoning "
             "FROM cache WHERE hash_id=?",
-            (hash_id,),
+            (request_fingerprint,),
         )
         row = self.cursor.fetchone()
         if row is None:
@@ -172,13 +164,9 @@ class SQLiteCache(SQLiteKVCache):
 
     def set(
         self,
-        attr_name: str,
-        value: str,
-        host: str,
+        request_fingerprint: str,
         record: StandardizedSource,
-        model: str = "",
     ) -> None:
-        hash_id = self._generate_hash(attr_name, value, host, model)
         self.cursor.execute(
             """
             INSERT OR REPLACE INTO cache
@@ -186,7 +174,7 @@ class SQLiteCache(SQLiteKVCache):
             VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
-                hash_id,
+                request_fingerprint,
                 record.categories,
                 record.display_terms,
                 record.ontology_links,
@@ -460,9 +448,6 @@ class LLMClassifier:
                 ],
             )
 
-        evidence_attributes = "||".join(valid_attrs)
-        evidence_values = "||".join(valid_vals)
-
         # Direct-match pass over each (attr, val) pair before calling the LLM.
         direct_paths: set[str] = set()
         direct_match_count = 0
@@ -488,7 +473,24 @@ class LLMClassifier:
                 }
             )
         else:
-            cached_result = self.cache.get(evidence_attributes, evidence_values, host, self.model)
+            metadata_block = self._format_metadata(valid_attrs, valid_vals, host)
+            user_prompt = self.user_template.format(
+                metadata=metadata_block,
+                bioproject_context="",
+            )
+            request = CanonicalLLMRequest(
+                model=self.model,
+                messages=(
+                    {"role": "system", "content": self.system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ),
+                parameters=ISOLATION_MODEL_PARAMETERS,
+                response_schema_id=(
+                    f"{ISOLATION_RESPONSE_SCHEMA_ID}:"
+                    f"{canonical_json_sha256(self._schema.model_json_schema())}"
+                ),
+            )
+            cached_result = self.cache.get(request.fingerprint)
             if cached_result:
                 self.stats["cache_hits"] += 1
                 return cached_result
@@ -503,12 +505,6 @@ class LLMClassifier:
                     }
                 )
             else:
-                metadata_block = self._format_metadata(valid_attrs, valid_vals, host)
-                user_prompt = self.user_template.format(
-                    metadata=metadata_block,
-                    bioproject_context="",
-                )
-
                 try:
                     self.stats["llm_calls"] += 1
                     with observe_llm_call(
@@ -517,14 +513,10 @@ class LLMClassifier:
                         model=self.model,
                     ) as call:
                         resp = self.client.chat.completions.create(
-                            model=self.model,
+                            model=request.model,
                             response_model=self._schema,
-                            messages=[
-                                {"role": "system", "content": self.system_prompt},
-                                {"role": "user", "content": user_prompt},
-                            ],
-                            temperature=0,
-                            max_retries=3,
+                            messages=list(request.messages),
+                            **request.parameters,
                         )
                     call.accepted()
                 except Exception as e:
@@ -593,7 +585,7 @@ class LLMClassifier:
             )
 
         if not direct_covers_all and self.client is not None:
-            self.cache.set(evidence_attributes, evidence_values, host, final_record, self.model)
+            self.cache.set(request.fingerprint, final_record)
         return final_record
 
 
