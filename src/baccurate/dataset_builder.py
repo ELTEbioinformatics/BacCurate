@@ -60,7 +60,8 @@ class DatasetBuildRequest:
     """Inputs, selection, destination, and runtime settings for one build."""
 
     extracted_metadata: Path
-    source_snapshot_manifest: Path
+    biosample_snapshot_manifest: Path
+    bioproject_snapshot_manifest: Path
     requested_pathogens: tuple[str, ...]
     requested_attributes: tuple[StandardizationAttribute, ...]
     final_destination: Path
@@ -457,16 +458,17 @@ class DatasetBuilder:
             writer = csv.writer(destination_stream, delimiter="\t", lineterminator="\n")
             writer.writerow(_RecordAssembler({}, attributes).columns)
 
-            source_manifest = validate_derived_metadata_source(
+            source_contract = validate_derived_metadata_source(
                 request.extracted_metadata,
-                request.source_snapshot_manifest,
+                request.biosample_snapshot_manifest,
+                request.bioproject_snapshot_manifest,
             )
             row_counts = self._count_selected_rows(request.extracted_metadata, pathogens)
             atb_by_pathogen = load_atb_accessions_by_pathogen(request.atb_index)
             assembler = _RecordAssembler(atb_by_pathogen, attributes)
             date_standardizers = (
                 {
-                    pathogen: RecordDateStandardizer(source_manifest.metadata_reference_date)
+                    pathogen: RecordDateStandardizer(source_contract.metadata_reference_date)
                     for pathogen in pathogens
                 }
                 if StandardizationAttribute.DATE in attributes

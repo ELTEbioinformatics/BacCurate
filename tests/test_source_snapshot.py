@@ -174,7 +174,7 @@ def test_extraction_uses_internal_paired_sources_without_raw_arguments(
     )
 
     assert report.source_xml_paths == (sources.biosample, sources.bioproject)
-    assert report.source_snapshot_id == "biosample-test"
+    assert report.biosample_snapshot_id == "biosample-test"
     assert report.bioproject_snapshot_id == "bioproject-test"
 
 
@@ -225,7 +225,7 @@ def test_extraction_report_carries_both_validated_source_identities(
         disable_progress=True,
     )
 
-    assert report.source_snapshot_id == "biosample-test"
+    assert report.biosample_snapshot_id == "biosample-test"
     assert report.bioproject_snapshot_id == "bioproject-test"
     assert report.metadata_reference_date == date(2026, 7, 19)
     assert report.source_xml_paths == (sources.biosample, sources.bioproject)
@@ -652,7 +652,44 @@ def test_derived_bundle_validation_rejects_each_invalid_member_before_streaming(
         detail = "path mismatch"
 
     with pytest.raises(SourceSnapshotError, match=f"Derived {role} {detail}"):
-        validate_derived_metadata_source(extracted, sources.biosample_manifest)
+        validate_derived_metadata_source(
+            extracted,
+            sources.biosample_manifest,
+            sources.bioproject_manifest,
+        )
+
+
+@pytest.mark.parametrize(
+    ("manifest_role", "message"),
+    [
+        ("biosample", "Derived BioSample source manifest checksum mismatch"),
+        ("bioproject", "Derived BioProject source manifest checksum mismatch"),
+    ],
+)
+def test_derived_bundle_validation_rejects_each_changed_source_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    manifest_role: str,
+    message: str,
+) -> None:
+    sources = _paired_sources(tmp_path)
+    _configure_internal_paths(monkeypatch, sources)
+    index = tmp_path / "biosample_index.tsv"
+    index.write_text("accession\tpathogen_biosample\n", encoding="utf-8")
+    extracted = tmp_path / "validated_bundle.tsv"
+    run_extraction(output_path=extracted, index_path=index, disable_progress=True)
+    changed_manifest = getattr(sources, f"{manifest_role}_manifest")
+    changed_manifest.write_text(
+        changed_manifest.read_text(encoding="utf-8") + "# changed after extraction\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SourceSnapshotError, match=message):
+        validate_derived_metadata_source(
+            extracted,
+            sources.biosample_manifest,
+            sources.bioproject_manifest,
+        )
 
 
 def test_interrupted_bundle_publication_cannot_leave_valid_provenance(
@@ -682,7 +719,11 @@ def test_interrupted_bundle_publication_cannot_leave_valid_provenance(
 
     assert not provenance_path_for(extracted).exists()
     with pytest.raises(SourceSnapshotError, match="derived bundle provenance"):
-        validate_derived_metadata_source(extracted, sources.biosample_manifest)
+        validate_derived_metadata_source(
+            extracted,
+            sources.biosample_manifest,
+            sources.bioproject_manifest,
+        )
 
 
 @pytest.mark.parametrize(
@@ -763,7 +804,7 @@ def test_run_source_reporting_preserves_both_identities_and_biosample_date(
             unreviewed_count=0,
             uncertain_count=0,
             review_artifact_paths={},
-            source_snapshot_id="biosample-test",
+            biosample_snapshot_id="biosample-test",
             bioproject_snapshot_id="bioproject-test",
             metadata_reference_date=date(2026, 7, 9),
             bundle_provenance_path=tmp_path / "extracted.provenance.yaml",
@@ -775,4 +816,6 @@ def test_run_source_reporting_preserves_both_identities_and_biosample_date(
     document = json.loads(outputs.diagnostics.read_text(encoding="utf-8"))
     assert document["source"]["biosample"]["snapshot_id"] == "biosample-test"
     assert document["source"]["bioproject"]["snapshot_id"] == "bioproject-test"
-    assert document["source"]["metadata_reference_date"] == "2026-07-09"
+    assert document["source"]["biosample"]["metadata_reference_date"] == "2026-07-09"
+    assert "snapshot_id" not in document["source"]
+    assert "metadata_reference_date" not in document["source"]

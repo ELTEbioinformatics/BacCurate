@@ -243,13 +243,13 @@ class RunDiagnostics:
         *,
         source_xml_path: Path,
         extracted_metadata_path: Path,
-        source_manifest_path: Path,
+        biosample_manifest_path: Path,
         bioproject_source_xml_path: Path = DEFAULT_BIOPROJECT_XML_INPUT,
         bioproject_manifest_path: Path = DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
     ) -> None:
         """Record what is known before extraction starts."""
         try:
-            biosample_manifest = SourceSnapshotManifest.load(source_manifest_path)
+            biosample_manifest = SourceSnapshotManifest.load(biosample_manifest_path)
             bioproject_manifest = SourceSnapshotManifest.load(bioproject_manifest_path)
         except SourceSnapshotError:
             biosample_manifest = None
@@ -269,7 +269,7 @@ class RunDiagnostics:
         self,
         *,
         extracted_metadata_path: Path,
-        source_manifest_path: Path,
+        biosample_manifest_path: Path,
         bioproject_manifest_path: Path = DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
     ) -> None:
         """Record what can be verified about a reused extracted TSV."""
@@ -279,11 +279,13 @@ class RunDiagnostics:
             extracted_record_count = sum(1 for row in reader if row)
 
         try:
-            biosample_manifest = validate_derived_metadata_source(
+            source_contract = validate_derived_metadata_source(
                 extracted_metadata_path,
-                source_manifest_path,
+                biosample_manifest_path,
+                bioproject_manifest_path,
             )
-            bioproject_manifest = SourceSnapshotManifest.load(bioproject_manifest_path)
+            biosample_manifest = source_contract.biosample
+            bioproject_manifest = source_contract.bioproject
         except SourceSnapshotError:
             # Keep both identities or neither, so a failed
             # BioProject load never leaves a half-populated source document.
@@ -492,9 +494,6 @@ def _source_document(
 ) -> dict[str, object]:
     reference_date = metadata_reference_date.isoformat()
     return {
-        # Retained during expansion for existing diagnostics consumers.
-        "snapshot_id": biosample_snapshot_id,
-        "metadata_reference_date": reference_date,
         "biosample": {
             "snapshot_id": biosample_snapshot_id,
             "metadata_reference_date": reference_date,

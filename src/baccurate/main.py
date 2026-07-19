@@ -30,6 +30,7 @@ from baccurate.paths import (
     OUTPUT_DIR,
     PATHOGENS_YAML,
 )
+from baccurate.prompt_snapshot import write_prompt_snapshot
 from baccurate.run_outputs import (
     RunContext,
     RunDiagnostics,
@@ -38,7 +39,6 @@ from baccurate.run_outputs import (
     RunStatus,
     processed_rows,
 )
-from baccurate.prompt_snapshot import write_prompt_snapshot
 from baccurate.utils.compressed_io import open_text
 from baccurate.utils.logging import configure_run_logging
 from baccurate.utils.progress import progress_context
@@ -284,7 +284,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     source_xml_path=biosample_input_path,
                     bioproject_source_xml_path=DEFAULT_BIOPROJECT_XML_INPUT,
                     extracted_metadata_path=extracted_metadata_path,
-                    source_manifest_path=DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
+                    biosample_manifest_path=DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
                     bioproject_manifest_path=DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
                 )
                 extraction_started = monotonic()
@@ -311,7 +311,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             else:
                 diagnostics.record_reused_extraction(
                     extracted_metadata_path=extracted_metadata_path,
-                    source_manifest_path=DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
+                    biosample_manifest_path=DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
                     bioproject_manifest_path=DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
                 )
                 diagnostics.transition(RunPhase.DATASET_STREAMING)
@@ -320,7 +320,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             logger.info("Streaming started")
             request = DatasetBuildRequest(
                 extracted_metadata=extracted_metadata_path,
-                source_snapshot_manifest=DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
+                biosample_snapshot_manifest=DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
+                bioproject_snapshot_manifest=DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
                 requested_pathogens=tuple(names),
                 requested_attributes=active_attributes,
                 final_destination=outputs.dataset,

@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from baccurate.run_outputs import RunContext, RunDiagnostics, RunOutputs
 from baccurate.prompt_snapshot import write_prompt_snapshot
+from baccurate.run_outputs import RunContext, RunDiagnostics, RunOutputs
 
 
 def _write_prompt_configs(tmp_path: Path) -> tuple[Path, Path]:
@@ -43,7 +43,6 @@ def _write_prompt_configs(tmp_path: Path) -> tuple[Path, Path]:
         encoding="utf-8",
     )
     return location, isolation
-
 
 
 def test_prompt_snapshot_omits_unselected_pipeline_and_optional_version(tmp_path: Path) -> None:

@@ -287,10 +287,13 @@ def bioproject_catalog_path_for(extracted_metadata_path: Path | str) -> Path:
 
 
 def validate_derived_metadata_source(
-    extracted_metadata_path: Path | str, manifest_path: Path | str
-) -> SourceSnapshotManifest:
-    """Validate a derived bundle's provenance and return its source manifest."""
-    manifest = SourceSnapshotManifest.load(manifest_path)
+    extracted_metadata_path: Path | str,
+    biosample_manifest_path: Path | str,
+    bioproject_manifest_path: Path | str,
+) -> PairedSourceContract:
+    """Validate a derived bundle and return both source manifest identities."""
+    biosample_manifest = SourceSnapshotManifest.load(biosample_manifest_path)
+    bioproject_manifest = SourceSnapshotManifest.load(bioproject_manifest_path)
     provenance_path = provenance_path_for(extracted_metadata_path)
     try:
         raw = yaml.safe_load(provenance_path.read_text(encoding="utf-8"))
@@ -305,18 +308,18 @@ def validate_derived_metadata_source(
             f"Invalid derived bundle provenance {provenance_path}: {exc}"
         ) from exc
 
-    source_reference = bundle.source_manifests.biosample
-    if source_reference.snapshot_id != manifest.snapshot_id:
-        raise SourceSnapshotError(
-            "Derived metadata snapshot identity mismatch: expected "
-            f"{manifest.snapshot_id}, found {source_reference.snapshot_id}"
-        )
-    expected_hash = sha256_file(manifest_path)
-    if source_reference.sha256 != expected_hash:
-        raise SourceSnapshotError(
-            "Derived metadata source manifest checksum mismatch: expected "
-            f"{expected_hash}, found {source_reference.sha256}"
-        )
+    _validate_manifest_reference(
+        role="BioSample",
+        manifest_path=Path(biosample_manifest_path),
+        manifest=biosample_manifest,
+        reference=bundle.source_manifests.biosample,
+    )
+    _validate_manifest_reference(
+        role="BioProject",
+        manifest_path=Path(bioproject_manifest_path),
+        manifest=bioproject_manifest,
+        reference=bundle.source_manifests.bioproject,
+    )
     _validate_bundle_artifact(
         role="extracted TSV",
         expected_path=Path(extracted_metadata_path),
@@ -327,7 +330,35 @@ def validate_derived_metadata_source(
         expected_path=bioproject_catalog_path_for(extracted_metadata_path),
         reference=bundle.artifacts.bioproject_context,
     )
-    return manifest
+    return PairedSourceContract(
+        biosample=biosample_manifest,
+        bioproject=bioproject_manifest,
+    )
+
+
+def _validate_manifest_reference(
+    *,
+    role: Literal["BioSample", "BioProject"],
+    manifest_path: Path,
+    manifest: SourceSnapshotManifest,
+    reference: ManifestReference,
+) -> None:
+    if reference.path != str(manifest_path):
+        raise SourceSnapshotError(
+            f"Derived {role} source manifest path mismatch: expected "
+            f"{manifest_path}, found {reference.path}"
+        )
+    if reference.snapshot_id != manifest.snapshot_id:
+        raise SourceSnapshotError(
+            f"Derived {role} snapshot identity mismatch: expected "
+            f"{manifest.snapshot_id}, found {reference.snapshot_id}"
+        )
+    expected_hash = sha256_file(manifest_path)
+    if reference.sha256 != expected_hash:
+        raise SourceSnapshotError(
+            f"Derived {role} source manifest checksum mismatch: expected "
+            f"{expected_hash}, found {reference.sha256}"
+        )
 
 
 def _validate_bundle_artifact(

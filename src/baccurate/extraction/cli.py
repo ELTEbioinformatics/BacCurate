@@ -46,15 +46,11 @@ class ExtractionReport:
     unreviewed_count: int
     uncertain_count: int
     review_artifact_paths: dict[str, Path]
-    source_snapshot_id: str
+    biosample_snapshot_id: str
     bioproject_snapshot_id: str
     metadata_reference_date: date
     bundle_provenance_path: Path
     bioproject_catalog_path: Path
-
-    @property
-    def biosample_snapshot_id(self) -> str:
-        return self.source_snapshot_id
 
 
 def run_extraction(
@@ -179,7 +175,7 @@ def run_extraction(
         unreviewed_count=review_reports.unreviewed_count,
         uncertain_count=review_reports.uncertain_count,
         review_artifact_paths=review_artifact_paths,
-        source_snapshot_id=source_contract.biosample.snapshot_id,
+        biosample_snapshot_id=source_contract.biosample.snapshot_id,
         bioproject_snapshot_id=source_contract.bioproject.snapshot_id,
         metadata_reference_date=source_contract.metadata_reference_date,
         bundle_provenance_path=bundle_provenance_path,
