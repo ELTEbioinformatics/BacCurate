@@ -5,6 +5,7 @@ import csv
 import logging
 import os
 import tempfile
+from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -16,6 +17,7 @@ from baccurate.extraction.bioproject import (
     BioProjectContext,
     resolve_bioproject_contexts,
     write_bioproject_catalog,
+    write_unresolved_bioproject_links,
 )
 from baccurate.extraction.curation import CurationSchema
 from baccurate.extraction.io import load_pathogen_map
@@ -88,7 +90,7 @@ def run_extraction(
     catalog_path = bioproject_catalog_path_for(output_path)
     bundle_provenance_path = provenance_path_for(output_path)
     extracted_record_count = 0
-    linked_project_ids: set[str] = set()
+    linked_project_samples: dict[str, set[str]] = defaultdict(set)
 
     with tempfile.TemporaryDirectory(
         prefix=f".{output_path.stem}-", dir=output_path.parent
@@ -107,7 +109,7 @@ def run_extraction(
             ) as bar:
                 for xml_file in biosample_paths:
                     logger.info("Parsing %s...", xml_file)
-                    for accession, candidates, bioproject_id in process_biosample_xml(
+                    for accession, candidates, bioproject_ids in process_biosample_xml(
                         str(xml_file), curation_schema.evaluate, counters
                     ):
                         for decision in candidates:
@@ -118,20 +120,20 @@ def run_extraction(
                         row = record_row(
                             accession=accession,
                             pathogen=pathogen,
-                            bioproject_id=bioproject_id,
+                            bioproject_id="||".join(bioproject_ids),
                             bioproject_accession="",
                             candidates=candidates,
                         )
                         if row is not None:
                             writer.writerow(row)
                             extracted_record_count += 1
-                            if bioproject_id:
-                                linked_project_ids.add(bioproject_id)
+                            for project_id in bioproject_ids:
+                                linked_project_samples[project_id].add(accession)
                     bar.update(1)
 
         resolved_projects = resolve_bioproject_contexts(
             paths.DEFAULT_BIOPROJECT_XML_INPUT,
-            linked_project_ids,
+            linked_project_samples,
         )
         _write_resolved_rows(spool_path, temporary_output_path, resolved_projects)
         write_bioproject_catalog(resolved_projects.values(), temporary_catalog_path)
@@ -146,6 +148,13 @@ def run_extraction(
         provenance.write(temporary_provenance_path)
 
         review_artifact_paths = review_reports.write(output_path.parent)
+        unresolved_path = write_unresolved_bioproject_links(
+            linked_project_samples,
+            resolved_projects.keys(),
+            output_path.parent / "unresolved_bioproject_links.tsv",
+        )
+        if unresolved_path is not None:
+            review_artifact_paths["unresolved_bioproject_links"] = unresolved_path
         if review_reports.has_unreviewed:
             logger.warning(
                 "Unreviewed metadata attributes were excluded. See unreviewed_attributes.tsv"
@@ -196,8 +205,14 @@ def _write_resolved_rows(
         )
         writer.writeheader()
         for row in reader:
-            context = resolved_projects.get(row["bioproject_id"])
-            row["bioproject_accession"] = context.accession if context is not None else ""
+            project_ids = row["bioproject_id"].split("||") if row["bioproject_id"] else ()
+            row["bioproject_accession"] = "||".join(
+                sorted(
+                    resolved_projects[project_id].accession
+                    for project_id in project_ids
+                    if project_id in resolved_projects
+                )
+            )
             writer.writerow(row)
 
 

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import csv
 import html
 import json
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -66,6 +67,13 @@ class BioProjectContext:
         }
 
 
+def require_numeric_bioproject_id(project_id: str) -> None:
+    if not project_id or not project_id.isascii() or not project_id.isdecimal():
+        raise SourceSnapshotError(
+            f"Linked BioProject record requires numeric ID, found {project_id!r}"
+        )
+
+
 def resolve_bioproject_contexts(
     input_file: str | Path, linked_ids: Iterable[str]
 ) -> dict[str, BioProjectContext]:
@@ -75,6 +83,7 @@ def resolve_bioproject_contexts(
         return {}
 
     resolved: dict[str, BioProjectContext] = {}
+    project_id_by_accession: dict[str, str] = {}
     with open_binary(input_file) as stream:
         context = etree.iterparse(
             stream,
@@ -95,7 +104,19 @@ def resolve_bioproject_contexts(
                     )
                     if project_id not in wanted:
                         continue
-                    resolved[project_id] = _project_context(record, archive_id)
+                    if project_id in resolved:
+                        raise SourceSnapshotError(
+                            f"Duplicate linked BioProject ID {project_id!r} in source snapshot"
+                        )
+                    project = _project_context(record, archive_id)
+                    previous_id = project_id_by_accession.get(project.accession)
+                    if previous_id is not None:
+                        raise SourceSnapshotError(
+                            "Duplicate linked BioProject accession "
+                            f"{project.accession!r} for IDs {previous_id!r} and {project_id!r}"
+                        )
+                    resolved[project_id] = project
+                    project_id_by_accession[project.accession] = project_id
                 finally:
                     _clear_record(record)
         finally:
@@ -121,15 +142,46 @@ def write_bioproject_catalog(
     return path
 
 
+# How many BioSample accessions to list per unresolved link as evidence.
+_REPRESENTATIVE_SAMPLE_LIMIT = 3
+
+
+def write_unresolved_bioproject_links(
+    linked_samples: Mapping[str, set[str]],
+    resolved_ids: Iterable[str],
+    destination: Path | str,
+) -> Path | None:
+    """Write missing linked IDs with counts and representative BioSamples.
+
+    Returns the written path, or None when every link resolved and no
+    artifact was produced.
+    """
+    unresolved_ids = linked_samples.keys() - set(resolved_ids)
+    if not unresolved_ids:
+        return None
+    path = Path(destination)
+    with path.open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.writer(stream, delimiter="\t", lineterminator="\n")
+        writer.writerow(("bioproject_id", "count", "representative_biosample_accessions"))
+        for project_id in sorted(unresolved_ids):
+            accessions = sorted(linked_samples[project_id])
+            representatives = "||".join(accessions[:_REPRESENTATIVE_SAMPLE_LIMIT])
+            writer.writerow((project_id, len(accessions), representatives))
+    return path
+
+
 def _project_context(record: etree._Element, archive_id: etree._Element) -> BioProjectContext:
     project_id = (archive_id.get("id") or "").strip()
     accession = (archive_id.get("accession") or "").strip()
     title = _clean_project_text(record.find(".//ProjectDescr/Title"))
     description = _clean_project_text(record.find(".//ProjectDescr/Description"))
-    if not project_id or not accession or not title:
+    require_numeric_bioproject_id(project_id)
+    if not accession:
         raise SourceSnapshotError(
-            "Linked BioProject record requires numeric ID, canonical accession, and title"
+            f"Linked BioProject ID {project_id!r} requires canonical accession"
         )
+    if not title:
+        raise SourceSnapshotError(f"Linked BioProject ID {project_id!r} requires title")
 
     relevance_element = record.find(".//ProjectDescr/Relevance")
     relevance = tuple(
@@ -150,7 +202,7 @@ def _project_context(record: etree._Element, archive_id: etree._Element) -> BioP
 def _clean_project_text(element: etree._Element | None) -> str:
     if element is None:
         return ""
-    raw = "".join(element.itertext())
+    raw = _readable_fragment_text(element)
     unescaped = html.unescape(raw)
     try:
         fragment = lxml_html.fragment_fromstring(unescaped, create_parent="div")

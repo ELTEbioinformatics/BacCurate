@@ -99,6 +99,25 @@ def _configure_internal_paths(monkeypatch: pytest.MonkeyPatch, sources: _PairedS
     monkeypatch.setattr(paths, "DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST", sources.bioproject_manifest)
 
 
+def _replace_source_contents(
+    sources: _PairedSources, *, biosample_xml: bytes, bioproject_xml: bytes
+) -> None:
+    biosample_hash = _write_snapshot(sources.biosample, biosample_xml)
+    bioproject_hash = _write_snapshot(sources.bioproject, bioproject_xml)
+    _write_manifest(
+        sources.biosample_manifest,
+        snapshot_id="biosample-test",
+        source=sources.biosample,
+        sha256=biosample_hash,
+    )
+    _write_manifest(
+        sources.bioproject_manifest,
+        snapshot_id="bioproject-test",
+        source=sources.bioproject,
+        sha256=bioproject_hash,
+    )
+
+
 def test_paired_source_contract_validates_both_compressed_snapshots(tmp_path: Path) -> None:
     sources = _paired_sources(tmp_path)
 
@@ -330,6 +349,310 @@ def test_extraction_publishes_provenance_bound_bioproject_context_bundle(
             "sha256": sha256_file(catalog),
         },
     }
+
+
+def test_extraction_preserves_linked_project_sets_and_unresolved_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sources = _paired_sources(tmp_path)
+    samples = "".join(
+        f"""
+  <BioSample accession="{accession}">
+    <Attributes><Attribute attribute="isolation_source">soil</Attribute></Attributes>
+    {links}
+  </BioSample>"""
+        for accession, links in (
+            (
+                "SAMN00000001",
+                '<Links><Link target="bioproject">3</Link><Link target="bioproject">2</Link>'
+                '<Link target="bioproject">2</Link><Link target="bioproject">1</Link></Links>',
+            ),
+            (
+                "SAMN00000002",
+                '<Links><Link target="bioproject">99</Link><Link target="bioproject">2</Link>'
+                '<Link target="bioproject">99</Link></Links>',
+            ),
+            ("SAMN00000003", '<Links><Link target="bioproject">98</Link></Links>'),
+            ("SAMN00000004", ""),
+        )
+    )
+    samples += """
+  <BioSample accession="SAMN00000005">
+    <Links><Link target="bioproject">1</Link><Link target="bioproject">99</Link></Links>
+  </BioSample>"""
+    _replace_source_contents(
+        sources,
+        biosample_xml=f"<BioSampleSet>{samples}</BioSampleSet>".encode(),
+        bioproject_xml=b"""\
+<PackageSet>
+  <Package><Project><Project><ProjectID><ArchiveID accession="PRJNA300" id="3" /></ProjectID>
+    <ProjectDescr><Title>Third</Title></ProjectDescr></Project></Project></Package>
+  <Package><Project><Project><ProjectID><ArchiveID accession="PRJNA100" id="1" /></ProjectID>
+    <ProjectDescr><Title>First</Title></ProjectDescr></Project></Project></Package>
+  <Package><Project><Project><ProjectID><ArchiveID accession="PRJNA200" id="2" /></ProjectID>
+    <ProjectDescr><Title>Second</Title></ProjectDescr></Project></Project></Package>
+</PackageSet>
+""",
+    )
+    _configure_internal_paths(monkeypatch, sources)
+    index = tmp_path / "biosample_index.tsv"
+    index.write_text(
+        "accession\tpathogen_biosample\n"
+        "SAMN00000001\tecoli\n"
+        "SAMN00000002\tecoli\n"
+        "SAMN00000003\tecoli\n"
+        "SAMN00000004\tecoli\n"
+        "SAMN00000005\tecoli\n",
+        encoding="utf-8",
+    )
+    extracted = tmp_path / "linked_sets.tsv"
+
+    report = run_extraction(
+        output_path=extracted,
+        index_path=index,
+        disable_progress=True,
+    )
+
+    with extracted.open(newline="", encoding="utf-8") as stream:
+        rows = {row["accession"]: row for row in csv.DictReader(stream, delimiter="\t")}
+    assert rows["SAMN00000001"]["bioproject_id"] == "1||2||3"
+    assert rows["SAMN00000001"]["bioproject_accession"] == ("PRJNA100||PRJNA200||PRJNA300")
+    assert rows["SAMN00000002"]["bioproject_id"] == "2||99"
+    assert rows["SAMN00000002"]["bioproject_accession"] == "PRJNA200"
+    assert rows["SAMN00000003"]["bioproject_id"] == "98"
+    assert rows["SAMN00000003"]["bioproject_accession"] == ""
+    assert rows["SAMN00000004"]["bioproject_id"] == ""
+    assert rows["SAMN00000004"]["bioproject_accession"] == ""
+    assert rows["SAMN00000005"]["bioproject_id"] == "1||99"
+    assert rows["SAMN00000005"]["bioproject_accession"] == "PRJNA100"
+
+    catalog = bioproject_catalog_path_for(extracted)
+    assert catalog.read_text(encoding="utf-8") == (
+        '{"id":"1","accession":"PRJNA100","title":"First","description":"","relevance":[]}\n'
+        '{"id":"2","accession":"PRJNA200","title":"Second","description":"","relevance":[]}\n'
+        '{"id":"3","accession":"PRJNA300","title":"Third","description":"","relevance":[]}\n'
+    )
+    unresolved = tmp_path / "unresolved_bioproject_links.tsv"
+    assert report.review_artifact_paths["unresolved_bioproject_links"] == unresolved
+    assert unresolved.read_text(encoding="utf-8") == (
+        "bioproject_id\tcount\trepresentative_biosample_accessions\n"
+        "98\t1\tSAMN00000003\n"
+        "99\t2\tSAMN00000002||SAMN00000005\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("project_records", "message"),
+    [
+        (
+            '<Package><ArchiveID accession="PRJNA1" id="1" />'
+            "<ProjectDescr><Title>First</Title></ProjectDescr></Package>"
+            '<Package><ArchiveID accession="PRJNA1-duplicate" id="1" />'
+            "<ProjectDescr><Title>Duplicate ID</Title></ProjectDescr></Package>",
+            "Duplicate linked BioProject ID '1'",
+        ),
+        (
+            '<Package><ArchiveID accession="PRJNA1" id="1" />'
+            "<ProjectDescr><Title>First</Title></ProjectDescr></Package>"
+            '<Package><ArchiveID accession="PRJNA1" id="2" />'
+            "<ProjectDescr><Title>Duplicate accession</Title></ProjectDescr></Package>",
+            "Duplicate linked BioProject accession 'PRJNA1'",
+        ),
+    ],
+)
+def test_extraction_rejects_duplicate_linked_project_identity_without_publishing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    project_records: str,
+    message: str,
+) -> None:
+    sources = _paired_sources(tmp_path)
+    _replace_source_contents(
+        sources,
+        biosample_xml=b"""\
+<BioSampleSet><BioSample accession="SAMN00000001">
+  <Attributes><Attribute attribute="isolation_source">soil</Attribute></Attributes>
+  <Links><Link target="bioproject">1</Link><Link target="bioproject">2</Link></Links>
+</BioSample></BioSampleSet>
+""",
+        bioproject_xml=f"<PackageSet>{project_records}</PackageSet>".encode(),
+    )
+    _configure_internal_paths(monkeypatch, sources)
+    index = tmp_path / "biosample_index.tsv"
+    index.write_text(
+        "accession\tpathogen_biosample\nSAMN00000001\tecoli\n",
+        encoding="utf-8",
+    )
+    extracted = tmp_path / "duplicate.tsv"
+
+    with pytest.raises(SourceSnapshotError, match=message):
+        run_extraction(
+            output_path=extracted,
+            index_path=index,
+            disable_progress=True,
+        )
+
+    assert not extracted.exists()
+    assert not bioproject_catalog_path_for(extracted).exists()
+    assert not provenance_path_for(extracted).exists()
+
+
+@pytest.mark.parametrize(
+    ("project_id", "archive_attributes", "description", "message"),
+    [
+        ("not-numeric", 'id="not-numeric" accession="PRJNA1"', "Title", "numeric ID"),
+        ("1", 'id="1"', "Title", "ID '1' requires canonical accession"),
+        ("1", 'id="1" accession="PRJNA1"', "", "ID '1' requires title"),
+    ],
+)
+def test_extraction_rejects_incomplete_linked_project_records_precisely(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    project_id: str,
+    archive_attributes: str,
+    description: str,
+    message: str,
+) -> None:
+    sources = _paired_sources(tmp_path)
+    _replace_source_contents(
+        sources,
+        biosample_xml=(
+            '<BioSampleSet><BioSample accession="SAMN00000001">'
+            '<Attributes><Attribute attribute="isolation_source">soil</Attribute></Attributes>'
+            f'<Links><Link target="bioproject">{project_id}</Link></Links>'
+            "</BioSample></BioSampleSet>"
+        ).encode(),
+        bioproject_xml=(
+            f"<PackageSet><Package><ArchiveID {archive_attributes} />"
+            f"<ProjectDescr><Title>{description}</Title></ProjectDescr>"
+            "</Package></PackageSet>"
+        ).encode(),
+    )
+    _configure_internal_paths(monkeypatch, sources)
+    index = tmp_path / "biosample_index.tsv"
+    index.write_text(
+        "accession\tpathogen_biosample\nSAMN00000001\tecoli\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SourceSnapshotError, match=message):
+        run_extraction(
+            output_path=tmp_path / "invalid.tsv",
+            index_path=index,
+            disable_progress=True,
+        )
+
+
+def test_equivalent_link_and_project_order_produces_byte_stable_data_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sources = _paired_sources(tmp_path)
+    _configure_internal_paths(monkeypatch, sources)
+    index = tmp_path / "biosample_index.tsv"
+    index.write_text(
+        "accession\tpathogen_biosample\nSAMN00000001\tecoli\n",
+        encoding="utf-8",
+    )
+    sample_template = """\
+<BioSampleSet><BioSample accession="SAMN00000001">
+  <Attributes><Attribute attribute="isolation_source">soil</Attribute></Attributes>
+  <Links>{links}</Links>
+</BioSample></BioSampleSet>
+"""
+    long_tail = "Z" * 5000
+    project_one = f"""\
+<Package><ArchiveID accession="PRJNA1" id="1" /><ProjectDescr>
+  <Title>Mixed <i>Case</i> &amp; complete</Title>
+  <Description><p>Alpha &amp; beta</p><ul><li>Gamma</li><li>Delta</li></ul> {long_tail}</Description>
+</ProjectDescr></Package>
+"""
+    project_two = """\
+<Package><ArchiveID accession="PRJNA2" id="2" /><ProjectDescr>
+  <Title>Second</Title><Description />
+  <Relevance><Agricultural>true</Agricultural><Medical>yes</Medical></Relevance>
+</ProjectDescr></Package>
+"""
+
+    outputs = []
+    for stem, links, projects in (
+        (
+            "ordered_a",
+            '<Link target="bioproject">2</Link><Link target="bioproject">1</Link>',
+            project_two + project_one,
+        ),
+        (
+            "ordered_b",
+            '<Link target="bioproject">1</Link><Link target="bioproject">2</Link>',
+            project_one + project_two,
+        ),
+    ):
+        _replace_source_contents(
+            sources,
+            biosample_xml=sample_template.format(links=links).encode(),
+            bioproject_xml=f"<PackageSet>{projects}</PackageSet>".encode(),
+        )
+        extracted = tmp_path / f"{stem}.tsv"
+        run_extraction(output_path=extracted, index_path=index, disable_progress=True)
+        outputs.append(
+            (extracted.read_bytes(), bioproject_catalog_path_for(extracted).read_bytes())
+        )
+
+    assert outputs[0] == outputs[1]
+    catalog_objects = [json.loads(line) for line in outputs[0][1].decode().splitlines()]
+    assert catalog_objects == [
+        {
+            "id": "1",
+            "accession": "PRJNA1",
+            "title": "Mixed Case & complete",
+            "description": f"Alpha & beta Gamma Delta {long_tail}",
+            "relevance": [],
+        },
+        {
+            "id": "2",
+            "accession": "PRJNA2",
+            "title": "Second",
+            "description": "",
+            "relevance": ["Agricultural"],
+        },
+    ]
+
+
+@pytest.mark.parametrize("member", ["extracted_metadata", "bioproject_context"])
+@pytest.mark.parametrize("failure", ["missing", "changed", "mismatched"])
+def test_derived_bundle_validation_rejects_each_invalid_member_before_streaming(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    member: str,
+    failure: str,
+) -> None:
+    sources = _paired_sources(tmp_path)
+    _configure_internal_paths(monkeypatch, sources)
+    index = tmp_path / "biosample_index.tsv"
+    index.write_text("accession\tpathogen_biosample\n", encoding="utf-8")
+    extracted = tmp_path / "validated_bundle.tsv"
+    run_extraction(output_path=extracted, index_path=index, disable_progress=True)
+    catalog = bioproject_catalog_path_for(extracted)
+    provenance = provenance_path_for(extracted)
+    artifact = extracted if member == "extracted_metadata" else catalog
+    role = "extracted TSV" if member == "extracted_metadata" else "BioProject context catalog"
+
+    if failure == "missing":
+        artifact.unlink()
+        detail = "not found"
+    elif failure == "changed":
+        artifact.write_bytes(artifact.read_bytes() + b"changed")
+        detail = "checksum mismatch"
+    else:
+        provenance_record = yaml.safe_load(provenance.read_text(encoding="utf-8"))
+        provenance_record["artifacts"][member]["path"] = f"wrong-{artifact.name}"
+        provenance.write_text(
+            yaml.safe_dump(provenance_record, sort_keys=False),
+            encoding="utf-8",
+        )
+        detail = "path mismatch"
+
+    with pytest.raises(SourceSnapshotError, match=f"Derived {role} {detail}"):
+        validate_derived_metadata_source(extracted, sources.biosample_manifest)
 
 
 def test_interrupted_bundle_publication_cannot_leave_valid_provenance(

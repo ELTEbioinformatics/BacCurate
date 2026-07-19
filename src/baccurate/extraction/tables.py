@@ -36,7 +36,9 @@ def record_row(
             if match.target == "date":
                 date_categories.append(match.category)
 
-    if not found:
+    # Keep rows that carry only a BioProject link, so unresolved-only samples
+    # stay in the dataset, distinct from fully unlinked ones that we drop.
+    if not found and not bioproject_id:
         return None
 
     row = [
