@@ -127,6 +127,7 @@ class IsolationDiagnostic(StrEnum):
     CACHE_HIT = "cache_hit"
     LLM_CALL = "llm_call"
     UNSPECIFIED = "unspecified"
+    UNRESOLVED_BIOPROJECT_LINK = "unresolved_bioproject_link"
 
 
 @dataclass(frozen=True, slots=True)
@@ -933,20 +934,26 @@ class IsoStandardizer:
             values = "||".join(part for part in (values, overflow.value) if part)
 
         origins = _isolation_origins(accession, attributes, values)
+        linked_project_ids = split_pipe_separated(str(record.get("bioproject_id", "") or ""))
+        linked_project_accessions = split_pipe_separated(
+            str(record.get("bioproject_accession", "") or "")
+        )
+        has_unresolved_project_link = len(linked_project_ids) > len(linked_project_accessions)
         # Resolve linked accessions to catalog projects, dropping unresolved
         # ones, deduping, and ordering canonically by accession.
         resolved_projects = {
             linked_accession: project
-            for linked_accession in split_pipe_separated(
-                str(record.get("bioproject_accession", "") or "")
-            )
+            for linked_accession in linked_project_accessions
             if (project := self._projects_by_accession.get(linked_accession)) is not None
         }
         project_contexts = tuple(
             resolved_projects[accession] for accession in sorted(resolved_projects)
         )
         if not origins and not project_contexts:
-            return IsolationRejection((IsolationDiagnostic.NO_CANDIDATES,))
+            diagnostics = [IsolationDiagnostic.NO_CANDIDATES]
+            if has_unresolved_project_link:
+                diagnostics.append(IsolationDiagnostic.UNRESOLVED_BIOPROJECT_LINK)
+            return IsolationRejection(tuple(diagnostics))
 
         before = dict(self.pipeline.stats)
         standardized = self.pipeline.standardize_record(
@@ -968,6 +975,8 @@ class IsoStandardizer:
             diagnostics.append(IsolationDiagnostic.LLM_CALL)
         if not standardized.term_paths:
             diagnostics.append(IsolationDiagnostic.UNSPECIFIED)
+        if has_unresolved_project_link:
+            diagnostics.append(IsolationDiagnostic.UNRESOLVED_BIOPROJECT_LINK)
         return IsolationOutcome(
             categories=standardized.categories,
             display_terms=standardized.display_terms,

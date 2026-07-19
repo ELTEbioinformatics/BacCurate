@@ -110,7 +110,7 @@ def _write_derived_bundle(
     *,
     rows: list[dict[str, str]],
     projects: list[dict[str, object]],
-) -> tuple[Path, Path]:
+) -> tuple[Path, Path, Path]:
     manifest = SourceSnapshotManifest(
         manifest_version=1,
         snapshot_id="biosample-test",
@@ -127,6 +127,24 @@ def _write_derived_bundle(
     manifest_path = tmp_path / "biosample_snapshot.yaml"
     manifest_path.write_text(
         yaml.safe_dump(manifest.model_dump(mode="json"), sort_keys=False),
+        encoding="utf-8",
+    )
+    bioproject_manifest = SourceSnapshotManifest(
+        manifest_version=1,
+        snapshot_id="bioproject-test",
+        provider="test",
+        retrieved_on=date(2026, 1, 1),
+        metadata_reference_date=date(2026, 1, 1),
+        files=(
+            {
+                "name": "bioproject.xml.gz",
+                "sha256": "1" * 64,
+            },
+        ),
+    )
+    bioproject_manifest_path = tmp_path / "bioproject_snapshot.yaml"
+    bioproject_manifest_path.write_text(
+        yaml.safe_dump(bioproject_manifest.model_dump(mode="json"), sort_keys=False),
         encoding="utf-8",
     )
 
@@ -155,8 +173,8 @@ def _write_derived_bundle(
             ),
             bioproject=ManifestReference(
                 snapshot_id="bioproject-test",
-                path="bioproject_snapshot.yaml",
-                sha256="1" * 64,
+                path=str(bioproject_manifest_path),
+                sha256=sha256_file(bioproject_manifest_path),
             ),
         ),
         artifacts=DerivedArtifactReferences(
@@ -170,7 +188,7 @@ def _write_derived_bundle(
             ),
         ),
     ).write(provenance_path_for(extracted))
-    return extracted, manifest_path
+    return extracted, manifest_path, bioproject_manifest_path
 
 
 def _build_isolation_run(
@@ -181,7 +199,7 @@ def _build_isolation_run(
     fake: FakeClient,
 ) -> SimpleNamespace:
     tmp_path.mkdir(parents=True, exist_ok=True)
-    extracted, manifest = _write_derived_bundle(
+    extracted, biosample_manifest, bioproject_manifest = _write_derived_bundle(
         tmp_path,
         rows=rows,
         projects=projects,
@@ -206,7 +224,8 @@ def _build_isolation_run(
     report = DatasetBuilder(isolation_standardizer_factory=isolation_factory).build(
         DatasetBuildRequest(
             extracted_metadata=extracted,
-            source_snapshot_manifest=manifest,
+            biosample_snapshot_manifest=biosample_manifest,
+            bioproject_snapshot_manifest=bioproject_manifest,
             requested_pathogens=("ecoli",),
             requested_attributes=(StandardizationAttribute.ISOLATION_SOURCE,),
             final_destination=final_destination,
@@ -236,6 +255,33 @@ def _build_isolation_dataset(
         projects=projects,
         fake=fake,
     ).dataset
+
+
+def _project_supported_outcome(
+    host_context: str,
+    origins: tuple[IsolationOrigin, ...],
+) -> IsolationOutcome:
+    """A BioProject-evidence outcome that stays eligible for a host retry.
+
+    term_paths must stay under a HOST_RETRY_TRIGGERS prefix, otherwise
+    IsolationOutcome.host_retry_eligible is False and no host retry happens,
+    which is what the retry test exercises.
+    """
+    return IsolationOutcome(
+        categories="environmental",
+        display_terms="meat product",
+        ontology_links="FOODON:00001006",
+        term_paths="environmental:anthropogenic environment:food:animal product:meat product",
+        evidence_level=IsolationEvidenceLevel.PROJECT,
+        host_context=host_context,
+        origins=origins,
+        sample_origins=origins,
+        reasoning=(),
+        diagnostics=(IsolationDiagnostic.LLM_CALL,),
+        exact_matches=0,
+        cache_hits=0,
+        llm_calls=1,
+    )
 
 
 def test_project_supported_host_retry_uses_only_raw_sample_origins(tmp_path: Path) -> None:
@@ -269,7 +315,11 @@ def test_project_supported_host_retry_uses_only_raw_sample_origins(tmp_path: Pat
             "relevance": ["Agricultural"],
         },
     ]
-    extracted, manifest = _write_derived_bundle(tmp_path, rows=rows, projects=projects)
+    extracted, biosample_manifest, bioproject_manifest = _write_derived_bundle(
+        tmp_path,
+        rows=rows,
+        projects=projects,
+    )
     atb_index = tmp_path / "atb.tsv"
     atb_index.write_text("accession\tin_ATB\tpathogen_ATB\n", encoding="utf-8")
 
@@ -280,23 +330,7 @@ def test_project_supported_host_retry_uses_only_raw_sample_origins(tmp_path: Pat
                 if record["accession"] == "PROJECT_UNLOCKED"
                 else ()
             )
-            return IsolationOutcome(
-                categories="environmental",
-                display_terms="meat product",
-                ontology_links="FOODON:00001006",
-                term_paths=(
-                    "environmental:anthropogenic environment:food:animal product:meat product"
-                ),
-                evidence_level=IsolationEvidenceLevel.PROJECT,
-                host_context=host_context,
-                origins=origins,
-                sample_origins=origins,
-                reasoning=(),
-                diagnostics=(IsolationDiagnostic.LLM_CALL,),
-                exact_matches=0,
-                cache_hits=0,
-                llm_calls=1,
-            )
+            return _project_supported_outcome(host_context, origins)
 
         def close(self) -> None:
             pass
@@ -326,7 +360,8 @@ def test_project_supported_host_retry_uses_only_raw_sample_origins(tmp_path: Pat
     ).build(
         DatasetBuildRequest(
             extracted_metadata=extracted,
-            source_snapshot_manifest=manifest,
+            biosample_snapshot_manifest=biosample_manifest,
+            bioproject_snapshot_manifest=bioproject_manifest,
             requested_pathogens=("ecoli",),
             requested_attributes=(
                 StandardizationAttribute.HOST,
@@ -793,7 +828,10 @@ def test_dataset_build_without_sample_or_resolved_project_keeps_no_candidates(
     assert fake.calls == []
     assert run.reasoning.read_text(encoding="utf-8") == ""
     assert run.report.isolation.aggregate.rejected == 1
-    assert run.report.isolation.aggregate.diagnostics == {IsolationDiagnostic.NO_CANDIDATES: 1}
+    assert run.report.isolation.aggregate.diagnostics == {
+        IsolationDiagnostic.NO_CANDIDATES: 1,
+        IsolationDiagnostic.UNRESOLVED_BIOPROJECT_LINK: 1,
+    }
 
 
 def test_dataset_build_rejects_invalid_project_context_before_classification(
