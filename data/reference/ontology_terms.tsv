@@ -2,29 +2,29 @@ term	display_term	ontology_link	crosslink_term	synonyms	comment	examples
 unspecified	unspecified			other	Select if no meaningful isolation describing keywords (='NA'), or when the only valid description is a complete homonym (e.g. 'swab').
 laboratory	laboratory				In vitro/experimentally derived isolates (lab strains, lab-evolved, synthetic) rather than real-world isolates.
 environmental	environmental
-environmental:natural environment	natural environment				Natural, unmanaged environments not associated with human activity.
+environmental:natural environment	natural environment
 environmental:natural environment:air	air	ENVO:00002005
 environmental:natural environment:terrestrial	terrestrial	ENVO:00000446		terrestrial environment;terrestrial ecosystem;terrestrial habitat
 environmental:natural environment:terrestrial:soil	soil	ENVO:00001998
 environmental:natural environment:aquatic	aquatic	ENVO:00002030		water;aquatic environment;aquatic habitat
 environmental:natural environment:aquatic:fresh water	fresh water	ENVO:00000873
-environmental:natural environment:aquatic:fresh water:stream	stream	ENVO:00000023			Any watercourse (rivers etc.)
+environmental:natural environment:aquatic:fresh water:stream	stream	ENVO:00000023			Any watercourse (e.g. rivers).
 environmental:natural environment:aquatic:ground water	ground water	ENVO:01001004
 environmental:natural environment:aquatic:marine	marine	ENVO:00000447
 environmental:natural environment:aquatic:sediment	sediment	ENVO:00002007
 environmental:anthropogenic environment	anthropogenic environment				Includes food products, agriculture, waste and urban environments.
 environmental:anthropogenic environment:fomite	fomite	ENVO:00010358			Inanimate objects. Do NOT select if the sample is meat, food or closely resembles a natural material.
-environmental:anthropogenic environment:healthcare facility	healthcare facility	ENVO:03501134		clinical	Select if the metadata implies ANY clinical setting.
+environmental:anthropogenic environment:healthcare facility	healthcare facility	ENVO:03501134			Select only for the built healthcare environment (e.g. a hospital room, surface, sink or equipment), not merely because a patient or clinical specimen is mentioned.
 environmental:anthropogenic environment:healthcare facility:clinical device	clinical device	SNOMED:272181003
 environmental:anthropogenic environment:wastewater	wastewater	ENVO:00002001
-environmental:anthropogenic environment:wastewater:sewage	sewage	ENVO:00002018			Unprocessed wastewater (before reaching the treatment plant)
+environmental:anthropogenic environment:wastewater:sewage	sewage	ENVO:00002018			Unprocessed wastewater.
 environmental:anthropogenic environment:wastewater:sludge	sludge	ENVO:00002044
 environmental:anthropogenic environment:farm	farm	ENVO:00000077			Includes non-host specific.
-environmental:anthropogenic environment:farm:manure	manure	ENVO:03501300	feces		Prioritize this over 'fomite' if the inanimate object is in a farming context.
+environmental:anthropogenic environment:farm:manure	manure	ENVO:03501300			Prioritize this over 'fomite' if the inanimate object is in a farming context. May include feces, urine and bedding.
 environmental:anthropogenic environment:food	food	FOODON:00002403
 environmental:anthropogenic environment:food:plant food product	plant food product				Food products which are derived from or produced by a plant.
 environmental:anthropogenic environment:food:fermented food	fermented food	FOODON:00001258
-environmental:anthropogenic environment:food:animal feed	animal feed	FOODON:00004325	farm		Food material for livestock.
+environmental:anthropogenic environment:food:animal feed	animal feed	FOODON:00004325			Food material for livestock.
 environmental:anthropogenic environment:food:animal product	animal food product	FOODON:00004242
 environmental:anthropogenic environment:food:animal product:dairy product	dairy product	FOODON:00001256
 environmental:anthropogenic environment:food:animal product:meat product	meat product	FOODON:00001006
@@ -35,25 +35,27 @@ host-associated	host-associated				Directly derived from an organism ('culture' 
 host-associated:plant host	plant host	ENVO:01001001			Plant the bacterium associates with.
 host-associated:plant host:rhizosphere	rhizosphere	ENVO:00005801;PO:0009005	soil
 host-associated:animal host	animal host	ENVO:01001002		human;homo sapiens;animal
-host-associated:animal host:respiratory system	respiratory system	UBERON:0001004
+host-associated:animal host:patient in healthcare setting	patient in healthcare setting			hospitalized patient;hospitalised patient;hospital patient;inpatient	Use only when the metadata identifies a patient as hospitalized. This records important epidemiological context.
+host-associated:animal host:respiratory system	respiratory system	UBERON:0001004		respiratory
 host-associated:animal host:respiratory system:pleura	pleura	UBERON:0000977
 host-associated:animal host:respiratory system:respiratory tract	respiratory tract	UBERON:0000065
-host-associated:animal host:respiratory system:respiratory tract:upper respiratory tract	upper respiratory tract	UBERON:0001557		upper respiratory system		Starts with the nose and ends with the cricoid cartilage.
-host-associated:animal host:respiratory system:respiratory tract:upper respiratory tract:nasal cavity	nasal cavity	UBERON:0001707
-host-associated:animal host:respiratory system:respiratory tract:upper respiratory tract:pharynx	pharynx
-host-associated:animal host:respiratory system:respiratory tract:lower respiratory tract	lower respiratory tract	UBERON:0001558		lower respiratory system		Starts with the trachea and includes all distal structures including the lungs.
+host-associated:animal host:respiratory system:respiratory tract:upper respiratory tract	upper respiratory tract	UBERON:0001557		upper respiratory system	Starts with the nose and ends with the cricoid cartilage.
+host-associated:animal host:respiratory system:respiratory tract:upper respiratory tract:nasal cavity	nasal cavity	UBERON:0001707		nasal swab;nose;nasal;nares
+host-associated:animal host:respiratory system:respiratory tract:upper respiratory tract:pharynx	pharynx			throat;throat swab;oropharynx;oropharyngeal swab
+host-associated:animal host:respiratory system:respiratory tract:lower respiratory tract	lower respiratory tract	UBERON:0001558		lower respiratory system	Starts with the trachea and includes all distal structures including the lungs.
+host-associated:animal host:respiratory system:respiratory tract:lower respiratory tract:bronchoalveolar lavage fluid	bronchoalveolar lavage fluid			bronchoalveolar lavage;BAL	Fluid recovered by washing the bronchi and alveoli; classify as lower respiratory tract rather than as lung tissue.
 host-associated:animal host:respiratory system:respiratory tract:lower respiratory tract:bronchus	bronchus	UBERON:0002185
 host-associated:animal host:respiratory system:respiratory tract:lower respiratory tract:trachea	trachea	UBERON:0002187
 host-associated:animal host:respiratory system:respiratory tract:lower respiratory tract:lung	lung	UBERON:0002048
 host-associated:animal host:respiratory system:respiratory tract:lower respiratory tract:sputum	sputum	UBERON:0003126
-host-associated:animal host:digestive tract	digestive tract	ENVO:01001033;UBERON:0001555
+host-associated:animal host:digestive tract	digestive tract	ENVO:01001033;UBERON:0001555		human gut;gut
 host-associated:animal host:digestive tract:mouth	mouth	ENVO:08000002;UBERON:0000165
 host-associated:animal host:digestive tract:stomach	stomach	UBERON:0000945
 host-associated:animal host:digestive tract:rumen	rumen	UBERON:0007365
 host-associated:animal host:digestive tract:intestine	intestine	ENVO:2100002;UBERON:0000160
-host-associated:animal host:digestive tract:intestine:caecum	caecum	UBERON:0001153
+host-associated:animal host:digestive tract:intestine:caecum	caecum	UBERON:0001153		cecal;caecal;cecal content;caecal content
 host-associated:animal host:digestive tract:intestine:rectum	rectum	UBERON:0001052		rectal swab
-host-associated:animal host:digestive tract:cloaca	cloaca	UBERON:0000162
+host-associated:animal host:digestive tract:cloaca	cloaca	UBERON:0000162		cloacal swab
 host-associated:animal host:urogenital tract	urogenital tract	UBERON:0004122
 host-associated:animal host:urogenital tract:urinary tract	urinary tract
 host-associated:animal host:urogenital tract:urinary tract:upper urinary tract	upper urinary tract	UBERON:0011143			Consists of the kidney and the ureters.
@@ -63,7 +65,7 @@ host-associated:animal host:urogenital tract:genital tract	genital tract	UBERON:
 host-associated:animal host:urogenital tract:genital tract:vagina	vagina	UBERON:0000996
 host-associated:animal host:urogenital tract:genital tract:uterus	uterus	UBERON:0000995
 host-associated:animal host:circulatory system	circulatory system	UBERON:0001009
-host-associated:animal host:circulatory system:blood vessel	blood vessel	UBERON:0001981			A vessel through which blood circulates in the body.
+host-associated:animal host:circulatory system:blood vessel	blood vessel	UBERON:0001981
 host-associated:animal host:nervous system	nervous system	UBERON:0001016
 host-associated:animal host:nervous system:eye	eye	UBERON:0000970
 host-associated:animal host:nervous system:eye:cornea	cornea	UBERON:0000964
@@ -73,16 +75,16 @@ host-associated:animal host:synovial joint	synovial joint	UBERON:0002217
 host-associated:animal host:skin	skin	ENVO:2100003;UBERON:0002097			An environment determined by an area or zone of skin tissue.
 host-associated:animal host:bodily fluid	bodily fluid	ENVO:0200001			Endogenous bodily fluids only.
 host-associated:animal host:bodily fluid:breast milk	breast milk	ENVO:02000031
-host-associated:animal host:bodily fluid:blood	blood	ENVO:02000020	blood vessel
+host-associated:animal host:bodily fluid:blood	blood	ENVO:02000020		blood culture;bloodstream;venous blood;human blood
 host-associated:animal host:bodily fluid:synovial fluid	synovial fluid	UBERON:0001090
-host-associated:animal host:bodily fluid:cerebrospinal fluid	cerebrospinal fluid	ENVO:02000029
-host-associated:animal host:bodily fluid:urine	urine	UBERON:0001088	lower urinary tract
+host-associated:animal host:bodily fluid:cerebrospinal fluid	cerebrospinal fluid	ENVO:02000029		CSF
+host-associated:animal host:bodily fluid:urine	urine	UBERON:0001088		urine sample;urine culture
 host-associated:animal host:bodily fluid:peritoneal fluid	peritoneal fluid	UBERON:0001268
 host-associated:animal host:bodily fluid:pus	pus	UBERON:0000177
 host-associated:animal host:bodily fluid:bile	bile	UBERON:0001970
-host-associated:animal host:feces	feces	ENVO:00002003;UBERON:0001988	rectum	stool
+host-associated:animal host:feces	feces	ENVO:00002003;UBERON:0001988		stool;faeces;fecal;faecal
 host-associated:animal host:mucosa	mucosa	UBERON:0000344
 host-associated:animal host:ear	ear	UBERON:0001690			Includes the outer-, middle- and inner ear, as well as the pinna.
-host-associated:animal host:wound	wound	MONDO:0021178			Includes skin- and soft tissue infection.
+host-associated:animal host:wound	wound	MONDO:0021178		wound swab	Includes skin- and soft tissue infection.
 host-associated:animal host:ulcer	ulcer	MONDO:0043839
 host-associated:animal host:abscess	abscess	MONDO:0005227	pus
