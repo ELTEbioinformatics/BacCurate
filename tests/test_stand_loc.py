@@ -287,7 +287,7 @@ def test_record_standardization_distinguishes_absent_unresolved_and_disabled_can
     assert isinstance(absent, LocationRejection)
     assert absent.diagnostics == (LocationDiagnostic.ABSENT_CANDIDATES,)
     assert isinstance(disabled, LocationRejection)
-    assert disabled.diagnostics == (LocationDiagnostic.MODEL_DISABLED,)
+    assert disabled.diagnostics == (LocationDiagnostic.LLM_DISABLED,)
     assert disabled.llm_calls == 0
     assert isinstance(unresolved, LocationRejection)
     assert unresolved.diagnostics == (LocationDiagnostic.UNRESOLVED_PLACE,)
@@ -321,21 +321,21 @@ def test_record_standardization_counts_unmappable_direct_result_without_logging(
     [
         (
             '{"country": "Germany"}',
-            LocationDiagnostic.MODEL_RESOLUTION,
+            LocationDiagnostic.LLM_RESOLUTION,
             True,
         ),
-        ("not json", LocationDiagnostic.INVALID_MODEL_RESPONSE, False),
-        ('result: {"country": "Germany"}', LocationDiagnostic.INVALID_MODEL_RESPONSE, False),
-        ("{}", LocationDiagnostic.INVALID_MODEL_RESPONSE, False),
+        ("not json", LocationDiagnostic.INVALID_LLM_RESPONSE, False),
+        ('result: {"country": "Germany"}', LocationDiagnostic.INVALID_LLM_RESPONSE, False),
+        ("{}", LocationDiagnostic.INVALID_LLM_RESPONSE, False),
         (
             '{"country": "Germany", "continent": "Europe"}',
-            LocationDiagnostic.INVALID_MODEL_RESPONSE,
+            LocationDiagnostic.INVALID_LLM_RESPONSE,
             False,
         ),
-        ('{"country": ["Germany"]}', LocationDiagnostic.INVALID_MODEL_RESPONSE, False),
-        ('{"country": {"name": "Germany"}}', LocationDiagnostic.INVALID_MODEL_RESPONSE, False),
-        ('{"country": 123}', LocationDiagnostic.INVALID_MODEL_RESPONSE, False),
-        ('{"country": "  "}', LocationDiagnostic.INVALID_MODEL_RESPONSE, False),
+        ('{"country": ["Germany"]}', LocationDiagnostic.INVALID_LLM_RESPONSE, False),
+        ('{"country": {"name": "Germany"}}', LocationDiagnostic.INVALID_LLM_RESPONSE, False),
+        ('{"country": 123}', LocationDiagnostic.INVALID_LLM_RESPONSE, False),
+        ('{"country": "  "}', LocationDiagnostic.INVALID_LLM_RESPONSE, False),
     ],
 )
 def test_record_standardization_distinguishes_model_resolution_and_invalid_response(
@@ -400,7 +400,7 @@ def test_location_cache_reuses_identical_request_when_only_prompt_metadata_chang
     first = _standardize_model_location(first_config, calls)
     second = _standardize_model_location(second_config, calls)
 
-    assert first.diagnostics == (LocationDiagnostic.MODEL_RESOLUTION,)
+    assert first.diagnostics == (LocationDiagnostic.LLM_RESOLUTION,)
     assert second.diagnostics == (LocationDiagnostic.CACHE_RESOLUTION,)
     assert len(calls) == 1
 
@@ -425,7 +425,7 @@ def test_location_cache_misses_when_canonical_request_changes(
     elif changed_component == "parameter":
         monkeypatch.setattr(
             location_module,
-            "LOCATION_MODEL_PARAMETERS",
+            "LOCATION_LLM_PARAMETERS",
             {"temperature": 1, "seed": 100},
         )
     else:
@@ -437,7 +437,7 @@ def test_location_cache_misses_when_canonical_request_changes(
 
     second = _standardize_model_location(second_config, calls, model=second_model)
 
-    assert second.diagnostics == (LocationDiagnostic.MODEL_RESOLUTION,)
+    assert second.diagnostics == (LocationDiagnostic.LLM_RESOLUTION,)
     assert len(calls) == 2
 
 
@@ -467,7 +467,7 @@ def test_record_standardization_counts_recoverable_model_failure_once_per_record
     finally:
         standardizer.close()
 
-    assert outcome.diagnostics == (LocationDiagnostic.RECOVERABLE_MODEL_FAILURE,)
+    assert outcome.diagnostics == (LocationDiagnostic.RECOVERABLE_LLM_FAILURE,)
     assert caplog.messages == []
 
 
@@ -529,9 +529,9 @@ def test_recoverable_model_failure_can_be_retried(monkeypatch, failure):
     finally:
         standardizer.close()
 
-    assert first.diagnostics == (LocationDiagnostic.RECOVERABLE_MODEL_FAILURE,)
+    assert first.diagnostics == (LocationDiagnostic.RECOVERABLE_LLM_FAILURE,)
     assert first.llm_calls == 1
-    assert second.diagnostics == (LocationDiagnostic.MODEL_RESOLUTION,)
+    assert second.diagnostics == (LocationDiagnostic.LLM_RESOLUTION,)
     assert second.llm_calls == 1
     assert calls == 2
     assert len(cached_results) == 1

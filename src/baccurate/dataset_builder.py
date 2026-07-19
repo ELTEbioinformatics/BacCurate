@@ -580,12 +580,12 @@ class DatasetBuilder:
         if report.location is None:
             return
         summaries = {
-            LocationDiagnostic.MODEL_DISABLED: "location model disabled",
-            LocationDiagnostic.RECOVERABLE_MODEL_FAILURE: "recoverable location model failure",
+            LocationDiagnostic.LLM_DISABLED: "location LLM disabled",
+            LocationDiagnostic.RECOVERABLE_LLM_FAILURE: "recoverable location LLM failure",
             LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE: (
                 "recoverable coordinate resolution failure"
             ),
-            LocationDiagnostic.INVALID_MODEL_RESPONSE: "invalid location model response",
+            LocationDiagnostic.INVALID_LLM_RESPONSE: "invalid location LLM response",
         }
         for diagnostic, description in summaries.items():
             count = report.location.aggregate.diagnostics.get(diagnostic, 0)

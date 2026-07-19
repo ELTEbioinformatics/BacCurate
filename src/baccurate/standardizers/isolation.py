@@ -44,7 +44,7 @@ HOST_RETRY_TRIGGERS: tuple[str, ...] = (
     "environmental:anthropogenic environment:food:plant food product",
 )
 
-ISOLATION_MODEL_PARAMETERS: dict[str, object] = {"temperature": 0, "seed": 100}
+ISOLATION_LLM_PARAMETERS: dict[str, object] = {"temperature": 0, "seed": 100}
 ISOLATION_RESPONSE_SCHEMA_ID = "baccurate.isolation.classification.v1"
 
 # --- Data structures ---
@@ -484,7 +484,7 @@ class LLMClassifier:
                     {"role": "system", "content": self.system_prompt},
                     {"role": "user", "content": user_prompt},
                 ),
-                parameters=ISOLATION_MODEL_PARAMETERS,
+                parameters=ISOLATION_LLM_PARAMETERS,
                 response_schema_id=(
                     f"{ISOLATION_RESPONSE_SCHEMA_ID}:"
                     f"{canonical_json_sha256(self._schema.model_json_schema())}"

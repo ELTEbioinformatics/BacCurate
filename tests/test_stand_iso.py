@@ -325,7 +325,7 @@ def test_isolation_cache_misses_when_canonical_request_changes(
     elif changed_component == "parameter":
         monkeypatch.setattr(
             isolation_module,
-            "ISOLATION_MODEL_PARAMETERS",
+            "ISOLATION_LLM_PARAMETERS",
             {"temperature": 0, "seed": 101},
         )
     elif changed_component == "schema_id":

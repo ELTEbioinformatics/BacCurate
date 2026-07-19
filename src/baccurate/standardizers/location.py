@@ -33,7 +33,7 @@ from baccurate.utils.text import split_pipe_separated
 logger = logging.getLogger(__name__)
 _LOAD_CONFIGURED_CLIENT = object()
 
-LOCATION_MODEL_PARAMETERS: dict[str, object] = {"temperature": 0, "seed": 100}
+LOCATION_LLM_PARAMETERS: dict[str, object] = {"temperature": 0, "seed": 100}
 # This needs to be bumped by hand whenever parsing/response changes
 LOCATION_RESPONSE_SCHEMA_ID = "baccurate.location.country.v1"
 
@@ -119,15 +119,15 @@ class LocationDiagnostic(StrEnum):
 
     ABSENT_CANDIDATES = "absent_candidates"
     UNRESOLVED_PLACE = "unresolved_place"
-    MODEL_DISABLED = "model_disabled"
-    RECOVERABLE_MODEL_FAILURE = "recoverable_model_failure"
+    LLM_DISABLED = "llm_disabled"
+    RECOVERABLE_LLM_FAILURE = "recoverable_llm_failure"
     RECOVERABLE_COORDINATE_FAILURE = "recoverable_coordinate_failure"
-    INVALID_MODEL_RESPONSE = "invalid_model_response"
+    INVALID_LLM_RESPONSE = "invalid_llm_response"
     UNMAPPABLE_RESULT = "unmappable_result"
     COORDINATE_RESOLUTION = "coordinate_resolution"
     DIRECT_RESOLUTION = "direct_resolution"
     CACHE_RESOLUTION = "cache_resolution"
-    MODEL_RESOLUTION = "model_resolution"
+    LLM_RESOLUTION = "llm_resolution"
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,7 +142,7 @@ class LocationMatch:
 
 
 @dataclass(frozen=True, slots=True)
-class _ModelResponse:
+class _LLMResponse:
     country: str | None
     diagnostic: LocationDiagnostic | None = None
 
@@ -398,7 +398,7 @@ class LocationStandardizer:
         accession: str,
         request: CanonicalLLMRequest,
         timeout: int = 30,
-    ) -> _ModelResponse:
+    ) -> _LLMResponse:
         try:
             with observe_llm_call(
                 accession=accession,
@@ -412,26 +412,26 @@ class LocationStandardizer:
                     timeout=timeout,
                 )
         except openai.APITimeoutError:
-            return _ModelResponse(None, diagnostic=LocationDiagnostic.RECOVERABLE_MODEL_FAILURE)
+            return _LLMResponse(None, diagnostic=LocationDiagnostic.RECOVERABLE_LLM_FAILURE)
         except openai.APIError:
-            return _ModelResponse(None, diagnostic=LocationDiagnostic.RECOVERABLE_MODEL_FAILURE)
+            return _LLMResponse(None, diagnostic=LocationDiagnostic.RECOVERABLE_LLM_FAILURE)
         except Exception as e:
             call.failed(LLMFailureCategory.UNEXPECTED)
-            raise RuntimeError(f"Unexpected location model failure: {e}") from e
+            raise RuntimeError(f"Unexpected location LLM failure: {e}") from e
 
         if response is None:
             call.failed(LLMFailureCategory.INVALID_MODEL_RESPONSE)
-            return _ModelResponse(None, diagnostic=LocationDiagnostic.INVALID_MODEL_RESPONSE)
+            return _LLMResponse(None, diagnostic=LocationDiagnostic.INVALID_LLM_RESPONSE)
 
         try:
             content = response.choices[0].message.content
         except (AttributeError, IndexError):
             call.failed(LLMFailureCategory.INVALID_MODEL_RESPONSE)
-            return _ModelResponse(None, diagnostic=LocationDiagnostic.INVALID_MODEL_RESPONSE)
+            return _LLMResponse(None, diagnostic=LocationDiagnostic.INVALID_LLM_RESPONSE)
 
         if not content:
             call.failed(LLMFailureCategory.INVALID_MODEL_RESPONSE)
-            return _ModelResponse(None, diagnostic=LocationDiagnostic.INVALID_MODEL_RESPONSE)
+            return _LLMResponse(None, diagnostic=LocationDiagnostic.INVALID_LLM_RESPONSE)
 
         content = content.strip()
 
@@ -439,19 +439,19 @@ class LocationStandardizer:
             parsed = json.loads(content)
         except json.JSONDecodeError:
             call.failed(LLMFailureCategory.INVALID_MODEL_RESPONSE)
-            return _ModelResponse(None, diagnostic=LocationDiagnostic.INVALID_MODEL_RESPONSE)
+            return _LLMResponse(None, diagnostic=LocationDiagnostic.INVALID_LLM_RESPONSE)
 
         if not isinstance(parsed, dict) or set(parsed) != {"country"}:
             call.failed(LLMFailureCategory.INVALID_MODEL_RESPONSE)
-            return _ModelResponse(None, diagnostic=LocationDiagnostic.INVALID_MODEL_RESPONSE)
+            return _LLMResponse(None, diagnostic=LocationDiagnostic.INVALID_LLM_RESPONSE)
 
         country = parsed["country"]
         if not isinstance(country, str) or not country.strip():
             call.failed(LLMFailureCategory.INVALID_MODEL_RESPONSE)
-            return _ModelResponse(None, diagnostic=LocationDiagnostic.INVALID_MODEL_RESPONSE)
+            return _LLMResponse(None, diagnostic=LocationDiagnostic.INVALID_LLM_RESPONSE)
 
         call.accepted()
-        return _ModelResponse(country.strip())
+        return _LLMResponse(country.strip())
 
     def _llm_fallback(self, accession: str, context_string: str) -> LocationMatch:
         user_prompt = self.llm_user_prompt_template.format(attr_val_pairs=context_string)
@@ -462,7 +462,7 @@ class LocationStandardizer:
         request = CanonicalLLMRequest(
             model=self.llm_model or "",
             messages=tuple(messages),
-            parameters=LOCATION_MODEL_PARAMETERS,
+            parameters=LOCATION_LLM_PARAMETERS,
             response_schema_id=LOCATION_RESPONSE_SCHEMA_ID,
         )
         cached = self.cache.get(request.fingerprint)
@@ -476,7 +476,7 @@ class LocationStandardizer:
             return LocationMatch(*cached, None, True, (diagnostic,))
 
         if self.client is None:
-            return LocationMatch("NA", "NA", None, True, (LocationDiagnostic.MODEL_DISABLED,))
+            return LocationMatch("NA", "NA", None, True, (LocationDiagnostic.LLM_DISABLED,))
 
         response = self._call_llm(accession, request)
         self.stats["llm_calls"] += 1
@@ -486,7 +486,7 @@ class LocationStandardizer:
 
         llm_country = response.country
         if llm_country is None:
-            raise AssertionError("Successful model response has no country")
+            raise AssertionError("Successful LLM response has no country")
 
         if llm_country == "NA":
             self.cache.set(request.fingerprint, "NA", "NA")
@@ -510,7 +510,7 @@ class LocationStandardizer:
                 *result,
                 None,
                 True,
-                (LocationDiagnostic.MODEL_RESOLUTION,),
+                (LocationDiagnostic.LLM_RESOLUTION,),
             )
         )
 
