@@ -34,8 +34,8 @@ RECTUM = "host-associated:animal host:digestive tract:intestine:rectum"
 BLOOD = "host-associated:animal host:bodily fluid:blood"
 WOUND = "host-associated:animal host:wound"
 SKIN = "host-associated:animal host:skin"
-MANURE = "environmental:anthropogenic environment:farm:manure"
-
+RHIZOSPHERE = "host-associated:plant host:rhizosphere"
+SOIL = "environmental:natural environment:terrestrial:soil"
 
 # =============================================================================
 # Fake LLM client
@@ -329,15 +329,8 @@ def test_display_term_to_path_maps_back_to_canonical_path(ontology):
     assert ontology.display_term_to_path[normalize_keyword("blood")] == BLOOD
 
 
-@pytest.mark.parametrize(
-    "source,target",
-    [
-        (FECES, RECTUM),
-        (MANURE, FECES),
-    ],
-)
-def test_crosslinks_resolve_to_target_paths(ontology, source, target):
-    assert target in ontology.crosslink_map[source]
+def test_crosslinks_resolve_to_target_paths(ontology):
+    assert SOIL in ontology.crosslink_map[RHIZOSPHERE]
 
 
 # =============================================================================
@@ -380,6 +373,24 @@ def test_format_metadata_omits_blank_host():
     assert "host =" not in out
 
 
+def test_system_prompt_renders_ontology_without_altering_json_examples(classifier):
+    assert "{ontology_tree}" not in classifier.system_prompt
+    assert '{"reasoning":' in classifier.system_prompt
+
+
+def test_bioproject_context_template_renders_all_fields(config):
+    rendered = config["bioproject_context_template"].format(
+        title="Farm surveillance",
+        description="Samples collected from livestock holdings.",
+        relevance="Agricultural",
+    )
+
+    assert "title = Farm surveillance" in rendered
+    assert "description = Samples collected from livestock holdings." in rendered
+    assert "relevance = Agricultural" in rendered
+    assert "{" not in rendered
+
+
 # =============================================================================
 # standardize_record: empty and trusted inputs
 # =============================================================================
@@ -409,15 +420,15 @@ def test_empty_value_resolves_to_unspecified_without_llm(classifier):
 # =============================================================================
 
 
-def test_direct_match_skips_llm_and_applies_crosslink(classifier):
+def test_direct_feces_match_does_not_infer_anatomical_site(classifier):
     res = classifier.standardize_record("T", "isolation_source", "stool", "")
 
     terms = res.display_terms.split("||")
     paths = res.term_paths.split("||")
     assert "feces" in terms
-    assert "rectum" in terms  # crosslink feces -> rectum
+    assert "rectum" not in terms
     assert FECES in paths
-    assert RECTUM in paths
+    assert RECTUM not in paths
     assert res.categories == "host-associated"
     assert classifier.stats["llm_calls"] == 0
     assert classifier.stats["exact_matches"] >= 1
@@ -455,6 +466,10 @@ def test_llm_selection_is_mapped_to_term_path(classifier):
     res = classifier.standardize_record("T", "isolation_source", "venous draw", "")
 
     assert classifier.stats["llm_calls"] == 1
+    user_prompt = classifier._fake.calls[0]["messages"][1]["content"]
+    assert "isolation_source = venous draw" in user_prompt
+    assert "{metadata}" not in user_prompt
+    assert "{bioproject_context}" not in user_prompt
     assert "blood" in res.display_terms.split("||")
     assert BLOOD in res.term_paths.split("||")
     nodes = [h.get("node") for h in res.reasoning]
@@ -463,15 +478,15 @@ def test_llm_selection_is_mapped_to_term_path(classifier):
     assert classifier_entry["selected_terms"] == ["blood"]
 
 
-def test_llm_selection_expands_along_crosslinks(classifier):
+def test_llm_feces_selection_does_not_infer_anatomical_site(classifier):
     classifier._fake.respond_with(["feces"])
     res = classifier.standardize_record("T", "isolation_source", "gut contents", "")
 
     terms = res.display_terms.split("||")
     assert "feces" in terms
-    assert "rectum" in terms  # crosslink feces -> rectum
+    assert "rectum" not in terms
     nodes = [h.get("node") for h in res.reasoning]
-    assert "crosslink" in nodes
+    assert "crosslink" not in nodes
 
 
 def test_direct_and_llm_paths_are_unioned(classifier):
