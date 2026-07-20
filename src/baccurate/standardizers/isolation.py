@@ -682,7 +682,8 @@ class LLMClassifier:
             valid_attrs.append(a.strip())
             valid_vals.append(v.strip())
 
-        if not valid_vals and not bioproject_contexts:
+        has_sample_context = bool(valid_vals) or bool(host.strip())
+        if not has_sample_context and not bioproject_contexts:
             return StandardizedSource(
                 categories="unspecified",
                 display_terms="unspecified",
@@ -729,11 +730,11 @@ class LLMClassifier:
             )
         else:
             request_mode = (
-                _IsolationRequestMode.PROJECT_ONLY
-                if not valid_vals
-                else _IsolationRequestMode.COMBINED
-                if bioproject_contexts
+                _IsolationRequestMode.COMBINED
+                if has_sample_context and bioproject_contexts
                 else _IsolationRequestMode.SAMPLE_ONLY
+                if has_sample_context
+                else _IsolationRequestMode.PROJECT_ONLY
             )
             response_schema = self._response_schemas[request_mode]
             permitted_evidence_levels = _EVIDENCE_LEVELS_BY_REQUEST_MODE[request_mode]
@@ -949,7 +950,7 @@ class IsoStandardizer:
         project_contexts = tuple(
             resolved_projects[accession] for accession in sorted(resolved_projects)
         )
-        if not origins and not project_contexts:
+        if not origins and not host_context.strip() and not project_contexts:
             diagnostics = [IsolationDiagnostic.NO_CANDIDATES]
             if has_unresolved_project_link:
                 diagnostics.append(IsolationDiagnostic.UNRESOLVED_BIOPROJECT_LINK)

@@ -625,6 +625,68 @@ def test_dataset_build_classifies_project_only_records(tmp_path: Path) -> None:
     assert row["iso_terms"] == SOIL
 
 
+@pytest.mark.parametrize(
+    ("project_fields", "projects", "expected_evidence_levels"),
+    [
+        ({}, [], ["sample", "none"]),
+        (
+            {
+                "bioproject_id": "1",
+                "bioproject_accession": "PRJNA100",
+            },
+            [
+                {
+                    "id": "1",
+                    "accession": "PRJNA100",
+                    "title": "Genome sequencing project",
+                    "description": "",
+                    "relevance": [],
+                }
+            ],
+            ["sample", "project", "sample_and_project", "none"],
+        ),
+    ],
+    ids=["host-only", "host-and-project"],
+)
+def test_dataset_build_treats_host_context_as_sample_evidence(
+    tmp_path: Path,
+    project_fields: dict[str, str],
+    projects: list[dict[str, object]],
+    expected_evidence_levels: list[str],
+) -> None:
+    fake = FakeClient()
+    fake.respond_with(
+        ["host-associated"],
+        reasoning="The sample names a host and no more specific origin.",
+        evidence_level="sample",
+    )
+
+    run = _build_isolation_run(
+        tmp_path,
+        rows=[
+            {
+                "accession": "SAMN00017230",
+                "pathogen": "ecoli",
+                "host_attr_orig": "host",
+                "host_val_orig": "Homo sapiens",
+            }
+            | project_fields
+        ],
+        projects=projects,
+        fake=fake,
+    )
+
+    with run.dataset.open(encoding="utf-8", newline="") as stream:
+        row = next(csv.DictReader(stream, delimiter="\t"))
+    reasoning = json.loads(run.reasoning.read_text(encoding="utf-8"))
+    evidence_schema = fake.calls[0]["response_model"].model_json_schema()["properties"][
+        "evidence_level"
+    ]
+    assert evidence_schema["enum"] == expected_evidence_levels
+    assert row["iso_terms"] == "host-associated"
+    assert reasoning["evidence_level"] == "sample"
+
+
 def test_dataset_build_persists_and_aggregates_project_evidence(tmp_path: Path) -> None:
     fake = FakeClient()
     fake.respond_with(["soil"], evidence_level="project")
