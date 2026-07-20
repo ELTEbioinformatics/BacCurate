@@ -17,7 +17,7 @@ Map host annotations from sample metadata to NCBI Taxonomy ID and scientific nam
   - [Matching cascade](#matching-cascade)
   - [Reliability score](#reliability-score)
   - [Isolation-source preemption](#isolation-source-preemption)
-  - [Manual overrides](#manual-overrides)
+  - [Curated taxa and value rejections](#curated-taxa-and-value-rejections)
 
 ## Usage
 
@@ -34,20 +34,27 @@ See the [main README](../README.md#usage) for installation and the full set of o
 [`config/host.yaml`](../config/host.yaml) contains:
 
 ```yaml
-ignored_substrings:    # stripped before matching
-  - "healthy"
-  - ", juvenile"
-  - ", adult"
+schema_version: 2
+normalization:
+  ignored_substrings:  # stripped before matching
+    - healthy
+    - ", juvenile"
 
-iso_keywords:          # if substring matches, record passed to iso-source
-  - food
-  - soil
-  - meat
+routing:
+  isolation_source_keywords:  # whole-word matches are passed to iso-source
+    - food
+    - soil
 
-overrides:            # manually override given taxid's outputs
-  taxid_overrides:
-    "Squirrel monkey": 9521
-    "cancer": null
+curated_taxa:
+  "9520":
+    scientific_name: Saimiri
+    match_terms:
+      force:
+        - Squirrel monkey
+
+value_rejections:      # rejected as hosts and preserved as host overflow
+  exact:
+    - cancer
 ```
 
 ## Inputs
@@ -83,7 +90,7 @@ and at least one row hit an iso-source keyword while another produced a host mat
 
 Filtering on `reliability_score >= 0.9 AND
 low_confidence == False` retains matches that came from a taxid,
-scientific name, NCBI synonym, locally curated keyword, or NCBI
+scientific name, NCBI synonym, locally curated term, or NCBI
 `genbank_common_name`, with no subset-match or cross-attribute
 ambiguity.
 
@@ -106,19 +113,17 @@ back to its source annotation.
 
 ![Flowchart](charts/host.png)
 
-The first two checks (iso-source keywords and manual overrides) are
+The first two checks (isolation-source keywords and preemptive decisions) are
 preemptive. The remaining tiers are tried in descending score order.
 
 ### Taxonomy reference
 
-The controlled vocabulary is split across two tables. `taxids_ncbi.tsv`
-was generated from NCBI's taxonomy dump and carries scientific names,
-synonyms, `genbank_common_name`, and `common_name`. `taxids_curated.tsv`
-is manually maintained for this dataset and lists keywords (e.g.
-`cattle` → *Bos taurus*) keyed by taxid. Entries were added when a
-"common" term is missing from NCBI (in a lot of cases, typos) or 
-when a common name/synonym would resolve to a taxon other than the one intended in 
-this dataset.
+`taxids_ncbi.tsv` is the taxonomy reference and carries scientific names,
+synonyms, `genbank_common_name`, and `common_name`. Manually curated host
+matching policy lives in `config/host.yaml`, where terms are grouped under
+their intended taxid. The configured `scientific_name` is checked against the
+NCBI reference at startup so it acts as a readable assertion rather than a
+second source of taxonomy truth.
 
 ### Value mapping
 
@@ -139,13 +144,13 @@ edit-distance sense: matching is on whole words after normalization.
 
 ### Reliability score
 
-| Score | Tier                                                                |
-|------:|---------------------------------------------------------------------|
-|  1.00 | Direct taxid, exact scientific name, exact synonym, manual override |
-|  0.95 | Locally curated keyword                                             |
-|  0.90 | NCBI `genbank_common_name`                                          |
-|  0.70 | NCBI `common_name`, or multi-word subset match                      |
-|  0.50 | Single-word subset match                                            |
+| Score | Tier                                                            |
+|------:|-----------------------------------------------------------------|
+|  1.00 | Direct taxid, exact scientific name, exact synonym, forced term |
+|  0.95 | Exact manually curated term                                     |
+|  0.90 | NCBI `genbank_common_name`                                      |
+|  0.70 | NCBI `common_name`, or multi-word subset match                  |
+|  0.50 | Single-word subset match                                        |
 
 Score reflects how the match was made, not how taxonomically specific the
 result is.
@@ -165,12 +170,25 @@ Matching is whole-word on the normalized value, so `food` matches
 `duck food` but not `seafood`. A multi-word keyword matches when all
 of its words are present (order-independent).
 
-### Manual overrides
+### Curated taxa and value rejections
 
-`config/host.yaml` accepts `taxid_overrides`, a map from normalized
-input value to either a taxid (force match) or `null` (reject and
-forward). Overrides take precedence over all matching tiers and are
-intended for cases where rule-based matching is structurally wrong -
-for example, `"Squirrel monkey"` resolving to *Sciurus* via single-word
-subset matching rather than to *Saimiri*. Override taxids are validated
-against the loaded taxonomy at startup.
+Each `curated_taxa` entry is keyed by a quoted taxid and declares the matching
+terms for that taxon:
+
+- `exact` matches only the complete normalized value at score 0.95.
+- `subset` also matches the complete value at score 0.95, and may match within
+  longer text at the normal 0.70 or 0.50 subset score.
+- `force` is an exact, preemptive score-1.0 decision for cases where the NCBI
+  vocabulary or ordinary matching cascade would otherwise select the wrong taxon.
+
+`value_rejections.exact` contains values that are rejected as hosts but retained
+as host overflow for isolation-source interpretation. Forced terms and value
+rejections are evaluated after isolation-source keyword routing and before the
+normal matching cascade.
+
+The configuration fails at startup when:
+- a taxid is absent
+- its declared scientific name disagrees with NCBI
+- normalized terms map to multiple taxa
+- a term is both a match and rejection
+- an unforced term conflicts with an NCBI scientific name or synonym.

@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from baccurate.paths import DEFAULT_TAXIDS_CURATED, DEFAULT_TAXIDS_NCBI
+from baccurate.paths import DEFAULT_TAXIDS_NCBI
 from baccurate.utils.config import load_config
 from baccurate.utils.text import split_pipe_separated
 
@@ -28,8 +28,8 @@ SCORE_TAXID = 1.0
 SCORE_SCINAME = 1.0
 SCORE_SYNONYM = 1.0
 
-# Locally-curated keyword match
-SCORE_KEYWORD = 0.95
+# Locally curated host term
+SCORE_CURATED_TERM = 0.95
 
 # NCBI genbank_common_name match
 SCORE_CURATED_COMMON = 0.9
@@ -68,6 +68,133 @@ def _normalize_text(text: str) -> str:
     text = text.lower().replace("_", " ").replace("-", " ")
     text = text.translate(_PUNCT_TABLE)
     return _WHITESPACE_RE.sub(" ", text).strip()
+
+
+@dataclass(frozen=True, slots=True)
+class CuratedTaxonPolicy:
+    """Validated manual matching policy for one NCBI taxon."""
+
+    taxid: int
+    scientific_name: str
+    exact_terms: tuple[str, ...]
+    subset_terms: tuple[str, ...]
+    force_terms: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class HostPolicy:
+    """Validated host-standardization policy compiled from host.yaml."""
+
+    ignored_substrings: tuple[str, ...]
+    isolation_source_keywords: tuple[str, ...]
+    curated_taxa: tuple[CuratedTaxonPolicy, ...]
+    value_rejections: tuple[str, ...]
+
+
+def _require_mapping(value: object, label: str) -> Mapping:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{label} must be a mapping")
+    return value
+
+
+def _require_string_list(value: object, label: str) -> list[str]:
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        raise ValueError(f"{label} must be a list of strings")
+    for item in value:
+        if not _normalize_text(item):
+            raise ValueError(f"{label} contains an empty normalized value")
+    return value
+
+
+def _reject_unknown_keys(config: Mapping, allowed: set[str], label: str) -> None:
+    unknown = set(config) - allowed
+    if unknown:
+        names = ", ".join(sorted(str(key) for key in unknown))
+        raise ValueError(f"unknown host config key in {label}: {names}")
+
+
+def _parse_host_policy(config: Mapping, config_path: Path | str) -> HostPolicy:
+    if config.get("schema_version") != 2:
+        raise ValueError(f"{config_path}: schema_version must be 2")
+    _reject_unknown_keys(
+        config,
+        {"schema_version", "normalization", "routing", "curated_taxa", "value_rejections"},
+        "top level",
+    )
+
+    normalization = _require_mapping(config.get("normalization"), "normalization")
+    _reject_unknown_keys(normalization, {"ignored_substrings"}, "normalization")
+    ignored_substrings = _require_string_list(
+        normalization.get("ignored_substrings"), "normalization.ignored_substrings"
+    )
+
+    routing = _require_mapping(config.get("routing"), "routing")
+    _reject_unknown_keys(routing, {"isolation_source_keywords"}, "routing")
+    isolation_source_keywords = _require_string_list(
+        routing.get("isolation_source_keywords"), "routing.isolation_source_keywords"
+    )
+
+    curated_taxa = _require_mapping(config.get("curated_taxa"), "curated_taxa")
+    policies: list[CuratedTaxonPolicy] = []
+    curated_term_taxids: dict[str, int] = {}
+    for taxid, raw_taxon in curated_taxa.items():
+        if not isinstance(taxid, str) or not re.fullmatch(r"[1-9]\d*", taxid):
+            raise ValueError(f"curated_taxa key {taxid!r} must be a canonical quoted taxid")
+        taxon = _require_mapping(raw_taxon, f"curated_taxa.{taxid}")
+        _reject_unknown_keys(taxon, {"scientific_name", "match_terms"}, f"curated_taxa.{taxid}")
+        scientific_name = taxon.get("scientific_name")
+        if not isinstance(scientific_name, str) or not scientific_name.strip():
+            raise ValueError(f"curated_taxa.{taxid}.scientific_name must be a non-empty string")
+        match_terms = _require_mapping(
+            taxon.get("match_terms"), f"curated_taxa.{taxid}.match_terms"
+        )
+        _reject_unknown_keys(
+            match_terms,
+            {"exact", "subset", "force"},
+            f"curated_taxa.{taxid}.match_terms",
+        )
+        normalized_modes: dict[str, str] = {}
+        terms_by_mode: dict[str, tuple[str, ...]] = {}
+        for mode in ("exact", "subset", "force"):
+            terms = _require_string_list(
+                match_terms.get(mode, []), f"curated_taxa.{taxid}.match_terms.{mode}"
+            )
+            terms_by_mode[mode] = tuple(terms)
+            for term in terms:
+                normalized = _normalize_text(term)
+                previous_mode = normalized_modes.setdefault(normalized, mode)
+                if previous_mode != mode:
+                    raise ValueError(
+                        f"curated term {term!r} appears in both {previous_mode} and {mode} "
+                        f"for taxid {taxid}"
+                    )
+                previous_taxid = curated_term_taxids.setdefault(normalized, int(taxid))
+                if previous_taxid != int(taxid):
+                    raise ValueError(
+                        f"Curated term {normalized!r} maps to taxids {previous_taxid} and {taxid}."
+                    )
+        policies.append(
+            CuratedTaxonPolicy(
+                taxid=int(taxid),
+                scientific_name=scientific_name,
+                exact_terms=terms_by_mode["exact"],
+                subset_terms=terms_by_mode["subset"],
+                force_terms=terms_by_mode["force"],
+            )
+        )
+
+    value_rejections = _require_mapping(config.get("value_rejections"), "value_rejections")
+    _reject_unknown_keys(value_rejections, {"exact"}, "value_rejections")
+    rejection_terms = _require_string_list(value_rejections.get("exact"), "value_rejections.exact")
+    overlap = set(curated_term_taxids) & {_normalize_text(term) for term in rejection_terms}
+    if overlap:
+        raise ValueError(f"{sorted(overlap)[0]!r} is both a curated term and a value rejection")
+    return HostPolicy(
+        ignored_substrings=tuple(ignored_substrings),
+        isolation_source_keywords=tuple(isolation_source_keywords),
+        curated_taxa=tuple(policies),
+        value_rejections=tuple(rejection_terms),
+    )
 
 
 # --- Data structures ---
@@ -184,15 +311,15 @@ class HostStandardizer:
         self,
         config_path: Path | str,
         ncbi_table_path: Path | str = DEFAULT_TAXIDS_NCBI,
-        curated_table_path: Path | str = DEFAULT_TAXIDS_CURATED,
         result_logger: logging.Logger | None = None,
     ) -> None:
         self.logger = result_logger or logger
         self.config = load_config(config_path)
-        self._build_lookups(Path(ncbi_table_path), Path(curated_table_path))
+        self.policy = _parse_host_policy(self.config, config_path)
+        self._build_lookups(Path(ncbi_table_path))
         self._compile_filters()
 
-    def _build_lookups(self, ncbi_table_path: Path, curated_table_path: Path) -> None:
+    def _build_lookups(self, ncbi_table_path: Path) -> None:
         ncbi_df = pd.read_csv(
             ncbi_table_path,
             sep="\t",
@@ -204,14 +331,12 @@ class HostStandardizer:
             },
         )
 
-        curated_df = pd.read_csv(curated_table_path, sep="\t", dtype={"keywords": str})
-
         # Lookups by source/score tier. The split exists because each
         # gets a different reliability score in the matching cascade.
         self.taxid_to_info: dict[str, TaxonInfo] = {}
         self.sciname_to_info: dict[str, TaxonInfo] = {}
         self.synonym_to_info: dict[str, TaxonInfo] = {}
-        self.keyword_to_info: dict[str, TaxonInfo] = {}
+        self.curated_term_to_info: dict[str, TaxonInfo] = {}
         self.curated_common_to_info: dict[str, TaxonInfo] = {}
         self.broad_common_to_info: dict[str, TaxonInfo] = {}
 
@@ -224,9 +349,9 @@ class HostStandardizer:
 
         # Higher-precision sources fill each lookup first via setdefault,
         # so collisions resolve in favor of the more authoritative source.
-        # Order: scinames -> synonyms -> keywords -> NCBI commons -> broad.
+        # Order: scinames -> synonyms -> curated terms -> NCBI commons -> broad.
         synonym_entries: list[tuple[str, TaxonInfo]] = []
-        keyword_entries: list[tuple[str, TaxonInfo]] = []
+        curated_term_entries: list[tuple[str, TaxonInfo, bool]] = []
         ncbi_curated_entries: list[tuple[str, TaxonInfo]] = []
         broad_entries: list[tuple[str, TaxonInfo]] = []
 
@@ -252,20 +377,43 @@ class HostStandardizer:
             for term in self._split_cell(row.get("common_name")):
                 broad_entries.append((_normalize_text(term), info))
 
-        # Curated keywords reuse TaxonInfo from the NCBI rows so they share
-        # table_priority for tie-breaking.
-        if curated_df is not None:
-            for _, row in curated_df.iterrows():
-                taxid_str = str(row["taxid"])
-                info = self.taxid_to_info.get(taxid_str)
-                if info is None:
-                    self.logger.warning(
-                        "Curated row for taxid %s has no matching NCBI row - skipped",
-                        taxid_str,
-                    )
-                    continue
-                for term in self._split_cell(row.get("keywords")):
-                    keyword_entries.append((_normalize_text(term), info))
+        ncbi_exact_terms = dict(self.sciname_to_info)
+        for normalized_term, exact_info in synonym_entries:
+            ncbi_exact_terms.setdefault(normalized_term, exact_info)
+
+        for taxon_policy in self.policy.curated_taxa:
+            info = self.taxid_to_info.get(str(taxon_policy.taxid))
+            if info is None:
+                raise ValueError(
+                    f"Curated taxid {taxon_policy.taxid} is not present in the NCBI "
+                    "taxonomy reference."
+                )
+            if taxon_policy.scientific_name != info.scientific_name:
+                raise ValueError(
+                    f"Curated taxid {taxon_policy.taxid} scientific_name must match NCBI "
+                    f"{info.scientific_name!r}; got {taxon_policy.scientific_name!r}."
+                )
+            terms_by_mode = (
+                ("exact", taxon_policy.exact_terms),
+                ("subset", taxon_policy.subset_terms),
+                ("force", taxon_policy.force_terms),
+            )
+            for mode, terms in terms_by_mode:
+                for term in terms:
+                    normalized_term = _normalize_text(str(term))
+                    ncbi_exact = ncbi_exact_terms.get(normalized_term)
+                    if (
+                        mode != "force"
+                        and ncbi_exact is not None
+                        and ncbi_exact.taxid != info.taxid
+                    ):
+                        raise ValueError(
+                            f"Curated term {term!r} conflicts with an NCBI exact term for "
+                            f"taxid {ncbi_exact.taxid}; place it under force to map it to "
+                            f"taxid {taxon_policy.taxid}."
+                        )
+                    if mode != "force":
+                        curated_term_entries.append((normalized_term, info, mode == "subset"))
 
         for norm, info in synonym_entries:
             if not norm:
@@ -273,11 +421,12 @@ class HostStandardizer:
             self.synonym_to_info.setdefault(norm, info)
             self._index_for_subset(norm, info)
 
-        for norm, info in keyword_entries:
+        for norm, info, allow_subset in curated_term_entries:
             if not norm:
                 continue
-            self.keyword_to_info.setdefault(norm, info)
-            self._index_for_subset(norm, info)
+            self.curated_term_to_info.setdefault(norm, info)
+            if allow_subset:
+                self._index_for_subset(norm, info, include_subspecies=True)
 
         for norm, info in ncbi_curated_entries:
             if not norm:
@@ -293,14 +442,14 @@ class HostStandardizer:
 
         self.logger.info(
             "Loaded lookup tables: %d taxids, %d unique scinames, "
-            "%d unique synonyms, %d unique keywords, "
+            "%d unique synonyms, %d unique curated terms, "
             "%d unique NCBI curated common names, "
             "%d unique NCBI broad common names, "
             "%d multi-word subset terms, %d single-word subset terms",
             len(self.taxid_to_info),
             len(self.sciname_to_info),
             len(self.synonym_to_info),
-            len(self.keyword_to_info),
+            len(self.curated_term_to_info),
             len(self.curated_common_to_info),
             len(self.broad_common_to_info),
             len(self.multiword_term_to_info),
@@ -315,7 +464,13 @@ class HostStandardizer:
         parts = str(cell).split(";")
         return [p.strip() for p in parts if p.strip() and p.strip().lower() != "nan"]
 
-    def _index_for_subset(self, norm_term: str, info: TaxonInfo) -> None:
+    def _index_for_subset(
+        self,
+        norm_term: str,
+        info: TaxonInfo,
+        *,
+        include_subspecies: bool = False,
+    ) -> None:
         """
         Add a normalized term to the subset-matching index.
 
@@ -325,7 +480,7 @@ class HostStandardizer:
         in the exact-match lookups, so a value typed as the full
         trinomial still resolves correctly.
         """
-        if not norm_term or info.rank == "subspecies":
+        if not norm_term or (info.rank == "subspecies" and not include_subspecies):
             return
         words = norm_term.split()
         if len(words) >= 2:
@@ -337,39 +492,29 @@ class HostStandardizer:
 
     def _compile_filters(self) -> None:
         self.ignored_patterns: list[re.Pattern] = [
-            re.compile(re.escape(str(s)), re.IGNORECASE)
-            for s in self.config.get("ignored_substrings", [])
+            re.compile(re.escape(value), re.IGNORECASE) for value in self.policy.ignored_substrings
         ]
         # Each iso_keyword is stored alongside its normalized word set.
         # Matching is whole-word: all the keyword's words must appear
         # as whole words in the value's normalized word set.
         self.iso_keywords: list[tuple[str, frozenset[str]]] = []
-        for kw in self.config.get("iso_keywords", []):
+        for kw in self.policy.isolation_source_keywords:
             words = frozenset(_normalize_text(str(kw)).split())
             if words:
                 self.iso_keywords.append((str(kw), words))
 
-        # Manual overrides keyed by normalized value: int = force taxid,
-        # None = reject and forward to iso_source. Validated at startup
-        # so a typo'd taxid fails fast.
-        self.taxid_overrides: dict[str, int | None] = {}
-        raw_overrides = (self.config.get("overrides") or {}).get("taxid_overrides") or {}
-        for raw_key, raw_taxid in raw_overrides.items():
-            norm_key = _normalize_text(str(raw_key))
-            if not norm_key:
-                continue
-            if raw_taxid is None:
-                self.taxid_overrides[norm_key] = None
-                continue
-            taxid_str = str(raw_taxid)
-            if taxid_str not in self.taxid_to_info:
-                raise ValueError(
-                    f"Override for {raw_key!r} points to taxid {raw_taxid} "
-                    f"which is not present in the taxid table."
-                )
-            self.taxid_overrides[norm_key] = int(raw_taxid)
-        if self.taxid_overrides:
-            self.logger.info("Loaded %d manual taxid override(s)", len(self.taxid_overrides))
+        # Preemptive decisions keyed by normalized value: int = force taxid,
+        # None = reject as host and preserve as overflow for iso_source.
+        self.preemptive_decisions: dict[str, int | None] = {}
+        for taxon_policy in self.policy.curated_taxa:
+            for raw_value in taxon_policy.force_terms:
+                self.preemptive_decisions[_normalize_text(raw_value)] = taxon_policy.taxid
+        for raw_value in self.policy.value_rejections:
+            self.preemptive_decisions[_normalize_text(raw_value)] = None
+        if self.preemptive_decisions:
+            self.logger.info(
+                "Loaded %d preemptive host decision(s)", len(self.preemptive_decisions)
+            )
 
     # --- Per-value matching ---
 
@@ -391,7 +536,7 @@ class HostStandardizer:
         for lookup, score in (
             (self.sciname_to_info, SCORE_SCINAME),
             (self.synonym_to_info, SCORE_SYNONYM),
-            (self.keyword_to_info, SCORE_KEYWORD),
+            (self.curated_term_to_info, SCORE_CURATED_TERM),
             (self.curated_common_to_info, SCORE_CURATED_COMMON),
             (self.broad_common_to_info, SCORE_BROAD_COMMON),
         ):
@@ -489,24 +634,24 @@ class HostStandardizer:
                     return original
         return None
 
-    def _check_overrides(self, val_str: str) -> tuple[str, str | int | None]:
+    def _check_preemptive_decisions(self, val_str: str) -> tuple[str, str | int | None]:
         """
-        Check whether any value in the row hits a manual override.
+        Check whether any value in the row hits a forced match or value rejection.
 
         Returns one of:
-          ("none",   None)    no override applies; proceed with normal matching
+          ("none",   None)    no preemptive decision; proceed with normal matching
           ("reject", raw_val) any value mapped to null; row goes to iso_source
           ("force",  taxid)   any value mapped to a taxid; force that match
 
         """
-        if not self.taxid_overrides:
+        if not self.preemptive_decisions:
             return "none", None
         forced: tuple[str, int] | None = None
         for value in split_pipe_separated(val_str):
             norm = _normalize_text(value)
-            if norm not in self.taxid_overrides:
+            if norm not in self.preemptive_decisions:
                 continue
-            target = self.taxid_overrides[norm]
+            target = self.preemptive_decisions[norm]
             if target is None:
                 return "reject", value.strip()
             if forced is None:
@@ -515,13 +660,13 @@ class HostStandardizer:
             return "force", forced[1]
         return "none", None
 
-    def _build_override_match(self, val_str: str, attributes_str: str, taxid: int) -> HostMatch:
+    def _build_forced_match(self, val_str: str, attributes_str: str, taxid: int) -> HostMatch:
         """Build a HostMatch from a forced taxid, picking the first value that triggered it."""
         attributes = split_pipe_separated(attributes_str)
         values = split_pipe_separated(val_str)
         info = self.taxid_to_info[str(taxid)]
         for idx, (raw_attr, raw_val) in enumerate(zip(attributes, values, strict=False)):
-            if self.taxid_overrides.get(_normalize_text(raw_val)) == taxid:
+            if self.preemptive_decisions.get(_normalize_text(raw_val)) == taxid:
                 return HostMatch(
                     info=info,
                     score=1.0,
@@ -532,7 +677,7 @@ class HostStandardizer:
                     tier_candidates=(),
                     low_confidence=False,
                 )
-        raise AssertionError(f"_build_override_match: no value matched taxid {taxid}")
+        raise AssertionError(f"_build_forced_match: no value matched taxid {taxid}")
 
     # --- Per-record dispatch ---
 
@@ -543,11 +688,11 @@ class HostStandardizer:
         val_str: str,
         skip_iso_keywords: bool = False,
     ) -> HostMatch | None:
-        """Run the full per-row cascade: iso_keyword -> override -> match.
+        """Run the full per-row cascade: iso keyword -> preemptive decision -> match.
 
         Returns the winning HostMatch when a host is identified (including
-        forced overrides). Returns None when the row should be forwarded to
-        the iso pipeline (iso_keyword hit, reject override, or no match).
+        forced terms). Returns None when the row should be forwarded to
+        the iso pipeline (iso keyword hit, value rejection, or no match).
 
         `skip_iso_keywords` bypasses the iso_keyword guard. Used when
         the value has already been classified by the iso pipeline, to find
@@ -582,11 +727,11 @@ class HostStandardizer:
             if iso_keyword is not None:
                 return None, HostDiagnostic.ISO_KEYWORD_PREEMPTION
 
-        outcome, payload = self._check_overrides(val_str)
+        outcome, payload = self._check_preemptive_decisions(val_str)
         if outcome == "reject":
             return None, HostDiagnostic.OVERRIDE_REJECTION
         if outcome == "force":
-            match = self._build_override_match(val_str, attr_str, payload)
+            match = self._build_forced_match(val_str, attr_str, payload)
             return match, HostDiagnostic.FORCED_OVERRIDE
 
         match = self.find_best_match(accession, attr_str, val_str)

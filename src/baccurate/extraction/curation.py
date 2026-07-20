@@ -147,8 +147,8 @@ class CurationSchema:
             {"schema_version", "universal_missing", "location_rescue", "targets"},
             "top level",
         )
-        if config.get("schema_version") != 2:
-            raise CurationSchemaError(f"{path}: schema_version must be 2")
+        if config.get("schema_version") != 3:
+            raise CurationSchemaError(f"{path}: schema_version must be 3")
         targets = _mapping(path, "targets", config.get("targets"))
         unknown_targets = set(targets) - _TARGETS
         if unknown_targets:

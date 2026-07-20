@@ -5,23 +5,64 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
 from baccurate.standardizers.host import HostDiagnostic, HostStandardizer
 
 ROOT = Path(__file__).parent.parent
 CONFIG_PATH = ROOT / "config" / "host.yaml"
 NCBI_PATH = ROOT / "data" / "reference" / "taxonomy" / "taxids_ncbi.tsv"
-CURATED_PATH = ROOT / "data" / "reference" / "taxonomy" / "taxids_curated.tsv"
 
 
 @pytest.fixture(scope="session")
 def standardizer() -> HostStandardizer:
-    return HostStandardizer(CONFIG_PATH, NCBI_PATH, CURATED_PATH)
+    return HostStandardizer(CONFIG_PATH, NCBI_PATH)
+
+
+@pytest.fixture
+def minimal_ncbi_path(tmp_path: Path) -> Path:
+    path = tmp_path / "taxids_ncbi.tsv"
+    path.write_text(
+        "\n".join(
+            [
+                "taxid\trank\tscientific_name\tsynonym\tgenbank_common_name\tcommon_name\tcomments",
+                "9606\tspecies\tHomo sapiens\t\t\t\t",
+                "9913\tspecies\tBos taurus\t\t\t\t",
+                "9520\tgenus\tSaimiri\t\t\t\t",
+                "9605\tgenus\tHomo\t\t\t\t",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def write_host_config(
+    tmp_path: Path,
+    *,
+    curated_taxa: dict[str, object] | None = None,
+    value_rejections: list[str] | None = None,
+    schema_version: int = 2,
+    extra: dict[str, object] | None = None,
+) -> Path:
+    config: dict[str, object] = {
+        "schema_version": schema_version,
+        "normalization": {"ignored_substrings": []},
+        "routing": {"isolation_source_keywords": []},
+        "curated_taxa": curated_taxa or {},
+        "value_rejections": {"exact": value_rejections or []},
+    }
+    config.update(extra or {})
+    path = tmp_path / "host.yaml"
+    path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    return path
 
 
 def classify(standardizer: HostStandardizer, value: str, attribute: str = "host"):
     """Standardize a single (attribute, value)."""
     return standardizer.classify_row("TEST", attribute, value)
+
 
 
 # =============================================================================
@@ -143,8 +184,8 @@ def test_ncbi_synonym_match_returns_full_score(standardizer):
     assert match.score == 1.0
 
 
-def test_curated_keyword_match_scores_0_95(standardizer):
-    """'Holstein' is in the locally-curated keywords for Bos taurus."""
+def test_curated_term_match_scores_0_95(standardizer):
+    """'Holstein' is a locally curated subset term for Bos taurus."""
     match = classify(standardizer, "Holstein")
 
     assert match.info.taxid == 9913
@@ -185,6 +226,14 @@ def test_singleword_subset_match_scores_0_50(standardizer):
     assert match.info.taxid == 9606
     assert match.score == 0.5
     assert match.match_tier == "single-word"
+    assert match.low_confidence is True
+
+
+def test_curated_subset_term_can_target_a_subspecies(standardizer: HostStandardizer) -> None:
+    match = classify(standardizer, "sample Canis lupus familaris")
+
+    assert match.info.taxid == 9615
+    assert match.score == 0.7
     assert match.low_confidence is True
 
 
@@ -279,13 +328,13 @@ def test_iso_keyword_as_substring_inside_another_word_does_not_preempt(standardi
 
 
 # =============================================================================
-# Manual overrides
+# Preemptive host decisions
 # =============================================================================
 
 
-def test_force_override_beats_default_matching(standardizer):
+def test_force_term_beats_default_matching(standardizer):
     """`Squirrel monkey` would otherwise resolve to Sciurus (genus) via
-    single-word subset. The override forces it to Saimiri (taxid 9520).
+    single-word subset. The force term selects Saimiri (taxid 9520).
     """
     match = classify(standardizer, "Squirrel monkey")
 
@@ -294,8 +343,8 @@ def test_force_override_beats_default_matching(standardizer):
     assert match.low_confidence is False
 
 
-def test_null_override_forwards_to_iso_and_returns_no_match(standardizer):
-    """`cancer` is overridden to null"""
+def test_value_rejection_forwards_to_iso_and_returns_no_match(standardizer):
+    """`cancer` is rejected as a host and retained for isolation interpretation."""
     assert classify(standardizer, "cancer") is None
 
 
