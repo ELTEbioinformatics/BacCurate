@@ -136,34 +136,9 @@ targets:
         - host tot mass
         - host variety
     value_rejections:
+      # Host-specific blacklisted values are maintained in config/host.yaml.
       generic_non_host:
-        exact: [reference, host, parent, isolate, genus, microbial, microbiology, bacteria, bacterial]
-      bare_bacterial_taxon:
-        exact:
-          - Escherichia
-          - Escherichia coli
-          - E. coli
-          - E coli
-          - Enterococcus
-          - Enterococcus faecium
-          - Enterococcus faecalis
-          - Staphylococcus
-          - Staphylococcus aureus
-          - Klebsiella
-          - Klebsiella pneumoniae
-          - Acinetobacter
-          - Acinetobacter baumannii
-          - Pseudomonas
-          - Pseudomonas aeruginosa
-          - Enterobacter
-          - Gallionellaceae
-          - Mycobacterium tuberculosis
-          - Proteus mirabilis
-          - Scytonema hofmannii
-        fuzzy: one_edit_unique
-      bare_viral_taxon:
-        exact:
-          - Acanthamoeba polyphaga mimivirus
+        exact: [reference, host, isolate, genus, microbial, bacteria, bacterial]
 
   iso:
     attribute_discovery:
