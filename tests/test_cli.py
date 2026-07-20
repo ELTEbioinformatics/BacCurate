@@ -139,9 +139,14 @@ def test_pipeline_cli_scopes_prompt_snapshot_to_active_llm_pipelines(
     assert ("prompt_artifact" in diagnostics) is expects_snapshot
 
 
-def _prepare_empty_extracted_bundle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def _prepare_empty_extracted_bundle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    records: list[dict[str, str]] | None = None,
+) -> Path:
     extracted_metadata = tmp_path / "custom_metadata.tsv"
-    extracted_metadata.write_text("\t".join(COLUMNS) + "\n", encoding="utf-8")
+    rows = ["\t".join(record.get(column, "") for column in COLUMNS) for record in records or []]
+    extracted_metadata.write_text("\n".join(("\t".join(COLUMNS), *rows)) + "\n", encoding="utf-8")
     catalog = bioproject_catalog_path_for(extracted_metadata)
     catalog.write_text("", encoding="utf-8")
     biosample_manifest_path = main_module.DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST

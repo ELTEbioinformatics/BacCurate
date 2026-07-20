@@ -227,7 +227,6 @@ class _MutableIsolationStatistics:
 class _FinalRow:
     accession: str
     pathogen: str
-    pathogen_sci_name: str
     in_atb: bool
     bioproject: str
     date: DateOutcome | None
@@ -250,7 +249,6 @@ class _RecordAssembler:
     base_columns = (
         "accession",
         "pathogen",
-        "pathogen_sci_name",
         "in_ATB",
         "bioproject",
     )
@@ -319,8 +317,7 @@ class _RecordAssembler:
         accession = record["accession"]
         return _FinalRow(
             accession=accession,
-            pathogen=pathogen,
-            pathogen_sci_name=scientific_name(pathogen),
+            pathogen=scientific_name(pathogen),
             in_atb=accession in self.atb_by_pathogen.get(pathogen, set()),
             bioproject=record.get("bioproject_accession", ""),
             date=date,
@@ -334,7 +331,6 @@ class _RecordAssembler:
         values: tuple[object, ...] = (
             row.accession,
             row.pathogen,
-            row.pathogen_sci_name,
             row.in_atb,
             row.bioproject,
         )
