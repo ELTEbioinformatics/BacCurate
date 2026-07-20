@@ -264,7 +264,6 @@ class _RecordAssembler:
     location_columns = (
         "loc_attr_orig",
         "loc_val_orig",
-        "loc_continent",
         "loc_UNregion",
         "loc_country",
         "loc_other",
@@ -354,12 +353,11 @@ class _RecordAssembler:
                 )
         if StandardizationAttribute.LOCATION in self._selected_attributes:
             if row.location is None:
-                values += ("", "", "", "", "", "")
+                values += ("", "", "", "", "")
             else:
                 values += (
                     "||".join(origin.attribute for origin in row.location.origins),
                     "||".join(origin.value for origin in row.location.origins),
-                    row.location.continent,
                     row.location.un_region,
                     row.location.country,
                     row.location.sublocation or "NA",

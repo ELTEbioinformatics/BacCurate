@@ -67,7 +67,6 @@ If any of these are not set the LLM fallback is disabled and unresolved values r
 | `accession`     | Record ID                                          |
 | `loc_attr_orig` | Unstandardized input attribute(s)                  |
 | `loc_val_orig`  | Unstandardized input value(s)                      |
-| `loc_continent` | Continent of the resolved country                  |
 | `loc_UNregion`  | UN geoscheme region of the resolved country        |
 | `loc_country`   | Standardized country name                          |
 | `loc_other`     | City or sub-country region if available, else `NA` |
