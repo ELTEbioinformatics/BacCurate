@@ -16,12 +16,12 @@ from baccurate.standardizers._date_record import (
     RecordDateStandardizer,
 )
 
-SOURCE_MANIFEST_PATH = Path(__file__).parent.parent / "config" / "source_snapshot.yaml"
+MANIFEST_PATH = Path(__file__).parent.parent / "config" / "biosample_snapshot.yaml"
 
 
 @pytest.fixture
 def standardizer() -> RecordDateStandardizer:
-    manifest = SourceSnapshotManifest.load(SOURCE_MANIFEST_PATH)
+    manifest = SourceSnapshotManifest.load(MANIFEST_PATH)
     return RecordDateStandardizer(manifest.metadata_reference_date)
 
 

@@ -6,14 +6,40 @@ Uses a monkeypatch instead of calling an actual LLM API.
 
 from __future__ import annotations
 
+import csv
+import json
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
-from baccurate.standardizers.host import HostOverflowContext
+import baccurate.standardizers.isolation as isolation_module
+from baccurate.dataset_builder import (
+    DatasetBuilder,
+    DatasetBuildRequest,
+    StandardizationAttribute,
+)
+from baccurate.extraction.tables import COLUMNS
+from baccurate.llm.client import LLMSettings
+from baccurate.source_snapshot import (
+    ArtifactReference,
+    DerivedArtifactReferences,
+    DerivedBundleProvenance,
+    ManifestReference,
+    PairedManifestReferences,
+    SourceSnapshotError,
+    SourceSnapshotManifest,
+    bioproject_catalog_path_for,
+    provenance_path_for,
+    sha256_file,
+)
+from baccurate.standardizers.host import HostOverflowContext, HostStandardizer
 from baccurate.standardizers.isolation import (
     IsolationDiagnostic,
+    IsolationEvidenceLevel,
+    IsolationOrigin,
     IsolationOutcome,
     IsoStandardizer,
     LLMClassifier,
@@ -21,6 +47,7 @@ from baccurate.standardizers.isolation import (
     SQLiteCache,
     StandardizedSource,
 )
+from baccurate.taxonomy.lineage import HostLineage
 from baccurate.utils.config import load_config
 from baccurate.utils.text import normalize_keyword
 
@@ -34,8 +61,8 @@ RECTUM = "host-associated:animal host:digestive tract:intestine:rectum"
 BLOOD = "host-associated:animal host:bodily fluid:blood"
 WOUND = "host-associated:animal host:wound"
 SKIN = "host-associated:animal host:skin"
-MANURE = "environmental:anthropogenic environment:farm:manure"
-
+RHIZOSPHERE = "host-associated:plant host:rhizosphere"
+SOIL = "environmental:natural environment:terrestrial:soil"
 
 # =============================================================================
 # Fake LLM client
@@ -62,11 +89,304 @@ class FakeClient:
         self.behavior: object | None = None
         self.chat = SimpleNamespace(completions=_FakeCompletions(self))
 
-    def respond_with(self, terms, reasoning: str = "because") -> None:
-        self.behavior = SimpleNamespace(terms=list(terms), reasoning=reasoning)
+    def respond_with(
+        self,
+        terms,
+        reasoning: str = "because",
+        evidence_level: str = "sample",
+    ) -> None:
+        self.behavior = SimpleNamespace(
+            terms=list(terms),
+            reasoning=reasoning,
+            evidence_level=evidence_level,
+        )
 
     def fail_with(self, exc: Exception) -> None:
         self.behavior = exc
+
+
+def _write_derived_bundle(
+    tmp_path: Path,
+    *,
+    rows: list[dict[str, str]],
+    projects: list[dict[str, object]],
+) -> tuple[Path, Path, Path]:
+    manifest = SourceSnapshotManifest(
+        manifest_version=1,
+        snapshot_id="biosample-test",
+        provider="test",
+        retrieved_on=date(2026, 1, 1),
+        metadata_reference_date=date(2026, 1, 1),
+        files=(
+            {
+                "name": "biosample.xml.gz",
+                "sha256": "0" * 64,
+            },
+        ),
+    )
+    manifest_path = tmp_path / "biosample_snapshot.yaml"
+    manifest_path.write_text(
+        yaml.safe_dump(manifest.model_dump(mode="json"), sort_keys=False),
+        encoding="utf-8",
+    )
+    bioproject_manifest = SourceSnapshotManifest(
+        manifest_version=1,
+        snapshot_id="bioproject-test",
+        provider="test",
+        retrieved_on=date(2026, 1, 1),
+        metadata_reference_date=date(2026, 1, 1),
+        files=(
+            {
+                "name": "bioproject.xml.gz",
+                "sha256": "1" * 64,
+            },
+        ),
+    )
+    bioproject_manifest_path = tmp_path / "bioproject_snapshot.yaml"
+    bioproject_manifest_path.write_text(
+        yaml.safe_dump(bioproject_manifest.model_dump(mode="json"), sort_keys=False),
+        encoding="utf-8",
+    )
+
+    extracted = tmp_path / "extracted.tsv"
+    with extracted.open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=COLUMNS, delimiter="\t")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(dict.fromkeys(COLUMNS, "") | row)
+
+    catalog = bioproject_catalog_path_for(extracted)
+    catalog.write_text(
+        "".join(
+            json.dumps(project, ensure_ascii=False, separators=(",", ":")) + "\n"
+            for project in projects
+        ),
+        encoding="utf-8",
+    )
+    DerivedBundleProvenance(
+        bundle_version=1,
+        source_manifests=PairedManifestReferences(
+            biosample=ManifestReference(
+                snapshot_id=manifest.snapshot_id,
+                path=str(manifest_path),
+                sha256=sha256_file(manifest_path),
+            ),
+            bioproject=ManifestReference(
+                snapshot_id="bioproject-test",
+                path=str(bioproject_manifest_path),
+                sha256=sha256_file(bioproject_manifest_path),
+            ),
+        ),
+        artifacts=DerivedArtifactReferences(
+            extracted_metadata=ArtifactReference(
+                path=extracted.name,
+                sha256=sha256_file(extracted),
+            ),
+            bioproject_context=ArtifactReference(
+                path=catalog.name,
+                sha256=sha256_file(catalog),
+            ),
+        ),
+    ).write(provenance_path_for(extracted))
+    return extracted, manifest_path, bioproject_manifest_path
+
+
+def _build_isolation_run(
+    tmp_path: Path,
+    *,
+    rows: list[dict[str, str]],
+    projects: list[dict[str, object]],
+    fake: FakeClient,
+) -> SimpleNamespace:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    extracted, biosample_manifest, bioproject_manifest = _write_derived_bundle(
+        tmp_path,
+        rows=rows,
+        projects=projects,
+    )
+    config_path = _isolation_config(tmp_path)
+    atb_index = tmp_path / "atb.tsv"
+    atb_index.write_text("accession\tin_ATB\tpathogen_ATB\n", encoding="utf-8")
+
+    def isolation_factory(config: Path, bundle: Path, result_logger) -> IsoStandardizer:
+        standardizer = IsoStandardizer(
+            config,
+            bundle,
+            result_logger=result_logger,
+            client=None,
+            llm_settings=LLMSettings(None, None, "test-model"),
+        )
+        standardizer.pipeline.client = fake
+        return standardizer
+
+    final_destination = tmp_path / "final.tsv"
+    reasoning_destination = tmp_path / "isolation_reasoning.jsonl"
+    report = DatasetBuilder(isolation_standardizer_factory=isolation_factory).build(
+        DatasetBuildRequest(
+            extracted_metadata=extracted,
+            biosample_snapshot_manifest=biosample_manifest,
+            bioproject_snapshot_manifest=bioproject_manifest,
+            requested_pathogens=("ecoli",),
+            requested_attributes=(StandardizationAttribute.ISOLATION_SOURCE,),
+            final_destination=final_destination,
+            isolation_reasoning_destination=reasoning_destination,
+            atb_index=atb_index,
+            isolation_config=config_path,
+            disable_progress=True,
+        )
+    )
+    return SimpleNamespace(
+        dataset=final_destination,
+        reasoning=reasoning_destination,
+        report=report,
+    )
+
+
+def _build_isolation_dataset(
+    tmp_path: Path,
+    *,
+    rows: list[dict[str, str]],
+    projects: list[dict[str, object]],
+    fake: FakeClient,
+) -> Path:
+    return _build_isolation_run(
+        tmp_path,
+        rows=rows,
+        projects=projects,
+        fake=fake,
+    ).dataset
+
+
+def _project_supported_outcome(
+    host_context: str,
+    origins: tuple[IsolationOrigin, ...],
+) -> IsolationOutcome:
+    """A BioProject-evidence outcome that stays eligible for a host retry.
+
+    term_paths must stay under a HOST_RETRY_TRIGGERS prefix, otherwise
+    IsolationOutcome.host_retry_eligible is False and no host retry happens,
+    which is what the retry test exercises.
+    """
+    return IsolationOutcome(
+        categories="environmental",
+        display_terms="meat product",
+        ontology_links="FOODON:00001006",
+        term_paths="environmental:anthropogenic environment:food:animal product:meat product",
+        evidence_level=IsolationEvidenceLevel.PROJECT,
+        host_context=host_context,
+        origins=origins,
+        sample_origins=origins,
+        reasoning=(),
+        diagnostics=(IsolationDiagnostic.LLM_CALL,),
+        exact_matches=0,
+        cache_hits=0,
+        llm_calls=1,
+    )
+
+
+def test_project_supported_host_retry_uses_only_raw_sample_origins(tmp_path: Path) -> None:
+    rows = [
+        {
+            "accession": "PROJECT_UNLOCKED",
+            "pathogen": "ecoli",
+            "bioproject_accession": "PRJNA1",
+            "iso_attr_orig": "food_source",
+            "iso_val_orig": "chicken meat",
+        },
+        {
+            "accession": "PROJECT_ONLY",
+            "pathogen": "ecoli",
+            "bioproject_accession": "PRJNA2",
+        },
+    ]
+    projects = [
+        {
+            "id": "1",
+            "accession": "PRJNA1",
+            "title": "Human microbiome project",
+            "description": "Human clinical samples",
+            "relevance": ["Medical"],
+        },
+        {
+            "id": "2",
+            "accession": "PRJNA2",
+            "title": "Chicken survey",
+            "description": "Poultry meat surveillance",
+            "relevance": ["Agricultural"],
+        },
+    ]
+    extracted, biosample_manifest, bioproject_manifest = _write_derived_bundle(
+        tmp_path,
+        rows=rows,
+        projects=projects,
+    )
+    atb_index = tmp_path / "atb.tsv"
+    atb_index.write_text("accession\tin_ATB\tpathogen_ATB\n", encoding="utf-8")
+
+    class ProjectSupportedIsolationStandardizer:
+        def standardize(self, record, *, host_context, overflow=None):
+            origins = (
+                (IsolationOrigin("food_source", "chicken meat"),)
+                if record["accession"] == "PROJECT_UNLOCKED"
+                else ()
+            )
+            return _project_supported_outcome(host_context, origins)
+
+        def close(self) -> None:
+            pass
+
+    class RecordingHostStandardizer(HostStandardizer):
+        def __init__(self, config_path: Path, result_logger) -> None:
+            super().__init__(config_path, result_logger=result_logger)
+            self.retry_calls: list[tuple[str, str, str]] = []
+
+        def retry(self, accession: str, attributes: str, values: str):
+            self.retry_calls.append((accession, attributes, values))
+            return super().retry(accession, attributes, values)
+
+    host_standardizer: RecordingHostStandardizer | None = None
+
+    def host_factory(config_path: Path, result_logger) -> RecordingHostStandardizer:
+        nonlocal host_standardizer
+        host_standardizer = RecordingHostStandardizer(config_path, result_logger)
+        return host_standardizer
+
+    report = DatasetBuilder(
+        host_standardizer_factory=host_factory,
+        host_lineage_factory=lambda *_args: SimpleNamespace(
+            enrich=lambda _taxid: HostLineage("chicken", "Gallus gallus", "9031")
+        ),
+        isolation_standardizer_factory=lambda *_args: ProjectSupportedIsolationStandardizer(),
+    ).build(
+        DatasetBuildRequest(
+            extracted_metadata=extracted,
+            biosample_snapshot_manifest=biosample_manifest,
+            bioproject_snapshot_manifest=bioproject_manifest,
+            requested_pathogens=("ecoli",),
+            requested_attributes=(
+                StandardizationAttribute.HOST,
+                StandardizationAttribute.ISOLATION_SOURCE,
+            ),
+            final_destination=tmp_path / "final.tsv",
+            atb_index=atb_index,
+            disable_progress=True,
+        )
+    )
+
+    assert host_standardizer is not None
+    assert host_standardizer.retry_calls == [("PROJECT_UNLOCKED", "food_source", "chicken meat")]
+    assert report.isolation is not None
+    assert report.isolation.aggregate.host_retries == 1
+    with (tmp_path / "final.tsv").open(encoding="utf-8", newline="") as stream:
+        output = {row["accession"]: row for row in csv.DictReader(stream, delimiter="\t")}
+    assert output["PROJECT_UNLOCKED"]["host_sci_name"] == "Gallus gallus"
+    assert output["PROJECT_ONLY"]["host_sci_name"] == ""
+
+
+def _empty_extracted_bundle(tmp_path: Path) -> Path:
+    extracted = tmp_path / "unit-extracted.tsv"
+    bioproject_catalog_path_for(extracted).write_text("", encoding="utf-8")
+    return extracted
 
 
 # =============================================================================
@@ -119,6 +439,542 @@ def classifier(config, ontology, cache, monkeypatch) -> LLMClassifier:
 # =============================================================================
 
 
+def test_dataset_build_conditionally_supplies_every_resolved_project_in_accession_order(
+    tmp_path: Path,
+) -> None:
+    fake = FakeClient()
+    fake.respond_with(["wound"])
+    _build_isolation_dataset(
+        tmp_path,
+        rows=[
+            {
+                "accession": "SAMN00000002",
+                "pathogen": "ecoli",
+                "bioproject_id": "3||1||999",
+                "bioproject_accession": "PRJNA300||PRJNA100",
+                "iso_attr_orig": "isolation_source",
+                "iso_val_orig": "wound patient 314159",
+            }
+        ],
+        projects=[
+            {
+                "id": "3",
+                "accession": "PRJNA300",
+                "title": "Veterinary wound survey",
+                "description": "Animal and environmental sampling.",
+                "relevance": ["Environmental", "Veterinary"],
+            },
+            {
+                "id": "1",
+                "accession": "PRJNA100",
+                "title": "Agricultural surveillance",
+                "description": "Farm sampling.",
+                "relevance": ["Agricultural"],
+            },
+        ],
+        fake=fake,
+    )
+
+    messages = fake.calls[0]["messages"]
+    assert "# BioProject context rules" in messages[0]["content"]
+    expected_json = json.dumps(
+        [
+            {
+                "id": "1",
+                "accession": "PRJNA100",
+                "title": "Agricultural surveillance",
+                "description": "Farm sampling.",
+                "relevance": ["Agricultural"],
+            },
+            {
+                "id": "3",
+                "accession": "PRJNA300",
+                "title": "Veterinary wound survey",
+                "description": "Animal and environmental sampling.",
+                "relevance": ["Environmental", "Veterinary"],
+            },
+        ],
+        ensure_ascii=False,
+        indent=2,
+    )
+    assert messages[1]["content"].endswith(f"# BioProject context\n{expected_json}\n")
+
+
+def test_dataset_build_project_context_changes_the_canonical_request_fingerprint(
+    tmp_path: Path,
+) -> None:
+    fake = FakeClient()
+    fake.respond_with(["wound"])
+    _build_isolation_dataset(
+        tmp_path,
+        rows=[
+            {
+                "accession": "SAMN00000003",
+                "pathogen": "ecoli",
+                "bioproject_id": "1",
+                "bioproject_accession": "PRJNA100",
+                "iso_attr_orig": "isolation_source",
+                "iso_val_orig": "wound patient 161803",
+            },
+            {
+                "accession": "SAMN00000004",
+                "pathogen": "ecoli",
+                "bioproject_id": "2",
+                "bioproject_accession": "PRJNA200",
+                "iso_attr_orig": "isolation_source",
+                "iso_val_orig": "wound patient 161803",
+            },
+        ],
+        projects=[
+            {
+                "id": "1",
+                "accession": "PRJNA100",
+                "title": "Farm study",
+                "description": "Agricultural sampling.",
+                "relevance": ["Agricultural"],
+            },
+            {
+                "id": "2",
+                "accession": "PRJNA200",
+                "title": "Veterinary study",
+                "description": "Animal sampling.",
+                "relevance": ["Veterinary"],
+            },
+        ],
+        fake=fake,
+    )
+
+    # Both samples carry identical isolation evidence and differ only in the
+    # linked project. If the rendered context did not reach the fingerprint the
+    # second sample would serve a cache hit from the first; two model calls
+    # prove the context participates in the cache key.
+    assert len(fake.calls) == 2
+
+
+def test_dataset_build_resolved_project_context_does_not_bypass_direct_sample_matches(
+    tmp_path: Path,
+) -> None:
+    fake = FakeClient()
+    final_dataset = _build_isolation_dataset(
+        tmp_path,
+        rows=[
+            {
+                "accession": "SAMN00000005",
+                "pathogen": "ecoli",
+                "bioproject_id": "1",
+                "bioproject_accession": "PRJNA100",
+                "iso_attr_orig": "isolation_source||specimen",
+                "iso_val_orig": "stool||blood",
+            }
+        ],
+        projects=[
+            {
+                "id": "1",
+                "accession": "PRJNA100",
+                "title": "Environmental surveillance",
+                "description": "A broad One Health study.",
+                "relevance": ["Environmental"],
+            }
+        ],
+        fake=fake,
+    )
+
+    with final_dataset.open(encoding="utf-8", newline="") as stream:
+        row = next(csv.DictReader(stream, delimiter="\t"))
+    assert fake.calls == []
+    assert row["iso_terms"] == f"{BLOOD}||{FECES}"
+
+
+def test_dataset_build_classifies_project_only_records(tmp_path: Path) -> None:
+    fake = FakeClient()
+    fake.respond_with(
+        ["soil"],
+        reasoning="The project explicitly describes soil sampling.",
+        evidence_level="project",
+    )
+
+    final_dataset = _build_isolation_dataset(
+        tmp_path,
+        rows=[
+            {
+                "accession": "SAMN00000007",
+                "pathogen": "ecoli",
+                "bioproject_id": "1",
+                "bioproject_accession": "PRJNA100",
+            }
+        ],
+        projects=[
+            {
+                "id": "1",
+                "accession": "PRJNA100",
+                "title": "Soil isolate survey",
+                "description": "Bacteria isolated from agricultural soil.",
+                "relevance": ["Agricultural", "Environmental"],
+            }
+        ],
+        fake=fake,
+    )
+
+    with final_dataset.open(encoding="utf-8", newline="") as stream:
+        row = next(csv.DictReader(stream, delimiter="\t"))
+    assert len(fake.calls) == 1
+    evidence_schema = fake.calls[0]["response_model"].model_json_schema()["properties"][
+        "evidence_level"
+    ]
+    assert evidence_schema["enum"] == ["project", "none"]
+    assert row["iso_terms"] == SOIL
+
+
+def test_dataset_build_persists_and_aggregates_project_evidence(tmp_path: Path) -> None:
+    fake = FakeClient()
+    fake.respond_with(["soil"], evidence_level="project")
+
+    run = _build_isolation_run(
+        tmp_path,
+        rows=[
+            {
+                "accession": "SAMN00000008",
+                "pathogen": "ecoli",
+                "bioproject_accession": "PRJNA100",
+            }
+        ],
+        projects=[
+            {
+                "id": "1",
+                "accession": "PRJNA100",
+                "title": "Soil survey",
+                "description": "Soil sampling.",
+                "relevance": ["Environmental"],
+            }
+        ],
+        fake=fake,
+    )
+
+    reasoning = json.loads(run.reasoning.read_text(encoding="utf-8"))
+    assert reasoning["evidence_level"] == "project"
+    assert run.report.isolation.aggregate.evidence_levels == {IsolationEvidenceLevel.PROJECT: 1}
+
+
+@pytest.mark.parametrize("invalid_evidence_level", ["sample", "sample_and_project", "none"])
+def test_dataset_build_rejects_invalid_project_only_evidence_claim(
+    tmp_path: Path,
+    invalid_evidence_level: str,
+) -> None:
+    fake = FakeClient()
+    fake.respond_with(["soil"], evidence_level=invalid_evidence_level)
+
+    with pytest.raises(
+        RuntimeError,
+        match="Isolation-source LLM failed for accession SAMN00000009",
+    ):
+        _build_isolation_run(
+            tmp_path,
+            rows=[
+                {
+                    "accession": "SAMN00000009",
+                    "pathogen": "ecoli",
+                    "bioproject_accession": "PRJNA100",
+                }
+            ],
+            projects=[
+                {
+                    "id": "1",
+                    "accession": "PRJNA100",
+                    "title": "Soil survey",
+                    "description": "Soil sampling.",
+                    "relevance": ["Environmental"],
+                }
+            ],
+            fake=fake,
+        )
+
+
+def test_dataset_build_combines_deterministic_sample_and_project_evidence(
+    tmp_path: Path,
+) -> None:
+    fake = FakeClient()
+    fake.respond_with(["soil"], evidence_level="project")
+
+    run = _build_isolation_run(
+        tmp_path,
+        rows=[
+            {
+                "accession": "SAMN00000013",
+                "pathogen": "ecoli",
+                "bioproject_accession": "PRJNA100",
+                "iso_attr_orig": "isolation_source||environment",
+                "iso_val_orig": "stool||farm material 777",
+            }
+        ],
+        projects=[
+            {
+                "id": "1",
+                "accession": "PRJNA100",
+                "title": "Farm soil survey",
+                "description": "Soil and animal sampling.",
+                "relevance": ["Agricultural", "Environmental"],
+            }
+        ],
+        fake=fake,
+    )
+
+    reasoning = json.loads(run.reasoning.read_text(encoding="utf-8"))
+    assert reasoning["evidence_level"] == "sample_and_project"
+    term_paths = reasoning["term_paths"].split("||")
+    assert FECES in term_paths  # deterministic sample match
+    assert SOIL in term_paths  # model's project-derived term
+
+
+def test_dataset_build_preserves_combined_evidence_level(tmp_path: Path) -> None:
+    fake = FakeClient()
+    fake.respond_with(["wound"], evidence_level="sample_and_project")
+
+    run = _build_isolation_run(
+        tmp_path,
+        rows=[
+            {
+                "accession": "SAMN00000010",
+                "pathogen": "ecoli",
+                "bioproject_accession": "PRJNA100",
+                "iso_attr_orig": "isolation_source",
+                "iso_val_orig": "clinical material 424242",
+            }
+        ],
+        projects=[
+            {
+                "id": "1",
+                "accession": "PRJNA100",
+                "title": "Wound infection survey",
+                "description": "Clinical wound isolates.",
+                "relevance": ["Veterinary"],
+            }
+        ],
+        fake=fake,
+    )
+
+    reasoning = json.loads(run.reasoning.read_text(encoding="utf-8"))
+    assert reasoning["evidence_level"] == "sample_and_project"
+    evidence_schema = fake.calls[0]["response_model"].model_json_schema()["properties"][
+        "evidence_level"
+    ]
+    assert evidence_schema["enum"] == [
+        "sample",
+        "project",
+        "sample_and_project",
+        "none",
+    ]
+
+
+def test_dataset_build_keeps_uninformative_project_only_context_unspecified(
+    tmp_path: Path,
+) -> None:
+    fake = FakeClient()
+    fake.respond_with(["unspecified"], evidence_level="project")
+
+    run = _build_isolation_run(
+        tmp_path,
+        rows=[
+            {
+                "accession": "SAMN00000011",
+                "pathogen": "ecoli",
+                "bioproject_accession": "PRJNA100||PRJNA200",
+            }
+        ],
+        projects=[
+            {
+                "id": "1",
+                "accession": "PRJNA100",
+                "title": "Mixed surveillance",
+                "description": "Clinical and environmental isolates.",
+                "relevance": ["Environmental"],
+            },
+            {
+                "id": "2",
+                "accession": "PRJNA200",
+                "title": "Genome sequencing",
+                "description": "No sample origin is reported.",
+                "relevance": [],
+            },
+        ],
+        fake=fake,
+    )
+
+    with run.dataset.open(encoding="utf-8", newline="") as stream:
+        row = next(csv.DictReader(stream, delimiter="\t"))
+    reasoning = json.loads(run.reasoning.read_text(encoding="utf-8"))
+    assert row["iso_display_term"] == "unspecified"
+    assert reasoning["evidence_level"] == "none"
+    assert run.report.isolation.aggregate.evidence_levels == {IsolationEvidenceLevel.NONE: 1}
+
+
+def test_dataset_build_without_sample_or_resolved_project_keeps_no_candidates(
+    tmp_path: Path,
+) -> None:
+    fake = FakeClient()
+
+    run = _build_isolation_run(
+        tmp_path,
+        rows=[
+            {
+                "accession": "SAMN00000012",
+                "pathogen": "ecoli",
+                "bioproject_id": "999",
+            }
+        ],
+        projects=[],
+        fake=fake,
+    )
+
+    assert fake.calls == []
+    assert run.reasoning.read_text(encoding="utf-8") == ""
+    assert run.report.isolation.aggregate.rejected == 1
+    assert run.report.isolation.aggregate.diagnostics == {
+        IsolationDiagnostic.NO_CANDIDATES: 1,
+        IsolationDiagnostic.UNRESOLVED_BIOPROJECT_LINK: 1,
+    }
+
+
+def test_dataset_build_rejects_invalid_project_context_before_classification(
+    tmp_path: Path,
+) -> None:
+    fake = FakeClient()
+    with pytest.raises(
+        SourceSnapshotError,
+        match="relevance must contain distinct Agricultural, Environmental, or Veterinary",
+    ):
+        _build_isolation_dataset(
+            tmp_path,
+            rows=[
+                {
+                    "accession": "SAMN00000006",
+                    "pathogen": "ecoli",
+                    "bioproject_id": "1",
+                    "bioproject_accession": "PRJNA100",
+                    "iso_attr_orig": "isolation_source",
+                    "iso_val_orig": "wound patient 141421",
+                }
+            ],
+            projects=[
+                {
+                    "id": "1",
+                    "accession": "PRJNA100",
+                    "title": "Medical study",
+                    "description": "Clinical sampling.",
+                    "relevance": ["Medical"],
+                }
+            ],
+            fake=fake,
+        )
+
+    assert fake.calls == []
+
+
+# =============================================================================
+# BioProject catalog loading and validation
+# =============================================================================
+
+
+_VALID_PROJECT: dict[str, object] = {
+    "id": "1",
+    "accession": "PRJNA100",
+    "title": "Farm study",
+    "description": "Agricultural sampling.",
+    "relevance": ["Agricultural"],
+}
+
+
+def _write_catalog(extracted: Path, text: str) -> Path:
+    bioproject_catalog_path_for(extracted).write_text(text, encoding="utf-8")
+    return extracted
+
+
+def _catalog_lines(*records: object) -> str:
+    return "".join(
+        json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n" for record in records
+    )
+
+
+def test_load_bioproject_catalog_requires_a_paired_catalog_file(tmp_path: Path) -> None:
+    with pytest.raises(SourceSnapshotError, match="Invalid BioProject context catalog"):
+        isolation_module._load_bioproject_catalog(tmp_path / "extracted.tsv")
+
+
+def test_load_bioproject_catalog_parses_valid_records(tmp_path: Path) -> None:
+    extracted = _write_catalog(
+        tmp_path / "extracted.tsv",
+        _catalog_lines(
+            _VALID_PROJECT,
+            {
+                "id": "2",
+                "accession": "PRJNA200",
+                "title": "Vet study",
+                "description": "",
+                "relevance": ["Environmental", "Veterinary"],
+            },
+        ),
+    )
+
+    catalog = isolation_module._load_bioproject_catalog(extracted)
+
+    assert set(catalog) == {"PRJNA100", "PRJNA200"}
+    project = catalog["PRJNA200"]
+    assert isinstance(project, isolation_module.ResolvedBioProjectContext)
+    assert project.relevance == ("Environmental", "Veterinary")
+    assert project.description == ""
+
+
+@pytest.mark.parametrize(
+    ("catalog_text", "match"),
+    [
+        ("{not valid json}\n", "line 1"),
+        (_catalog_lines([1, 2, 3]), "expected fields"),
+        (_catalog_lines("PRJNA100"), "expected fields"),
+        (
+            _catalog_lines({k: v for k, v in _VALID_PROJECT.items() if k != "relevance"}),
+            "expected fields",
+        ),
+        (_catalog_lines(_VALID_PROJECT | {"extra": "x"}), "expected fields"),
+        (_catalog_lines(_VALID_PROJECT | {"id": "PRJNA1"}), "project ID must be a numeric string"),
+        (_catalog_lines(_VALID_PROJECT | {"id": "١٢٣"}), "project ID must be a numeric string"),
+        (
+            _catalog_lines(_VALID_PROJECT | {"accession": ""}),
+            "accession must be a non-empty string",
+        ),
+        (_catalog_lines(_VALID_PROJECT | {"title": ""}), "title must be a non-empty string"),
+        (_catalog_lines(_VALID_PROJECT | {"title": 5}), "title must be a non-empty string"),
+        (_catalog_lines(_VALID_PROJECT | {"description": 0}), "description must be a string"),
+        (
+            _catalog_lines(_VALID_PROJECT | {"relevance": "Agricultural"}),
+            "relevance must contain distinct",
+        ),
+        (
+            _catalog_lines(_VALID_PROJECT | {"relevance": ["Medical"]}),
+            "relevance must contain distinct",
+        ),
+        (
+            _catalog_lines(_VALID_PROJECT | {"relevance": ["Agricultural", "Agricultural"]}),
+            "relevance must contain distinct",
+        ),
+        (
+            _catalog_lines(_VALID_PROJECT, _VALID_PROJECT | {"accession": "PRJNA200"}),
+            "duplicate project ID",
+        ),
+        (
+            _catalog_lines(_VALID_PROJECT, _VALID_PROJECT | {"id": "2"}),
+            "duplicate project accession",
+        ),
+    ],
+)
+def test_load_bioproject_catalog_rejects_invalid_records(
+    tmp_path: Path,
+    catalog_text: str,
+    match: str,
+) -> None:
+    extracted = _write_catalog(tmp_path / "extracted.tsv", catalog_text)
+    with pytest.raises(SourceSnapshotError, match=match):
+        isolation_module._load_bioproject_catalog(extracted)
+
+
 def test_typed_record_outcome_preserves_context_origins_and_diagnostics(tmp_path, monkeypatch):
     config_path = tmp_path / "isolation.yaml"
     config_path.write_text(
@@ -130,7 +986,7 @@ def test_typed_record_outcome_preserves_context_origins_and_diagnostics(tmp_path
         "baccurate.standardizers.isolation.load_llm_client",
         lambda *_args: (None, None),
     )
-    standardizer = IsoStandardizer(config_path)
+    standardizer = IsoStandardizer(config_path, _empty_extracted_bundle(tmp_path))
 
     try:
         result = standardizer.standardize(
@@ -178,6 +1034,9 @@ def test_typed_record_outcome_preserves_context_origins_and_diagnostics(tmp_path
         ("isolation_source", "stool"),
         ("host sample", "blood"),
     ]
+    assert [(origin.attribute, origin.value) for origin in result.sample_origins] == [
+        ("isolation_source", "stool")
+    ]
     assert FECES in result.term_paths.split("||")
     assert BLOOD in result.term_paths.split("||")
     assert result.display_terms != "unspecified"
@@ -185,7 +1044,36 @@ def test_typed_record_outcome_preserves_context_origins_and_diagnostics(tmp_path
     assert result.exact_matches == 2
     assert result.cache_hits == 0
     assert result.llm_calls == 0
+    assert result.evidence_level is IsolationEvidenceLevel.SAMPLE
     assert result.diagnostics == (IsolationDiagnostic.EXACT_MATCH,)
+
+
+def test_partial_deterministic_result_uses_sample_evidence_when_llm_is_disabled(
+    tmp_path: Path,
+) -> None:
+    config_path = _isolation_config(tmp_path)
+    standardizer = IsoStandardizer(
+        config_path,
+        _empty_extracted_bundle(tmp_path),
+        client=None,
+        llm_settings=LLMSettings(None, None, "test-model"),
+    )
+
+    try:
+        result = standardizer.standardize(
+            {
+                "accession": "PARTIAL_DETERMINISTIC",
+                "iso_attr_orig": "isolation_source||environment",
+                "iso_val_orig": "stool||unresolved material 12345",
+            },
+            host_context="",
+        )
+    finally:
+        standardizer.close()
+
+    assert isinstance(result, IsolationOutcome)
+    assert result.term_paths == FECES
+    assert result.evidence_level is IsolationEvidenceLevel.SAMPLE
 
 
 def test_typed_record_outcome_preserves_model_reasoning_on_exact_cache_hit(tmp_path, monkeypatch):
@@ -196,7 +1084,8 @@ def test_typed_record_outcome_preserves_model_reasoning_on_exact_cache_hit(tmp_p
         encoding="utf-8",
     )
     monkeypatch.setenv("LLM_MODEL", "test-model")
-    first_standardizer = IsoStandardizer(config_path, client=None)
+    extracted = _empty_extracted_bundle(tmp_path)
+    first_standardizer = IsoStandardizer(config_path, extracted, client=None)
     fake_client = FakeClient()
     fake_client.respond_with(["wound"], reasoning="clinical wound")
     first_standardizer.pipeline.client = fake_client
@@ -213,7 +1102,7 @@ def test_typed_record_outcome_preserves_model_reasoning_on_exact_cache_hit(tmp_p
     finally:
         first_standardizer.close()
 
-    cached_standardizer = IsoStandardizer(config_path, client=None)
+    cached_standardizer = IsoStandardizer(config_path, extracted, client=None)
     try:
         cached = cached_standardizer.standardize(
             {
@@ -227,6 +1116,7 @@ def test_typed_record_outcome_preserves_model_reasoning_on_exact_cache_hit(tmp_p
         cached_standardizer.close()
 
     assert isinstance(modelled, IsolationOutcome)
+    assert modelled.evidence_level is IsolationEvidenceLevel.SAMPLE
     assert modelled.diagnostics == (IsolationDiagnostic.LLM_CALL,)
     assert modelled.reasoning == (
         {
@@ -238,8 +1128,126 @@ def test_typed_record_outcome_preserves_model_reasoning_on_exact_cache_hit(tmp_p
     )
     assert isinstance(cached, IsolationOutcome)
     assert cached.term_paths == modelled.term_paths
+    assert cached.evidence_level is IsolationEvidenceLevel.SAMPLE
     assert cached.reasoning == modelled.reasoning
     assert cached.diagnostics == (IsolationDiagnostic.CACHE_HIT,)
+
+
+def _isolation_config(tmp_path: Path, *, suffix: str = "") -> Path:
+    config_path = tmp_path / f"isolation-{len(list(tmp_path.glob('isolation-*.yaml')))}.yaml"
+    config_path.write_text(
+        CONFIG_PATH.read_text(encoding="utf-8")
+        + f'\ncache_db_path: "{(tmp_path / "isolation-cache.db").as_posix()}"\n'
+        + suffix,
+        encoding="utf-8",
+    )
+    return config_path
+
+
+def _standardize_model_isolation(
+    config_path: Path,
+    fake: FakeClient,
+    *,
+    model: str = "test-model",
+    schema_override: object | None = None,
+) -> IsolationOutcome:
+    standardizer = IsoStandardizer(
+        config_path,
+        _empty_extracted_bundle(config_path.parent),
+        client=None,
+        llm_settings=LLMSettings(None, None, model),
+    )
+    standardizer.pipeline.client = fake
+    if schema_override is not None:
+        standardizer.pipeline._response_schemas[
+            isolation_module._IsolationRequestMode.SAMPLE_ONLY
+        ] = schema_override
+    try:
+        result = standardizer.standardize(
+            {
+                "accession": "REQUEST_FINGERPRINT",
+                "iso_attr_orig": "isolation_source",
+                "iso_val_orig": "wound patient 739105",
+            },
+            host_context="Homo sapiens",
+        )
+    finally:
+        standardizer.close()
+    assert isinstance(result, IsolationOutcome)
+    return result
+
+
+def test_isolation_cache_reuses_identical_request_when_only_prompt_metadata_changes(tmp_path):
+    fake = FakeClient()
+    fake.respond_with(["wound"], reasoning="clinical wound")
+    first_config = _isolation_config(tmp_path, suffix="prompt_version: first\n")
+    second_config = _isolation_config(tmp_path, suffix="prompt_version: second\n")
+
+    first = _standardize_model_isolation(first_config, fake)
+    second = _standardize_model_isolation(second_config, fake)
+
+    assert first.diagnostics == (IsolationDiagnostic.LLM_CALL,)
+    assert second.diagnostics == (IsolationDiagnostic.CACHE_HIT,)
+    assert second.reasoning == first.reasoning
+    assert len(fake.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "changed_component",
+    ["message", "model", "parameter", "schema_id", "schema_contract"],
+)
+def test_isolation_cache_misses_when_canonical_request_changes(
+    tmp_path, monkeypatch, changed_component
+):
+    fake = FakeClient()
+    fake.respond_with(["wound"], reasoning="clinical wound")
+    first_config = _isolation_config(tmp_path)
+    _standardize_model_isolation(first_config, fake)
+
+    second_config = _isolation_config(tmp_path)
+    second_model = "test-model"
+    schema_override = None
+    if changed_component == "message":
+        second_config = _isolation_config(
+            tmp_path,
+            suffix="system_prompt: A changed fully rendered system prompt.\n",
+        )
+    elif changed_component == "model":
+        second_model = "changed-model"
+    elif changed_component == "parameter":
+        monkeypatch.setattr(
+            isolation_module,
+            "ISOLATION_LLM_PARAMETERS",
+            {"temperature": 0, "seed": 101},
+        )
+    elif changed_component == "schema_id":
+        monkeypatch.setattr(
+            isolation_module,
+            "ISOLATION_RESPONSE_SCHEMA_ID",
+            "baccurate.isolation.classification.changed",
+        )
+    else:
+
+        class ChangedResponseModel:
+            @classmethod
+            def model_json_schema(cls):
+                return {
+                    "type": "object",
+                    "properties": {"changed": {"type": "string"}},
+                    "required": ["changed"],
+                }
+
+        schema_override = ChangedResponseModel
+
+    second = _standardize_model_isolation(
+        second_config,
+        fake,
+        model=second_model,
+        schema_override=schema_override,
+    )
+
+    assert second.diagnostics == (IsolationDiagnostic.LLM_CALL,)
+    assert len(fake.calls) == 2
 
 
 # =============================================================================
@@ -247,30 +1255,16 @@ def test_typed_record_outcome_preserves_model_reasoning_on_exact_cache_hit(tmp_p
 # =============================================================================
 
 
-@pytest.mark.parametrize(
-    "stored_value,changed_value",
-    [
-        ("sampled 2020-02-01", "sampled 2020-02-02"),
-        ("37.9 N", "38.0 N"),
-        ("10 mg", "11 mg"),
-        ("1x4 cm", "1x5 cm"),
-        ("Patient-1", "Patient-2"),
-        ("50%", "90%"),
-        ("patient 1", "patient 2"),
-        ("patient1", "patient2"),
-        ("ENVO:00002003", "ENVO:00002005"),
-    ],
-)
-def test_cache_does_not_reuse_changed_evidence(cache, feces_source, stored_value, changed_value):
-    cache.set("isolation_source", stored_value, "human", feces_source, "m1")
+def test_cache_does_not_reuse_changed_request_fingerprint(cache, feces_source):
+    cache.set("fingerprint-a", feces_source)
 
-    assert cache.get("isolation_source", changed_value, "human", "m1") is None
+    assert cache.get("fingerprint-b") is None
 
 
-def test_cache_reuses_the_same_normalized_evidence(cache, feces_source):
-    cache.set(" Isolation Source ", " Stool Sample ", " Homo sapiens ", feces_source, " M1 ")
+def test_cache_reuses_the_same_request_fingerprint(cache, feces_source):
+    cache.set("fingerprint", feces_source)
 
-    assert cache.get("isolation_source", "stool sample", "homo sapiens", "m1") == feces_source
+    assert cache.get("fingerprint") == feces_source
 
 
 def test_set_then_get_round_trips_the_record(cache):
@@ -281,9 +1275,9 @@ def test_set_then_get_round_trips_the_record(cache):
         term_paths=FECES,
         reasoning=[{"node": "direct_match", "reasoning": "x", "selections": [FECES]}],
     )
-    cache.set("isolation_source", "stool", "human", rec, "m1")
+    cache.set("fingerprint", rec)
 
-    got = cache.get("isolation_source", "stool", "human", "m1")
+    got = cache.get("fingerprint")
 
     assert got is not None
     assert got.categories == "host-associated"
@@ -294,7 +1288,7 @@ def test_set_then_get_round_trips_the_record(cache):
 
 
 def test_get_on_unknown_key_returns_none(cache):
-    assert cache.get("isolation_source", "never stored", "human", "m1") is None
+    assert cache.get("never-stored") is None
 
 
 # =============================================================================
@@ -329,15 +1323,8 @@ def test_display_term_to_path_maps_back_to_canonical_path(ontology):
     assert ontology.display_term_to_path[normalize_keyword("blood")] == BLOOD
 
 
-@pytest.mark.parametrize(
-    "source,target",
-    [
-        (FECES, RECTUM),
-        (MANURE, FECES),
-    ],
-)
-def test_crosslinks_resolve_to_target_paths(ontology, source, target):
-    assert target in ontology.crosslink_map[source]
+def test_crosslinks_resolve_to_target_paths(ontology):
+    assert SOIL in ontology.crosslink_map[RHIZOSPHERE]
 
 
 # =============================================================================
@@ -380,6 +1367,11 @@ def test_format_metadata_omits_blank_host():
     assert "host =" not in out
 
 
+def test_system_prompt_renders_ontology_without_altering_json_examples(classifier):
+    assert "{ontology_tree}" not in classifier.system_prompt
+    assert '{"reasoning":' in classifier.system_prompt
+
+
 # =============================================================================
 # standardize_record: empty and trusted inputs
 # =============================================================================
@@ -409,15 +1401,15 @@ def test_empty_value_resolves_to_unspecified_without_llm(classifier):
 # =============================================================================
 
 
-def test_direct_match_skips_llm_and_applies_crosslink(classifier):
+def test_direct_feces_match_does_not_infer_anatomical_site(classifier):
     res = classifier.standardize_record("T", "isolation_source", "stool", "")
 
     terms = res.display_terms.split("||")
     paths = res.term_paths.split("||")
     assert "feces" in terms
-    assert "rectum" in terms  # crosslink feces -> rectum
+    assert "rectum" not in terms
     assert FECES in paths
-    assert RECTUM in paths
+    assert RECTUM not in paths
     assert res.categories == "host-associated"
     assert classifier.stats["llm_calls"] == 0
     assert classifier.stats["exact_matches"] >= 1
@@ -455,6 +1447,10 @@ def test_llm_selection_is_mapped_to_term_path(classifier):
     res = classifier.standardize_record("T", "isolation_source", "venous draw", "")
 
     assert classifier.stats["llm_calls"] == 1
+    user_prompt = classifier._fake.calls[0]["messages"][1]["content"]
+    assert "isolation_source = venous draw" in user_prompt
+    assert "{metadata}" not in user_prompt
+    assert "{bioproject_context}" not in user_prompt
     assert "blood" in res.display_terms.split("||")
     assert BLOOD in res.term_paths.split("||")
     nodes = [h.get("node") for h in res.reasoning]
@@ -463,15 +1459,15 @@ def test_llm_selection_is_mapped_to_term_path(classifier):
     assert classifier_entry["selected_terms"] == ["blood"]
 
 
-def test_llm_selection_expands_along_crosslinks(classifier):
+def test_llm_feces_selection_does_not_infer_anatomical_site(classifier):
     classifier._fake.respond_with(["feces"])
     res = classifier.standardize_record("T", "isolation_source", "gut contents", "")
 
     terms = res.display_terms.split("||")
     assert "feces" in terms
-    assert "rectum" in terms  # crosslink feces -> rectum
+    assert "rectum" not in terms
     nodes = [h.get("node") for h in res.reasoning]
-    assert "crosslink" in nodes
+    assert "crosslink" not in nodes
 
 
 def test_direct_and_llm_paths_are_unioned(classifier):

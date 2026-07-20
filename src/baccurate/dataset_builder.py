@@ -20,6 +20,7 @@ from baccurate.standardizers._date_record import DateDiagnostic, DateOutcome, Re
 from baccurate.standardizers.host import HostDiagnostic, HostOutcome, HostStandardizer
 from baccurate.standardizers.isolation import (
     IsolationDiagnostic,
+    IsolationEvidenceLevel,
     IsolationOutcome,
     IsolationRejection,
     IsoStandardizer,
@@ -59,7 +60,8 @@ class DatasetBuildRequest:
     """Inputs, selection, destination, and runtime settings for one build."""
 
     extracted_metadata: Path
-    source_snapshot_manifest: Path
+    biosample_snapshot_manifest: Path
+    bioproject_snapshot_manifest: Path
     requested_pathogens: tuple[str, ...]
     requested_attributes: tuple[StandardizationAttribute, ...]
     final_destination: Path
@@ -165,6 +167,7 @@ class IsolationBuildStatistics:
     llm_calls: int
     host_contexts: int
     host_retries: int
+    evidence_levels: Mapping[IsolationEvidenceLevel, int]
     diagnostics: Mapping[IsolationDiagnostic, int]
 
 
@@ -216,6 +219,7 @@ class _MutableIsolationStatistics:
     llm_calls: int = 0
     host_contexts: int = 0
     host_retries: int = 0
+    evidence_levels: Counter[IsolationEvidenceLevel] = field(default_factory=Counter)
     diagnostics: Counter[IsolationDiagnostic] = field(default_factory=Counter)
 
 
@@ -319,7 +323,7 @@ class _RecordAssembler:
             pathogen=pathogen,
             pathogen_sci_name=scientific_name(pathogen),
             in_atb=accession in self.atb_by_pathogen.get(pathogen, set()),
-            bioproject=record.get("bioproject", ""),
+            bioproject=record.get("bioproject_accession", ""),
             date=date,
             location=location,
             isolation=isolation,
@@ -407,7 +411,7 @@ class DatasetBuilder:
         ) = None,
         host_lineage_factory: Callable[[Path, Path], HostLineageEnricher] | None = None,
         isolation_standardizer_factory: (
-            Callable[[Path, logging.Logger], IsoStandardizer] | None
+            Callable[[Path, Path, logging.Logger], IsoStandardizer] | None
         ) = None,
     ) -> None:
         self._location_standardizer_factory = location_standardizer_factory
@@ -454,16 +458,17 @@ class DatasetBuilder:
             writer = csv.writer(destination_stream, delimiter="\t", lineterminator="\n")
             writer.writerow(_RecordAssembler({}, attributes).columns)
 
-            source_manifest = validate_derived_metadata_source(
+            source_contract = validate_derived_metadata_source(
                 request.extracted_metadata,
-                request.source_snapshot_manifest,
+                request.biosample_snapshot_manifest,
+                request.bioproject_snapshot_manifest,
             )
             row_counts = self._count_selected_rows(request.extracted_metadata, pathogens)
             atb_by_pathogen = load_atb_accessions_by_pathogen(request.atb_index)
             assembler = _RecordAssembler(atb_by_pathogen, attributes)
             date_standardizers = (
                 {
-                    pathogen: RecordDateStandardizer(source_manifest.metadata_reference_date)
+                    pathogen: RecordDateStandardizer(source_contract.metadata_reference_date)
                     for pathogen in pathogens
                 }
                 if StandardizationAttribute.DATE in attributes
@@ -498,6 +503,7 @@ class DatasetBuilder:
                 if self._isolation_standardizer_factory is not None:
                     isolation_standardizer = self._isolation_standardizer_factory(
                         request.isolation_config,
+                        request.extracted_metadata,
                         request.logger,
                     )
                 else:
@@ -508,7 +514,9 @@ class DatasetBuilder:
                     if request.skip_llm:
                         isolation_options["client"] = None
                     isolation_standardizer = IsoStandardizer(
-                        request.isolation_config, **isolation_options
+                        request.isolation_config,
+                        request.extracted_metadata,
+                        **isolation_options,
                     )
             if isolation_standardizer is not None:
                 resources.callback(isolation_standardizer.close)
@@ -580,12 +588,12 @@ class DatasetBuilder:
         if report.location is None:
             return
         summaries = {
-            LocationDiagnostic.MODEL_DISABLED: "location model disabled",
-            LocationDiagnostic.RECOVERABLE_MODEL_FAILURE: "recoverable location model failure",
+            LocationDiagnostic.LLM_DISABLED: "location LLM disabled",
+            LocationDiagnostic.RECOVERABLE_LLM_FAILURE: "recoverable location LLM failure",
             LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE: (
                 "recoverable coordinate resolution failure"
             ),
-            LocationDiagnostic.INVALID_MODEL_RESPONSE: "invalid location model response",
+            LocationDiagnostic.INVALID_LLM_RESPONSE: "invalid location LLM response",
         }
         for diagnostic, description in summaries.items():
             count = report.location.aggregate.diagnostics.get(diagnostic, 0)
@@ -735,6 +743,7 @@ class DatasetBuilder:
                         stats.exact_matches += isolation_result.exact_matches
                         stats.cache_hits += isolation_result.cache_hits
                         stats.llm_calls += isolation_result.llm_calls
+                        stats.evidence_levels[isolation_result.evidence_level] += 1
 
                 if (
                     host_standardizer is not None
@@ -742,12 +751,13 @@ class DatasetBuilder:
                     and host_outcome.standardized is None
                     and isolation_outcome is not None
                     and isolation_outcome.host_retry_eligible
+                    and isolation_outcome.sample_origins
                 ):
                     isolation_stats[pathogen].host_retries += 1
                     retry_result = host_standardizer.retry(
                         accession,
-                        "||".join(origin.attribute for origin in isolation_outcome.origins),
-                        "||".join(origin.value for origin in isolation_outcome.origins),
+                        "||".join(origin.attribute for origin in isolation_outcome.sample_origins),
+                        "||".join(origin.value for origin in isolation_outcome.sample_origins),
                     )
                     host_stats[pathogen].retry_eligible += 1
                     host_stats[pathogen].diagnostics.update(retry_result.diagnostics)
@@ -930,13 +940,16 @@ class DatasetBuilder:
                 llm_calls=stats.llm_calls,
                 host_contexts=stats.host_contexts,
                 host_retries=stats.host_retries,
+                evidence_levels=dict(sorted(stats.evidence_levels.items())),
                 diagnostics=dict(sorted(stats.diagnostics.items())),
             )
 
         by_pathogen = {pathogen: freeze(stats) for pathogen, stats in mutable_stats.items()}
         aggregate_diagnostics: Counter[IsolationDiagnostic] = Counter()
+        aggregate_evidence_levels: Counter[IsolationEvidenceLevel] = Counter()
         for stats in mutable_stats.values():
             aggregate_diagnostics.update(stats.diagnostics)
+            aggregate_evidence_levels.update(stats.evidence_levels)
         aggregate = IsolationBuildStatistics(
             processed=sum(stats.processed for stats in mutable_stats.values()),
             matched=sum(stats.matched for stats in mutable_stats.values()),
@@ -946,6 +959,7 @@ class DatasetBuilder:
             llm_calls=sum(stats.llm_calls for stats in mutable_stats.values()),
             host_contexts=sum(stats.host_contexts for stats in mutable_stats.values()),
             host_retries=sum(stats.host_retries for stats in mutable_stats.values()),
+            evidence_levels=dict(sorted(aggregate_evidence_levels.items())),
             diagnostics=dict(sorted(aggregate_diagnostics.items())),
         )
         return IsolationBuildReport(aggregate=aggregate, by_pathogen=by_pathogen)
@@ -958,7 +972,7 @@ def _require_columns(
     required = {
         "accession",
         "pathogen",
-        "bioproject",
+        "bioproject_accession",
     }
     if StandardizationAttribute.DATE in attributes:
         required.update({"date_attr_orig", "date_val_orig", "date_category"})
@@ -991,6 +1005,7 @@ def _isolation_reasoning_json(
         "term_paths": outcome.term_paths,
         "display_terms": outcome.display_terms,
         "ontology_links": outcome.ontology_links,
+        "evidence_level": outcome.evidence_level.value,
         "diagnostics": [diagnostic.value for diagnostic in outcome.diagnostics],
         "reasoning": list(outcome.reasoning),
     }

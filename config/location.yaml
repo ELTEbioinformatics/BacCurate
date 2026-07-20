@@ -1,3 +1,5 @@
+prompt_version: "1"
+
 coordinate_attributes:
   - "lat_lon"
   - "lat lon"

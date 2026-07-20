@@ -26,6 +26,53 @@ ROOT = Path(__file__).parent.parent
 CONFIG_PATH = ROOT / "config" / "location.yaml"
 
 
+def _location_config(tmp_path: Path, *, suffix: str = "") -> Path:
+    config_path = tmp_path / f"location-{len(list(tmp_path.glob('location-*.yaml')))}.yaml"
+    config_path.write_text(
+        CONFIG_PATH.read_text(encoding="utf-8")
+        + f'\ncache_db_path: "{(tmp_path / "location-cache.db").as_posix()}"\n'
+        + suffix,
+        encoding="utf-8",
+    )
+    return config_path
+
+
+def _location_client(calls: list[dict]) -> SimpleNamespace:
+    def create(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content='{"country": "Germany"}'))]
+        )
+
+    return SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create)),
+        close=lambda: None,
+    )
+
+
+def _standardize_model_location(
+    config_path: Path,
+    calls: list[dict],
+    *,
+    model: str = "test-model",
+) -> LocationOutcome | LocationRejection:
+    standardizer = LocationStandardizer(
+        config_path,
+        client=_location_client(calls),
+        llm_settings=LLMSettings(None, None, model),
+    )
+    try:
+        return standardizer.standardize(
+            {
+                "accession": "REQUEST_FINGERPRINT",
+                "loc_attr_orig": "geo_loc_name",
+                "loc_val_orig": "model-only place 739105",
+            }
+        )
+    finally:
+        standardizer.close()
+
+
 @pytest.fixture(scope="session")
 def standardizer() -> LocationStandardizer:
     return LocationStandardizer(CONFIG_PATH)
@@ -240,7 +287,7 @@ def test_record_standardization_distinguishes_absent_unresolved_and_disabled_can
     assert isinstance(absent, LocationRejection)
     assert absent.diagnostics == (LocationDiagnostic.ABSENT_CANDIDATES,)
     assert isinstance(disabled, LocationRejection)
-    assert disabled.diagnostics == (LocationDiagnostic.MODEL_DISABLED,)
+    assert disabled.diagnostics == (LocationDiagnostic.LLM_DISABLED,)
     assert disabled.llm_calls == 0
     assert isinstance(unresolved, LocationRejection)
     assert unresolved.diagnostics == (LocationDiagnostic.UNRESOLVED_PLACE,)
@@ -270,29 +317,29 @@ def test_record_standardization_counts_unmappable_direct_result_without_logging(
 
 
 @pytest.mark.parametrize(
-    ("content", "expected", "expected_cache_writes"),
+    ("content", "expected", "writes_cache"),
     [
         (
             '{"country": "Germany"}',
-            LocationDiagnostic.MODEL_RESOLUTION,
-            [("geo_loc_name=model-only place 918273", "Germany", "Europe")],
+            LocationDiagnostic.LLM_RESOLUTION,
+            True,
         ),
-        ("not json", LocationDiagnostic.INVALID_MODEL_RESPONSE, []),
-        ('result: {"country": "Germany"}', LocationDiagnostic.INVALID_MODEL_RESPONSE, []),
-        ("{}", LocationDiagnostic.INVALID_MODEL_RESPONSE, []),
+        ("not json", LocationDiagnostic.INVALID_LLM_RESPONSE, False),
+        ('result: {"country": "Germany"}', LocationDiagnostic.INVALID_LLM_RESPONSE, False),
+        ("{}", LocationDiagnostic.INVALID_LLM_RESPONSE, False),
         (
             '{"country": "Germany", "continent": "Europe"}',
-            LocationDiagnostic.INVALID_MODEL_RESPONSE,
-            [],
+            LocationDiagnostic.INVALID_LLM_RESPONSE,
+            False,
         ),
-        ('{"country": ["Germany"]}', LocationDiagnostic.INVALID_MODEL_RESPONSE, []),
-        ('{"country": {"name": "Germany"}}', LocationDiagnostic.INVALID_MODEL_RESPONSE, []),
-        ('{"country": 123}', LocationDiagnostic.INVALID_MODEL_RESPONSE, []),
-        ('{"country": "  "}', LocationDiagnostic.INVALID_MODEL_RESPONSE, []),
+        ('{"country": ["Germany"]}', LocationDiagnostic.INVALID_LLM_RESPONSE, False),
+        ('{"country": {"name": "Germany"}}', LocationDiagnostic.INVALID_LLM_RESPONSE, False),
+        ('{"country": 123}', LocationDiagnostic.INVALID_LLM_RESPONSE, False),
+        ('{"country": "  "}', LocationDiagnostic.INVALID_LLM_RESPONSE, False),
     ],
 )
 def test_record_standardization_distinguishes_model_resolution_and_invalid_response(
-    monkeypatch, content, expected, expected_cache_writes, caplog
+    monkeypatch, content, expected, writes_cache, caplog
 ):
     response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
     client = SimpleNamespace(
@@ -320,7 +367,11 @@ def test_record_standardization_distinguishes_model_resolution_and_invalid_respo
 
     assert outcome.diagnostics == (expected,)
     assert outcome.llm_calls == 1
-    assert cache_writes == expected_cache_writes
+    assert bool(cache_writes) is writes_cache
+    if writes_cache:
+        fingerprint, country, continent = cache_writes[0]
+        assert len(fingerprint) == 64
+        assert (country, continent) == ("Germany", "Europe")
     assert caplog.messages == []
 
 
@@ -339,6 +390,55 @@ def test_record_standardization_distinguishes_cache_resolution(monkeypatch):
         standardizer.close()
 
     assert outcome.diagnostics == (LocationDiagnostic.CACHE_RESOLUTION,)
+
+
+def test_location_cache_reuses_identical_request_when_only_prompt_metadata_changes(tmp_path):
+    calls: list[dict] = []
+    first_config = _location_config(tmp_path, suffix="prompt_version: first\n")
+    second_config = _location_config(tmp_path, suffix="prompt_version: second\n")
+
+    first = _standardize_model_location(first_config, calls)
+    second = _standardize_model_location(second_config, calls)
+
+    assert first.diagnostics == (LocationDiagnostic.LLM_RESOLUTION,)
+    assert second.diagnostics == (LocationDiagnostic.CACHE_RESOLUTION,)
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("changed_component", ["message", "model", "parameter", "schema"])
+def test_location_cache_misses_when_canonical_request_changes(
+    tmp_path, monkeypatch, changed_component
+):
+    calls: list[dict] = []
+    first_config = _location_config(tmp_path)
+    _standardize_model_location(first_config, calls)
+
+    second_config = _location_config(tmp_path)
+    second_model = "test-model"
+    if changed_component == "message":
+        second_config = _location_config(
+            tmp_path,
+            suffix="llm_system_prompt: A changed fully rendered system prompt.\n",
+        )
+    elif changed_component == "model":
+        second_model = "changed-model"
+    elif changed_component == "parameter":
+        monkeypatch.setattr(
+            location_module,
+            "LOCATION_LLM_PARAMETERS",
+            {"temperature": 1, "seed": 100},
+        )
+    else:
+        monkeypatch.setattr(
+            location_module,
+            "LOCATION_RESPONSE_SCHEMA_ID",
+            "baccurate.location.country.changed",
+        )
+
+    second = _standardize_model_location(second_config, calls, model=second_model)
+
+    assert second.diagnostics == (LocationDiagnostic.LLM_RESOLUTION,)
+    assert len(calls) == 2
 
 
 def test_record_standardization_counts_recoverable_model_failure_once_per_record(
@@ -367,7 +467,7 @@ def test_record_standardization_counts_recoverable_model_failure_once_per_record
     finally:
         standardizer.close()
 
-    assert outcome.diagnostics == (LocationDiagnostic.RECOVERABLE_MODEL_FAILURE,)
+    assert outcome.diagnostics == (LocationDiagnostic.RECOVERABLE_LLM_FAILURE,)
     assert caplog.messages == []
 
 
@@ -429,10 +529,12 @@ def test_recoverable_model_failure_can_be_retried(monkeypatch, failure):
     finally:
         standardizer.close()
 
-    assert first.diagnostics == (LocationDiagnostic.RECOVERABLE_MODEL_FAILURE,)
+    assert first.diagnostics == (LocationDiagnostic.RECOVERABLE_LLM_FAILURE,)
     assert first.llm_calls == 1
-    assert second.diagnostics == (LocationDiagnostic.MODEL_RESOLUTION,)
+    assert second.diagnostics == (LocationDiagnostic.LLM_RESOLUTION,)
     assert second.llm_calls == 1
     assert calls == 2
-    assert cached_results == [("geo_loc_name=model-only place 24681357", "Germany", "Europe")]
-
+    assert len(cached_results) == 1
+    fingerprint, country, continent = cached_results[0]
+    assert len(fingerprint) == 64
+    assert (country, continent) == ("Germany", "Europe")

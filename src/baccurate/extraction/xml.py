@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from lxml import etree
 
+from baccurate.extraction.bioproject import require_numeric_bioproject_id
 from baccurate.utils.compressed_io import open_binary
 
 if TYPE_CHECKING:
@@ -139,23 +140,28 @@ def parse_xml(
     return candidates
 
 
-def _extract_bioproject(elem: etree._Element) -> str:
-    for link in elem.findall("./Links/Link"):
-        if link.get("target") == "bioproject" and link.text:
-            return link.text.strip()
-    return ""
+def _extract_bioprojects(elem: etree._Element) -> tuple[str, ...]:
+    project_ids = {
+        link.text.strip()
+        for link in elem.findall("./Links/Link")
+        if link.get("target") == "bioproject" and link.text and link.text.strip()
+    }
+    ordered_ids = sorted(project_ids)
+    for project_id in ordered_ids:
+        require_numeric_bioproject_id(project_id)
+    return tuple(ordered_ids)
 
 
 def process_biosample_xml(
     input_file: str | Path,
     evaluate_function: Callable[..., CurationDecision],
     counters: CandidateCounters | None = None,
-) -> Iterator[tuple[str, list[CurationDecision], str]]:
-    """Stream XML, yielding accession, candidate decisions, and BioProject."""
+) -> Iterator[tuple[str, list[CurationDecision], tuple[str, ...]]]:
+    """Stream XML, yielding accession, candidate decisions, and linked BioProjects."""
     for elem in iter_biosample_records(input_file):
         accession = elem.get("accession", "unknown")
 
-        bioproject = _extract_bioproject(elem)
+        bioprojects = _extract_bioprojects(elem)
 
         candidates = parse_xml(
             elem,
@@ -163,5 +169,4 @@ def process_biosample_xml(
             check_root_attributes=True,
             counters=counters,
         )
-        if candidates:
-            yield accession, candidates, bioproject
+        yield accession, candidates, bioprojects
