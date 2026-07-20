@@ -47,12 +47,17 @@ normalization:
 routing:
   isolation_source_keywords:
   - food
+  - feed
   - meat
   - beef
   - veal
   - pork
   - environment
   - soil
+  - farm
+  - hospital
+  - hospitalized
+  - tissue
 curated_taxa:
   '9615':
     scientific_name: Canis lupus familiaris
@@ -627,6 +632,11 @@ curated_taxa:
       - goose
       - Anserini
       - bean goose
+  '8845':
+    scientific_name: Anser cygnoides
+    match_terms:
+      subset:
+      - Anser cygnoides domesticus
   '8867':
     scientific_name: Cygnus
     match_terms:
@@ -1310,6 +1320,23 @@ curated_taxa:
     match_terms:
       force:
       - Milvus lineatus lineatus
+  '9359':
+    scientific_name: Dasypodidae
+    match_terms:
+      subset:
+      - Armadillo
+  '9258':
+    scientific_name: Ornithorhynchus anatinus
+    match_terms:
+      subset:
+      - Platypus
+  '28586':
+    scientific_name: Anastrepha ludens
+    match_terms:
+      force:
+        - 'Mexican Fruit fly: Anastrepha ludens'
+
+
 value_rejections:
   exact:
   - colon
@@ -1323,6 +1350,8 @@ value_rejections:
   - Escherichia coli
   - E. coli
   - E coli
+  - Model bacteria E. coli C60
+  - Proteus mirabilis
   - Enterococcus
   - Enterococcus faecium
   - Enterococcus faecalis
@@ -1334,9 +1363,27 @@ value_rejections:
   - Acinetobacter baumannii
   - Pseudomonas
   - Pseudomonas aeruginosa
+  - Pseudomonas aeruginosa PAO
   - Enterobacter
   - Gallionellaceae
   - Mycobacterium tuberculosis
   - Proteus mirabilis
   - Scytonema hofmannii
   - Acanthamoeba polyphaga mimivirus
+  - Rhodococcus sp. M4
+  - BL21
+  - 'USA: Atlanta'
+  - Poultry Farm
+  - Quail feed
+  - Klebsiella pneumoniae Kp2162 strain
+  - Klebsiella pneumoniae Kp2162 strain evo-1
+  - Klebsiella pneumoniae Kp2162 strain evo-2
+  - Klebsiella pneumoniae Kp2162 strain evo-3
+  - Klebsiella pneumoniae KPZ2
+  - Klebsiella pneumoniae pneumoniae ATCC 43816
+  - Klebsiella pneumoniae strain Kp2162_pvir_213_R1
+  - Klebsiella pneumoniae strain Kp2162_pvir_213_R2
+  - Klebsiella pneumoniae strain Kp2162_pvir_249_R1
+  - Klebsiella pneumoniae strain Kp2162_pvir_249_R2
+  - Klebsiella pneumoniae strain Kp2162_pvir_325_R1
+  - Klebsiella pneumoniae strain Kp2162_pvir_325_R2
