@@ -280,7 +280,6 @@ class _RecordAssembler:
     isolation_columns = (
         "iso_attr_orig",
         "iso_val_orig",
-        "iso_host",
         "iso_terms",
         "iso_display_term",
         "iso_ontology_id",
@@ -360,12 +359,11 @@ class _RecordAssembler:
                 )
         if StandardizationAttribute.ISOLATION_SOURCE in self._selected_attributes:
             if row.isolation is None:
-                values += ("", "", "", "", "", "")
+                values += ("", "", "", "", "")
             else:
                 values += (
                     "||".join(origin.attribute for origin in row.isolation.origins),
                     "||".join(origin.value for origin in row.isolation.origins),
-                    row.isolation.host_context,
                     row.isolation.term_paths,
                     row.isolation.display_terms,
                     row.isolation.ontology_links,

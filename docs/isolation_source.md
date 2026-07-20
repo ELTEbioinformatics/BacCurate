@@ -64,12 +64,11 @@ LLM connection details are read from environment variables (`.env` at the root):
 | `iso_terms`        | `\|\|`-joined, `:`-separated ontology paths of all selected nodes |
 | `iso_display_term` | `\|\|`-joined human readable terms of all selected nodes          |
 | `iso_ontology_id`  | `\|\|`-joined ontology IDs, `NA` for nodes without one            |
-| `iso_host`         | Host context used for classification                              |
 
-`iso_standardized.jsonl` stores one JSON record per accession with the
-classifier's reasoning trace (`history`): which node-resolution stages fired
-(`direct_match`, `classifier`, `crosslink`) and what selections were made at
-each.
+`isolation_reasoning.jsonl` stores one JSON record per accession with the host
+context used for classification and the classifier's reasoning trace: which
+node-resolution stages fired (`direct_match`, `classifier`, `crosslink`) and
+what selections were made at each.
 
 Host values forwarded by the host pass (`host_overflow.tsv`, see
 [host.md](host.md)) are also classified here.
