@@ -64,7 +64,6 @@ def classify(standardizer: HostStandardizer, value: str, attribute: str = "host"
     return standardizer.classify_row("TEST", attribute, value)
 
 
-
 # =============================================================================
 # Record-level outcomes
 # =============================================================================
