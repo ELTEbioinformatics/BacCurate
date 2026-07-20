@@ -1,7 +1,7 @@
 # BioSample curation schema used during extraction, before standardization.
 # Reviewed raw metadata "candidates" are selected based on on the listed
 # attribute names and values.
-schema_version: 2
+schema_version: 3
 
 # General attribute-value pairs where the values indicate
 # missing information are pre-filtered based on these.
@@ -33,6 +33,7 @@ universal_missing:
     - not recorded
     - no data
     - no information
+    - "missing: third party data"
     - restricted access
     - withheld
     - confidential
@@ -48,7 +49,6 @@ universal_missing:
     - no collected
     - no applicable
   explanation_prefixes:
-    - missing
     - restricted access
     - withheld
     - confidential
@@ -156,7 +156,14 @@ targets:
           - Pseudomonas
           - Pseudomonas aeruginosa
           - Enterobacter
+          - Gallionellaceae
+          - Mycobacterium tuberculosis
+          - Proteus mirabilis
+          - Scytonema hofmannii
         fuzzy: one_edit_unique
+      bare_viral_taxon:
+        exact:
+          - Acanthamoeba polyphaga mimivirus
 
   iso:
     attribute_discovery:
