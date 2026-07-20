@@ -1323,13 +1323,13 @@ curated_taxa:
   '9359':
     scientific_name: Dasypodidae
     match_terms:
-      subset:
-      - Armadillo
+      force:
+      - Armadillo  # conflicts with 96820 (crustacean genus)
   '9258':
     scientific_name: Ornithorhynchus anatinus
     match_terms:
-      subset:
-      - Platypus
+      force:
+      - Platypus  # conflicts with 122836 (beetle genus)
   '28586':
     scientific_name: Anastrepha ludens
     match_terms:
