@@ -10,7 +10,7 @@ import logging
 import re
 from collections import defaultdict
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
 from typing import Literal
@@ -38,16 +38,34 @@ from baccurate.utils.config import load_config
 from baccurate.utils.text import normalize_keyword, split_pipe_separated
 
 logger = logging.getLogger(__name__)
+
+# None disables the LLM path here.
 _LOAD_CONFIGURED_CLIENT = object()
 
 # --- Constants ---
 
 ONTOLOGY_ID_PATTERN = re.compile(r"\b([A-Z]+:\d+)\b", re.IGNORECASE)
+
+# Branches whose terms name an organism rather than a place or a process, so a
+# host may still be recoverable from the isolation-source text. Food products
+# qualify because the material is the organism ('chicken meat', 'cow milk').
 HOST_RETRY_TRIGGERS: tuple[str, ...] = (
     "host-associated",
     "environmental:anthropogenic environment:food:animal product",
     "environmental:anthropogenic environment:food:plant food product",
 )
+
+ISOLATION_LLM_PARAMETERS: dict[str, object] = {"temperature": 0, "seed": 100}
+ISOLATION_RESPONSE_SCHEMA_ID = "baccurate.isolation.classification.v2"
+
+# Relevance flags that count as origin evidence (spec excludes Medical/Evolution).
+_ORIGIN_RELEVANCE = frozenset({"Agricultural", "Environmental", "Veterinary"})
+
+# The ontology's explicit "looked and found nothing" term, as opposed to the
+# empty string, which means the classification never produced a result.
+_UNSPECIFIED_TERM = "unspecified"
+
+# --- Prompts and fingerprints ---
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,10 +89,23 @@ def effective_isolation_prompts(config: dict, ontology: "OntologyManager") -> Is
     )
 
 
-ISOLATION_LLM_PARAMETERS: dict[str, object] = {"temperature": 0, "seed": 100}
-ISOLATION_RESPONSE_SCHEMA_ID = "baccurate.isolation.classification.v1"
-# Relevance flags that count as origin evidence (spec excludes Medical/Evolution).
-_ORIGIN_RELEVANCE = frozenset({"Agricultural", "Environmental", "Veterinary"})
+def ontology_semantics_fingerprint(
+    node_metadata: Mapping[str, Mapping[str, object]],
+    children_map: Mapping[str, list[str]],
+    crosslink_map: Mapping[str, list[str]],
+) -> str:
+    """Fingerprint parsed ontology meaning independently of TSV formatting."""
+    nodes = {
+        term_path: {
+            **metadata,
+            "synonyms": sorted(metadata.get("synonyms", [])),
+        }
+        for term_path, metadata in sorted(node_metadata.items())
+    }
+    hierarchy = {parent: sorted(children) for parent, children in sorted(children_map.items())}
+    crosslinks = {source: sorted(targets) for source, targets in sorted(crosslink_map.items())}
+    return canonical_json_sha256({"nodes": nodes, "hierarchy": hierarchy, "crosslinks": crosslinks})
+
 
 # --- Data structures ---
 
@@ -89,11 +120,15 @@ class IsolationEvidenceLevel(StrEnum):
 
 
 class _IsolationRequestMode(StrEnum):
+    """Which context the prompt actually carried."""
+
     SAMPLE_ONLY = "sample_only"
     PROJECT_ONLY = "project_only"
     COMBINED = "combined"
 
 
+# The model cannot cite evidence it was never shown, so the request mode narrows
+# the Literal of evidence levels its response schema will accept.
 _EVIDENCE_LEVELS_BY_REQUEST_MODE = {
     _IsolationRequestMode.SAMPLE_ONLY: (
         IsolationEvidenceLevel.SAMPLE,
@@ -117,6 +152,21 @@ class StandardizedSource:
     term_paths: str
     reasoning: list[dict]
     evidence_level: IsolationEvidenceLevel = IsolationEvidenceLevel.NONE
+    request_fingerprint: str | None = None
+
+
+def _canonicalize_unspecified(record: StandardizedSource) -> StandardizedSource:
+    """Represent an accepted empty classification as the explicit ontology term."""
+    if record.term_paths:
+        return record
+    return replace(
+        record,
+        categories=_UNSPECIFIED_TERM,
+        display_terms=_UNSPECIFIED_TERM,
+        ontology_links="NA",
+        term_paths=_UNSPECIFIED_TERM,
+        evidence_level=IsolationEvidenceLevel.NONE,
+    )
 
 
 class IsolationDiagnostic(StrEnum):
@@ -159,6 +209,41 @@ def _isolation_origins(
 
 
 @dataclass(frozen=True, slots=True)
+class IsolationReasoningStep:
+    """One step in the classifier's reasoning trace.
+
+    `selections` are the term paths the step contributed; `selected_terms` are the
+    display names the model returned verbatim, and only the classifier step has them.
+    """
+
+    node: str
+    reasoning: str
+    selections: tuple[str, ...]
+    selected_terms: tuple[str, ...] = ()
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, object]) -> "IsolationReasoningStep":
+        """Type one raw step from the classifier or the cache."""
+        return cls(
+            node=str(value.get("node", "")),
+            reasoning=str(value.get("reasoning", "")),
+            selections=tuple(str(item) for item in value.get("selections", ())),
+            selected_terms=tuple(str(item) for item in value.get("selected_terms", ())),
+        )
+
+    def as_dict(self) -> dict[str, object]:
+        """Return the stable JSON representation used by run artifacts."""
+        result: dict[str, object] = {
+            "node": self.node,
+            "reasoning": self.reasoning,
+            "selections": list(self.selections),
+        }
+        if self.selected_terms:
+            result["selected_terms"] = list(self.selected_terms)
+        return result
+
+
+@dataclass(frozen=True, slots=True)
 class IsolationOutcome:
     """Typed isolation-source classification for one extracted record."""
 
@@ -170,11 +255,13 @@ class IsolationOutcome:
     host_context: str
     origins: tuple[IsolationOrigin, ...]
     sample_origins: tuple[IsolationOrigin, ...]
-    reasoning: tuple[dict, ...]
+    reasoning: tuple[IsolationReasoningStep, ...]
     diagnostics: tuple[IsolationDiagnostic, ...]
     exact_matches: int
     cache_hits: int
     llm_calls: int
+    request_fingerprint: str | None = None
+    resolved_bioproject_accessions: tuple[str, ...] = ()
 
     @property
     def standardized_term_paths(self) -> tuple[str, ...]:
@@ -259,6 +346,11 @@ def _load_bioproject_catalog(
     return projects
 
 
+# Public name for benchmark clients. Retain the established private name used by
+# integrated regression tests until those callers migrate independently.
+load_bioproject_catalog = _load_bioproject_catalog
+
+
 def _validate_bioproject_context(
     raw: object,
     catalog_path: Path,
@@ -329,6 +421,8 @@ class SQLiteCache(SQLiteKVCache):
 
     def __init__(self, db_path: Path | str = DEFAULT_ISO_CACHE_DB) -> None:
         super().__init__(db_path)
+        # In-place migration for caches written before evidence levels existed.
+        # Their rows default to 'none' rather than being discarded.
         columns = {row[1] for row in self.cursor.execute("PRAGMA table_info(cache)").fetchall()}
         if "evidence_level" not in columns:
             self.cursor.execute(
@@ -392,7 +486,7 @@ class SQLiteCache(SQLiteKVCache):
 
 
 class OntologyManager:
-    """Parses the ontology TSV into a tree with crosslinks and lookup indexes."""
+    """Parse the ontology TSV into a tree with crosslinks and lookup indexes."""
 
     def __init__(self, ontology_tsv_path: Path | str):
 
@@ -405,6 +499,7 @@ class OntologyManager:
         # term -> full_path
         self.exact_match_index: dict[str, str] = {}
 
+        # upper-cased external ontology ID (UBERON:0001234) -> full_path
         self.id_match_index: dict[str, str] = {}
 
         # display_term -> full_path. Distinct from
@@ -421,6 +516,7 @@ class OntologyManager:
         self._resolve_crosslinks(df)
 
     def _build_tree(self, df: pd.DataFrame) -> None:
+        """Populate the node metadata, the lookup indexes and the parent-child edges."""
         for _, row in df.iterrows():
             term_path = str(row.get("term", "")).strip()
 
@@ -493,6 +589,12 @@ class OntologyManager:
         )
 
     def _resolve_crosslinks(self, df: pd.DataFrame) -> None:
+        """Link terms across branches, by display name or external ID.
+
+        A second pass, because a crosslink target may appear anywhere in the TSV
+        and can only be resolved once every term is indexed. Unresolvable targets
+        are logged and skipped rather than raising: the ontology stays usable.
+        """
         if "crosslink_term" not in df.columns:
             return
 
@@ -547,7 +649,12 @@ def _build_schema(
         @field_validator("terms")
         @classmethod
         def _check_terms(cls, v: list[str]) -> list[str]:
-            invalid = [t for t in v if normalize_keyword(t) not in valid]
+            normalized_terms = [normalize_keyword(term) for term in v]
+            invalid = [
+                term
+                for term, normalized in zip(v, normalized_terms, strict=True)
+                if normalized not in valid
+            ]
             if invalid:
                 raise ValueError(
                     "Unknown terms: "
@@ -584,8 +691,8 @@ def _resolve_evidence_level(
     claimed_level: IsolationEvidenceLevel,
 ) -> IsolationEvidenceLevel:
     """Reconcile model provenance with the specific terms in the final result."""
-    specific_direct_paths = direct_paths - {"unspecified"}
-    specific_llm_paths = llm_paths - {"unspecified"}
+    specific_direct_paths = direct_paths - {_UNSPECIFIED_TERM}
+    specific_llm_paths = llm_paths - {_UNSPECIFIED_TERM}
     if not specific_direct_paths and not specific_llm_paths:
         return IsolationEvidenceLevel.NONE
     if specific_direct_paths and not specific_llm_paths:
@@ -601,6 +708,11 @@ def _resolve_evidence_level(
 
 
 class LLMClassifier:
+    """Resolve one record's values to ontology terms.
+
+    Calls the model only when deterministic matching falls short.
+    """
+
     def __init__(
         self,
         config: dict,
@@ -609,11 +721,13 @@ class LLMClassifier:
         result_logger: logging.Logger | None = None,
         client: object = _LOAD_CONFIGURED_CLIENT,
         llm_settings: LLMSettings | None = None,
+        read_cache: bool = True,
     ) -> None:
         self.logger = result_logger or logger
         self.config = config
         self.ont = ontology_manager
         self.cache = cache_manager
+        self.read_cache = read_cache
         self.stats = {"cache_hits": 0, "exact_matches": 0, "llm_calls": 0}
 
         if client is _LOAD_CONFIGURED_CLIENT:
@@ -682,6 +796,8 @@ class LLMClassifier:
             valid_attrs.append(a.strip())
             valid_vals.append(v.strip())
 
+        # A host alone is sample context: 'host = cattle' places the sample even
+        # with no isolation-source attribute of its own.
         has_sample_context = bool(valid_vals) or bool(host.strip())
         if not has_sample_context and not bioproject_contexts:
             return StandardizedSource(
@@ -711,6 +827,9 @@ class LLMClassifier:
         final_nodes: set[str] = set()
         reasoning_history: list[dict] = []
 
+        # LLM processing is skipped only when every value resolved on its own. Partial
+        # coverage still goes to the model, which sees the unresolved values in
+        # context rather than having them dropped.
         direct_covers_all = bool(valid_vals) and direct_match_count == len(valid_vals)
         evidence_level = IsolationEvidenceLevel.NONE
 
@@ -767,10 +886,14 @@ class LLMClassifier:
                     f"{canonical_json_sha256(response_schema.model_json_schema())}"
                 ),
             )
-            cached_result = self.cache.get(request.fingerprint)
-            if cached_result:
-                self.stats["cache_hits"] += 1
-                return cached_result
+            if self.read_cache:
+                cached_result = self.cache.get(request.fingerprint)
+                if cached_result:
+                    self.stats["cache_hits"] += 1
+                    return replace(
+                        _canonicalize_unspecified(cached_result),
+                        request_fingerprint=request.fingerprint,
+                    )
 
             if self.client is None:
                 final_nodes |= direct_paths
@@ -853,6 +976,11 @@ class LLMClassifier:
                 }
             )
 
+        # "unspecified" beside a real term contradicts it, and the model does
+        # occasionally select both. The specific terms win.
+        if _UNSPECIFIED_TERM in final_nodes and len(final_nodes) > 1:
+            final_nodes.remove(_UNSPECIFIED_TERM)
+
         if not final_nodes:
             final_record = StandardizedSource(
                 categories="unspecified",
@@ -879,12 +1007,22 @@ class LLMClassifier:
                 evidence_level=evidence_level,
             )
 
+        final_record = _canonicalize_unspecified(final_record)
+        # `request` exists only on the branch that built one, which is exactly the
+        # branch where direct matching fell short -- hence both guards.
         if not direct_covers_all and self.client is not None:
             self.cache.set(request.fingerprint, final_record)
+        if not direct_covers_all:
+            final_record = replace(final_record, request_fingerprint=request.fingerprint)
         return final_record
 
 
+# --- Main class ---
+
+
 class IsoStandardizer:
+    """Standardize isolation source for one record, with BioProject study context."""
+
     def __init__(
         self,
         config_path: Path | str,
@@ -892,10 +1030,11 @@ class IsoStandardizer:
         result_logger: logging.Logger | None = None,
         client: object = _LOAD_CONFIGURED_CLIENT,
         llm_settings: LLMSettings | None = None,
+        read_llm_cache: bool = True,
     ) -> None:
         self.logger = result_logger or logger
         self.config = load_config(config_path)
-        self._projects_by_accession = _load_bioproject_catalog(extracted_metadata_path)
+        self._projects_by_accession = load_bioproject_catalog(extracted_metadata_path)
 
         db_path = self.config.get("cache_db_path", DEFAULT_ISO_CACHE_DB)
         ontology_path = self.config.get("ontology_tsv_path", DEFAULT_ONTOLOGY_TSV)
@@ -910,6 +1049,7 @@ class IsoStandardizer:
                 result_logger=self.logger,
                 client=client,
                 llm_settings=llm_settings,
+                read_cache=read_llm_cache,
             )
         except BaseException:
             self.cache.close()
@@ -923,7 +1063,13 @@ class IsoStandardizer:
         host_context: str,
         overflow: HostOverflowContext | None = None,
     ) -> IsolationOutcome | IsolationRejection:
-        """Classify one record with optional in-memory host overflow context."""
+        """Classify one record, including any overflow values from the host pass.
+
+        `overflow` carries values the host standardizer rejected as hosts but kept
+        as isolation-source candidates. They join the classification input, while
+        `sample_origins` stays the record's own pairs, so a host retry never sees
+        back the values host already declined.
+        """
         accession = str(record.get("accession", "") or "")
         sample_attributes = str(record.get("iso_attr_orig", "") or "")
         sample_values = str(record.get("iso_val_orig", "") or "")
@@ -939,6 +1085,8 @@ class IsoStandardizer:
         linked_project_accessions = split_pipe_separated(
             str(record.get("bioproject_accession", "") or "")
         )
+        # Extraction emits an accession per ID it could resolve, so a shortfall in
+        # the accession list means a linked project never made it into the catalog.
         has_unresolved_project_link = len(linked_project_ids) > len(linked_project_accessions)
         # Resolve linked accessions to catalog projects, dropping unresolved
         # ones, deduping, and ordering canonically by accession.
@@ -974,7 +1122,7 @@ class IsoStandardizer:
             diagnostics.append(IsolationDiagnostic.CACHE_HIT)
         if llm_calls:
             diagnostics.append(IsolationDiagnostic.LLM_CALL)
-        if not standardized.term_paths:
+        if standardized.term_paths == _UNSPECIFIED_TERM:
             diagnostics.append(IsolationDiagnostic.UNSPECIFIED)
         if has_unresolved_project_link:
             diagnostics.append(IsolationDiagnostic.UNRESOLVED_BIOPROJECT_LINK)
@@ -987,11 +1135,15 @@ class IsoStandardizer:
             host_context=host_context,
             origins=origins,
             sample_origins=sample_origins,
-            reasoning=tuple(standardized.reasoning),
+            reasoning=tuple(
+                IsolationReasoningStep.from_mapping(step) for step in standardized.reasoning
+            ),
             diagnostics=tuple(diagnostics),
             exact_matches=exact_matches,
             cache_hits=cache_hits,
             llm_calls=llm_calls,
+            request_fingerprint=standardized.request_fingerprint,
+            resolved_bioproject_accessions=tuple(project.accession for project in project_contexts),
         )
 
     def close(self) -> None:
