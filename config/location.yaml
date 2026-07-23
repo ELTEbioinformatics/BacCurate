@@ -32,7 +32,7 @@ llm_system_prompt: |
   Respond only with a JSON object containing one non-empty string value: {"country": "<country>"}.
 
 llm_user_prompt_template: |
-    {attr_val_pairs}
+  {attr_val_pairs}
 
 # coco country_converter `name_short` -> INSDC geo_loc_name country.
 # Aligns output with the INSDC Geographical Location List
@@ -46,7 +46,7 @@ insdc_country_map:
   "Cabo Verde": "Cape Verde"
   "Palestine": "State of Palestine"
   "Réunion": "Reunion"
-  "Côte d'Ivoire": "Cote d’Ivoire"            # different apostrophe
+  "Côte d'Ivoire": "Cote d’Ivoire" # different apostrophe
   "St. Kitts and Nevis": "Saint Kitts and Nevis"
   "Congo Republic": "Republic of the Congo"
   "Svalbard and Jan Mayen Islands": "Svalbard"

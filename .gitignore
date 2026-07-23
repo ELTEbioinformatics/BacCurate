@@ -4,6 +4,7 @@ baccurate.egg-info
 .idea/
 .pytest_cache
 .ruff_cache
+node_modules/
 *.env
 *.zip
 *.gz
