@@ -1,1389 +1,1388 @@
 schema_version: 2
 normalization:
   ignored_substrings:
-  - (organism)
-  - (sugarcane)
-  - (cow)
-  - (orangutan)
-  - (leopard)
-  - ', juvenile'
-  - ', adult'
-  - (undetermined species)
-  - '[NCBITaxon:9913]'
-  - '[NCBITaxon:9031]'
-  - '[NCBITaxon:9825]'
-  - '[GENEPIO:0001619]'
-  - (Saba)
-  - (turkey)
-  - (goose)
-  - (Broiler)
-  - (not applicable)
-  - .cf
-  - sp.
-  - spp.
-  - imported
-  - Free range
-  - (wild living)
-  - parent
-  - (variety unknown)
-  - (cougar)
-  - (lion)
-  - (domestic cat)
-  - (Bovine species animal)
-  - (cattle)
-  - (pig)
-  - (gull)
-  - wild field collected strain
-  - wild
-  - moribund
-  - infected
-  - healthy
-  - L.
-  - (bird)
-  - (goat)
-  - host
-  - Farmed
-  - lactating
+    - (organism)
+    - (sugarcane)
+    - (cow)
+    - (orangutan)
+    - (leopard)
+    - ", juvenile"
+    - ", adult"
+    - (undetermined species)
+    - "[NCBITaxon:9913]"
+    - "[NCBITaxon:9031]"
+    - "[NCBITaxon:9825]"
+    - "[GENEPIO:0001619]"
+    - (Saba)
+    - (turkey)
+    - (goose)
+    - (Broiler)
+    - (not applicable)
+    - .cf
+    - sp.
+    - spp.
+    - imported
+    - Free range
+    - (wild living)
+    - parent
+    - (variety unknown)
+    - (cougar)
+    - (lion)
+    - (domestic cat)
+    - (Bovine species animal)
+    - (cattle)
+    - (pig)
+    - (gull)
+    - wild field collected strain
+    - wild
+    - moribund
+    - infected
+    - healthy
+    - L.
+    - (bird)
+    - (goat)
+    - host
+    - Farmed
+    - lactating
 routing:
   isolation_source_keywords:
-  - food
-  - feed
-  - meat
-  - beef
-  - veal
-  - pork
-  - environment
-  - soil
-  - farm
-  - hospital
-  - hospitalized
-  - tissue
+    - food
+    - feed
+    - meat
+    - beef
+    - veal
+    - pork
+    - environment
+    - soil
+    - farm
+    - hospital
+    - hospitalized
+    - tissue
 curated_taxa:
-  '9615':
+  "9615":
     scientific_name: Canis lupus familiaris
     match_terms:
       subset:
-      - Lupus familiaris
-      - Canis lupus familaris
-      - lupus canis domesticus
-  '9825':
+        - Lupus familiaris
+        - Canis lupus familaris
+        - lupus canis domesticus
+  "9825":
     scientific_name: Sus scrofa domesticus
     match_terms:
       subset:
-      - Sus scofa domesticus
-      - Sus scrofa f. domestica
-      - Sus scrofa domestic
-      - sus scrofa domesticus
-  '51351':
+        - Sus scofa domesticus
+        - Sus scrofa f. domestica
+        - Sus scrofa domestic
+        - sus scrofa domesticus
+  "51351":
     scientific_name: Brassica rapa subsp. pekinensis
     match_terms:
       subset:
-      - cantonese cabbage
-  '3589':
+        - cantonese cabbage
+  "3589":
     scientific_name: Basella alba
     match_terms:
       subset:
-      - Basella alba (malabar spinach)
-  '3659':
+        - Basella alba (malabar spinach)
+  "3659":
     scientific_name: Cucumis sativus
     match_terms:
       subset:
-      - wild cucumber
-  '3847':
+        - wild cucumber
+  "3847":
     scientific_name: Glycine max
     match_terms:
       subset:
-      - Glycine max  (L.) Merr.
-  '4073':
+        - Glycine max  (L.) Merr.
+  "4073":
     scientific_name: Capsicum frutescens
     match_terms:
       subset:
-      - Capsicum frutescens (green chili)
-  '4236':
+        - Capsicum frutescens (green chili)
+  "4236":
     scientific_name: Lactuca sativa
     match_terms:
       subset:
-      - lettuce
-      - lactuca sativa l
-  '4505':
+        - lettuce
+        - lactuca sativa l
+  "4505":
     scientific_name: Coix lacryma-jobi
     match_terms:
       subset:
-      - Coix lacryma jobi
-  '4530':
+        - Coix lacryma jobi
+  "4530":
     scientific_name: Oryza sativa
     match_terms:
       subset:
-      - Oryza sativa L.
-      - Oryza sativa india
-      - Oryza sativa indica RPBio 226
-      - Asian cultivated rice
-  '4543':
+        - Oryza sativa L.
+        - Oryza sativa india
+        - Oryza sativa indica RPBio 226
+        - Asian cultivated rice
+  "4543":
     scientific_name: Cenchrus americanus
     match_terms:
       subset:
-      - pearl millet
-  '4547':
+        - pearl millet
+  "4547":
     scientific_name: Saccharum officinarum
     match_terms:
       subset:
-      - Sugar cane
-      - sugarcane
-  '4577':
+        - Sugar cane
+        - sugarcane
+  "4577":
     scientific_name: Zea mays
     match_terms:
       subset:
-      - Zea mays L.
-      - maize
-  '6239':
+        - Zea mays L.
+        - maize
+  "6239":
     scientific_name: Caenorhabditis elegans
     match_terms:
       subset:
-      - C. elegans
-  '6579':
+        - C. elegans
+  "6579":
     scientific_name: Pecten maximus
     match_terms:
       subset:
-      - great scallop
-  '7137':
+        - great scallop
+  "7137":
     scientific_name: Galleria mellonella
     match_terms:
       subset:
-      - G. mellonella
-  '7370':
+        - G. mellonella
+  "7370":
     scientific_name: Musca domestica
     match_terms:
       subset:
-      - housefly
-  '7460':
+        - housefly
+  "7460":
     scientific_name: Apis mellifera
     match_terms:
       subset:
-      - Apis mellifera L.
-  '8469':
+        - Apis mellifera L.
+  "8469":
     scientific_name: Chelonia mydas
     match_terms:
       subset:
-      - green turtle
-      - Pacific green turtle
-  '8839':
+        - green turtle
+        - Pacific green turtle
+  "8839":
     scientific_name: Anas platyrhynchos
     match_terms:
       subset:
-      - Anas platyrhynchos javanica
-      - Anas platyrhynchos domesticus
-  '8853':
+        - Anas platyrhynchos javanica
+        - Anas platyrhynchos domesticus
+  "8853":
     scientific_name: Branta canadensis
     match_terms:
       subset:
-      - canade geese
-  '8962':
+        - canade geese
+  "8962":
     scientific_name: Aquila chrysaetos
     match_terms:
       subset:
-      - Aquila chrysaetus
-  '9031':
+        - Aquila chrysaetus
+  "9031":
     scientific_name: Gallus gallus
     match_terms:
       subset:
-      - Chiken
-      - rooster
-      - domestic chicken
-      - broiler
-      - broilers
-      - Chichen
-      - Gallas gallas domesticus
-      - hen
-      - laying hen
-      - laying hens
-  '9078':
+        - Chiken
+        - rooster
+        - domestic chicken
+        - broiler
+        - broilers
+        - Chichen
+        - Gallas gallas domesticus
+        - hen
+        - laying hen
+        - laying hens
+  "9078":
     scientific_name: Alectoris chukar
     match_terms:
       subset:
-      - chukar
-  '9103':
+        - chukar
+  "9103":
     scientific_name: Meleagris gallopavo
     match_terms:
       subset:
-      - domestic turkey
-  '9261':
+        - domestic turkey
+  "9261":
     scientific_name: Tachyglossus aculeatus
     match_terms:
       subset:
-      - Short beaked echidna
-  '9606':
+        - Short beaked echidna
+  "9606":
     scientific_name: Homo sapiens
     match_terms:
       subset:
-      - patient
-      - Homo�sapiens
-      - HomoSapiens
-      - Hono sapiens
-      - Homosapines
-      - Humans
-      - Patients
-      - people
-      - Hmo sapiens
-      - hunman
-      - home sapines
-      - soldier
-      - humane
-      - huaman
-      - Non-hospitalized person
-      - Woman
-      - humen being
-      - personnel
-      - Homosapian
-      - Homosapien
-      - Humaine
-      - Homo sapients
-      - Homom Sapiens
-      - an old female patient
-      - man
-      - child
-      - homos sapiens
-      - h sapiens
-      - omo sapiens
-      - Homo spience
-      - Homo sapinens
-      - Hopo sapiens
+        - patient
+        - Homo�sapiens
+        - HomoSapiens
+        - Hono sapiens
+        - Homosapines
+        - Humans
+        - Patients
+        - people
+        - Hmo sapiens
+        - hunman
+        - home sapines
+        - soldier
+        - humane
+        - huaman
+        - Non-hospitalized person
+        - Woman
+        - humen being
+        - personnel
+        - Homosapian
+        - Homosapien
+        - Humaine
+        - Homo sapients
+        - Homom Sapiens
+        - an old female patient
+        - man
+        - child
+        - homos sapiens
+        - h sapiens
+        - omo sapiens
+        - Homo spience
+        - Homo sapinens
+        - Hopo sapiens
       force:
-      - Homo
-  '9646':
+        - Homo
+  "9646":
     scientific_name: Ailuropoda melanoleuca
     match_terms:
       subset:
-      - panda
-      - giant pandas
-  '9651':
+        - panda
+        - giant pandas
+  "9651":
     scientific_name: Nasua nasua
     match_terms:
       subset:
-      - South American Coati (Nasua nasua)
-  '9654':
+        - South American Coati (Nasua nasua)
+  "9654":
     scientific_name: Procyon lotor
     match_terms:
       subset:
-      - racoon
-      - raccon
-  '9685':
+        - racoon
+        - raccon
+  "9685":
     scientific_name: Felis catus
     match_terms:
       subset:
-      - Felis catus domesticus
-      - Felix catus domesticus
-  '9696':
+        - Felis catus domesticus
+        - Felix catus domesticus
+  "9696":
     scientific_name: Puma concolor
     match_terms:
       subset:
-      - cougar
-  '9739':
+        - cougar
+  "9739":
     scientific_name: Tursiops truncatus
     match_terms:
       subset:
-      - Tursiops truncatus (Bottlenose dolphin)
-  '9796':
+        - Tursiops truncatus (Bottlenose dolphin)
+  "9796":
     scientific_name: Equus caballus
     match_terms:
       subset:
-      - Equus ferus caballus
-  '9801':
+        - Equus ferus caballus
+  "9801":
     scientific_name: Tapirus terrestris
     match_terms:
       subset:
-      - South american tapirus terrestris
-  '9823':
+        - South american tapirus terrestris
+  "9823":
     scientific_name: Sus scrofa
     match_terms:
       subset:
-      - piglet
-      - boar
-      - boars
-      - porcine
-      - feral pig
-      - feral swine
-      - healthy swine
-      - sow
+        - piglet
+        - boar
+        - boars
+        - porcine
+        - feral pig
+        - feral swine
+        - healthy swine
+        - sow
       force:
-      - Sus scrofa scrofa
-  '9858':
+        - Sus scrofa scrofa
+  "9858":
     scientific_name: Capreolus capreolus
     match_terms:
       subset:
-      - roe buck
-      - european roe
-      - roe deer
-  '9863':
+        - roe buck
+        - european roe
+        - roe deer
+  "9863":
     scientific_name: Cervus nippon
     match_terms:
       subset:
-      - Cervus nippon mandarinus
-  '9870':
+        - Cervus nippon mandarinus
+  "9870":
     scientific_name: Rangifer tarandus
     match_terms:
       subset:
-      - raindeer
-  '9874':
+        - raindeer
+  "9874":
     scientific_name: Odocoileus virginianus
     match_terms:
       subset:
-      - white tailed deer
-      - Odocoeileus virginianus
-      - white-tail deer
-      - Deer, Whitetail
-  '9894':
+        - white tailed deer
+        - Odocoeileus virginianus
+        - white-tail deer
+        - Deer, Whitetail
+  "9894":
     scientific_name: Giraffa camelopardalis
     match_terms:
       subset:
-      - Giraffa camelopardalis (giraffe)
-  '9913':
+        - Giraffa camelopardalis (giraffe)
+  "9913":
     scientific_name: Bos taurus
     match_terms:
       subset:
-      - Holstein Friesians
-      - Holstein
-      - dairy cows
-      - Bostaurus
-      - Bos taurus (Jersey breed)
-      - Bos-Taurus
-      - Bos taurus taurus
-      - Holstein Friesian cross (Bos taurus taurus)
-      - Bos taurus (dairy cow)
-      - holstein friesian cross breed lactating cow
-      - Holstein cow
-      - Dairy cow (Bovine)
-      - Taurus
-      - cattel
-      - beef cattel
-      - beef cattle
-      - bovine, cow
-      - cow
-      - cows
-  '9925':
+        - Holstein Friesians
+        - Holstein
+        - dairy cows
+        - Bostaurus
+        - Bos taurus (Jersey breed)
+        - Bos-Taurus
+        - Bos taurus taurus
+        - Holstein Friesian cross (Bos taurus taurus)
+        - Bos taurus (dairy cow)
+        - holstein friesian cross breed lactating cow
+        - Holstein cow
+        - Dairy cow (Bovine)
+        - Taurus
+        - cattel
+        - beef cattel
+        - beef cattle
+        - bovine, cow
+        - cow
+        - cows
+  "9925":
     scientific_name: Capra hircus
     match_terms:
       subset:
-      - San Clemente Island Goat
-      - West African Dwarf Goat
-  '9931':
+        - San Clemente Island Goat
+        - West African Dwarf Goat
+  "9931":
     scientific_name: Damaliscus pygargus
     match_terms:
       subset:
-      - bontebok
-  '9940':
+        - bontebok
+  "9940":
     scientific_name: Ovis aries
     match_terms:
       subset:
-      - lamb
-      - Ovis aries aries
-  '9986':
+        - lamb
+        - Ovis aries aries
+  "9986":
     scientific_name: Oryctolagus cuniculus
     match_terms:
       subset:
-      - rabbit(dom)
-      - Rabbit, Dom
-  '10090':
+        - rabbit(dom)
+        - Rabbit, Dom
+  "10090":
     scientific_name: Mus musculus
     match_terms:
       subset:
-      - C57BL/6 mouse
-      - laboratory mouse
-  '10141':
+        - C57BL/6 mouse
+        - laboratory mouse
+  "10141":
     scientific_name: Cavia porcellus
     match_terms:
       subset:
-      - guinea pigs
-  '10185':
+        - guinea pigs
+  "10185":
     scientific_name: Castor fiber
     match_terms:
       subset:
-      - Castor fiber (Eurasian beaver)
-  '30468':
+        - Castor fiber (Eurasian beaver)
+  "30468":
     scientific_name: Tinamus major
     match_terms:
       subset:
-      - Tinamu major
-  '33614':
+        - Tinamu major
+  "33614":
     scientific_name: Coragyps atratus
     match_terms:
       subset:
-      - Black vulture (Coragyps atratus)
-  '35935':
+        - Black vulture (Coragyps atratus)
+  "35935":
     scientific_name: Parthenium argentatum
     match_terms:
       subset:
-      - Parthenium argentatum Gray (guayule shrubs)
-  '37087':
+        - Parthenium argentatum Gray (guayule shrubs)
+  "37087":
     scientific_name: Sula nebouxii
     match_terms:
       subset:
-      - Sula nebouxi
-  '38873':
+        - Sula nebouxi
+  "38873":
     scientific_name: Fraxinus excelsior
     match_terms:
       subset:
-      - Ash. Fraxinus excelsior
-  '41898':
+        - Ash. Fraxinus excelsior
+  "41898":
     scientific_name: Anolis marmoratus
     match_terms:
       subset:
-      - Anolis marmoratus speciosus
-  '42229':
+        - Anolis marmoratus speciosus
+  "42229":
     scientific_name: Prunus avium
     match_terms:
       subset:
-      - Sweet cherry. Prunus avium cv. Lapins
-  '43151':
+        - Sweet cherry. Prunus avium cv. Lapins
+  "43151":
     scientific_name: Anopheles darlingi
     match_terms:
       subset:
-      - Anopheline darlingi
-  '50399':
+        - Anopheline darlingi
+  "50399":
     scientific_name: Anarhynchus ruficapillus
     match_terms:
       subset:
-      - Red capped Plover
-  '54600':
+        - Red capped Plover
+  "54600":
     scientific_name: Macaca nigra
     match_terms:
       subset:
-      - Celebes monkey
-      - celebese ape
-  '57247':
+        - Celebes monkey
+        - celebese ape
+  "57247":
     scientific_name: Psittacus erithacus
     match_terms:
       subset:
-      - domestic grey parrot
-  '59456':
+        - domestic grey parrot
+  "59456":
     scientific_name: Leptonycteris nivalis
     match_terms:
       subset:
-      - Mexican long nosed bat
-  '60711':
+        - Mexican long nosed bat
+  "60711":
     scientific_name: Chlorocebus sabaeus
     match_terms:
       subset:
-      - Chlrocebus sabaeus
-  '68408':
+        - Chlrocebus sabaeus
+  "68408":
     scientific_name: Moschus berezovskii
     match_terms:
       subset:
-      - forest musk deer
-  '69303':
+        - forest musk deer
+  "69303":
     scientific_name: Gazella leptoceros
     match_terms:
       subset:
-      - slender horned gazella
-  '72545':
+        - slender horned gazella
+  "72545":
     scientific_name: Rupicapra pyrenaica
     match_terms:
       subset:
-      - Rupricapra pyrenaica
-  '75140':
+        - Rupricapra pyrenaica
+  "75140":
     scientific_name: Corvus frugilegus
     match_terms:
       subset:
-      - european rook
-  '84834':
+        - european rook
+  "84834":
     scientific_name: Molothrus ater
     match_terms:
       subset:
-      - brown-headed cowbird
-  '86973':
+        - brown-headed cowbird
+  "86973":
     scientific_name: Okapia johnstoni
     match_terms:
       subset:
-      - giraffe okapi
-  '89462':
+        - giraffe okapi
+  "89462":
     scientific_name: Bubalus bubalis
     match_terms:
       subset:
-      - Buffalo (Bubalis bubalis)
-  '108852':
+        - Buffalo (Bubalis bubalis)
+  "108852":
     scientific_name: Cuniculus paca
     match_terms:
       subset:
-      - Agouti Lowlan paca
-  '120570':
+        - Agouti Lowlan paca
+  "120570":
     scientific_name: Mactra quadrangularis
     match_terms:
       subset:
-      - Maoctra Veneriformis
-  '140997':
+        - Maoctra Veneriformis
+  "140997":
     scientific_name: Crataegus monogyna
     match_terms:
       subset:
-      - Hawthorn. Crataegus monogyna
-  '148090':
+        - Hawthorn. Crataegus monogyna
+  "148090":
     scientific_name: Lionycteris spurrelli
     match_terms:
       subset:
-      - Lyonycteris spurrelli
-  '153643':
+        - Lyonycteris spurrelli
+  "153643":
     scientific_name: Bucorvus abyssinicus
     match_terms:
       subset:
-      - Abyssinian ground hornbill
-  '161683':
+        - Abyssinian ground hornbill
+  "161683":
     scientific_name: Limosa lapponica
     match_terms:
       subset:
-      - Bar tailed Godwit
-  '183530':
+        - Bar tailed Godwit
+  "183530":
     scientific_name: Sayornis nigricans
     match_terms:
       subset:
-      - Sayornic nigricans
-  '185586':
+        - Sayornic nigricans
+  "185586":
     scientific_name: Crex crex
     match_terms:
       subset:
-      - corncrake
-  '220873':
+        - corncrake
+  "220873":
     scientific_name: Tegillarca granosa
     match_terms:
       subset:
-      - Tegillarcagranosa
-  '225728':
+        - Tegillarcagranosa
+  "225728":
     scientific_name: Tlacuatzin canescens
     match_terms:
       subset:
-      - Marmosa camescens
-  '258945':
+        - Marmosa camescens
+  "258945":
     scientific_name: Nyctophilus geoffroyi
     match_terms:
       subset:
-      - Lesser long eared bat
-  '341451':
+        - Lesser long eared bat
+  "341451":
     scientific_name: Gyps indicus
     match_terms:
       subset:
-      - griffon vultures
-      - griffon vulture
-  '350008':
+        - griffon vultures
+        - griffon vulture
+  "350008":
     scientific_name: Eleutherodactylus johnstonei
     match_terms:
       subset:
-      - Eleutherodactylus johnstonei (whistling frog)
-  '447135':
+        - Eleutherodactylus johnstonei (whistling frog)
+  "447135":
     scientific_name: Myodes glareolus
     match_terms:
       subset:
-      - blank vole
-  '469796':
+        - blank vole
+  "469796":
     scientific_name: Ovis orientalis
     match_terms:
       subset:
-      - Ovis orientalis arkal
-  '492513':
+        - Ovis orientalis arkal
+  "492513":
     scientific_name: Eupsittula pertinax
     match_terms:
       subset:
-      - Eupsittula pertinax ocularis
-  '1028563':
+        - Eupsittula pertinax ocularis
+  "1028563":
     scientific_name: Venerupis corrugata
     match_terms:
       subset:
-      - pullet carpet shell
-  '1932377':
+        - pullet carpet shell
+  "1932377":
     scientific_name: Nectomys rattus
     match_terms:
       subset:
-      - Nectomys melanius
-  '2547444':
+        - Nectomys melanius
+  "2547444":
     scientific_name: Chroicocephalus novaehollandiae
     match_terms:
       subset:
-      - Chroicocephalusnovaehollandiae
-  '2770593':
+        - Chroicocephalusnovaehollandiae
+  "2770593":
     scientific_name: Chaetodipus ammophilus
     match_terms:
       subset:
-      - Perognathus penicillatus
-  '2963358':
+        - Perognathus penicillatus
+  "2963358":
     scientific_name: Haematopus longirostris
     match_terms:
       subset:
-      - Pied Oystercatcher
-  '2706':
+        - Pied Oystercatcher
+  "2706":
     scientific_name: Citrus
     match_terms:
       subset:
-      - Citrus hybrid
-  '4564':
+        - Citrus hybrid
+  "4564":
     scientific_name: Triticum
     match_terms:
       subset:
-      - wheat
-  '8728':
+        - wheat
+  "8728":
     scientific_name: Crotalus
     match_terms:
       subset:
-      - rattlesnake
-  '8800':
+        - rattlesnake
+  "8800":
     scientific_name: Struthio
     match_terms:
       subset:
-      - ostrich
-  '8842':
+        - ostrich
+  "8842":
     scientific_name: Anser
     match_terms:
       subset:
-      - goose
-      - Anserini
-      - bean goose
-  '8845':
+        - goose
+        - Anserini
+        - bean goose
+  "8845":
     scientific_name: Anser cygnoides
     match_terms:
       subset:
-      - Anser cygnoides domesticus
-  '8867':
+        - Anser cygnoides domesticus
+  "8867":
     scientific_name: Cygnus
     match_terms:
       subset:
-      - swan
-  '9513':
+        - swan
+  "9513":
     scientific_name: Cebus
     match_terms:
       subset:
-      - capuchin monkey
-  '9599':
+        - capuchin monkey
+  "9599":
     scientific_name: Pongo
     match_terms:
       subset:
-      - orangutan
-  '9611':
+        - orangutan
+  "9611":
     scientific_name: Canis
     match_terms:
       subset:
-      - canine
-  '9625':
+        - canine
+  "9625":
     scientific_name: Vulpes
     match_terms:
       subset:
-      - fox
-      - foxes
-  '9639':
+        - fox
+        - foxes
+  "9639":
     scientific_name: Ursus
     match_terms:
       subset:
-      - bear
-  '9665':
+        - bear
+  "9665":
     scientific_name: Mustela
     match_terms:
       subset:
-      - ferret
-  '9682':
+        - ferret
+  "9682":
     scientific_name: Felis
     match_terms:
       subset:
-      - feline
-      - cat
-  '9738':
+        - feline
+        - cat
+  "9738":
     scientific_name: Tursiops
     match_terms:
       subset:
-      - bottlenose dolhpin
-  '9789':
+        - bottlenose dolhpin
+  "9789":
     scientific_name: Equus
     match_terms:
       subset:
-      - equine
-      - zebra
-  '9800':
+        - equine
+        - zebra
+  "9800":
     scientific_name: Tapirus
     match_terms:
       subset:
-      - tapir
-  '9808':
+        - tapir
+  "9808":
     scientific_name: Rhinoceros
     match_terms:
       subset:
-      - rhino
-  '9836':
+        - rhino
+  "9836":
     scientific_name: Camelus
     match_terms:
       subset:
-      - camel
-  '9885':
+        - camel
+  "9885":
     scientific_name: Muntiacus
     match_terms:
       subset:
-      - muntjac
-      - muntjak
-  '9903':
+        - muntjac
+        - muntjak
+  "9903":
     scientific_name: Bos
     match_terms:
       subset:
-      - ox
-      - bull
-  '9926':
+        - ox
+        - bull
+  "9926":
     scientific_name: Connochaetes
     match_terms:
       subset:
-      - Wildebeest
-      - gnu
-  '9935':
+        - Wildebeest
+        - gnu
+  "9935":
     scientific_name: Ovis
     match_terms:
       subset:
-      - ovine
-  '9992':
+        - ovine
+  "9992":
     scientific_name: Marmota
     match_terms:
       subset:
-      - marmot
-  '10001':
+        - marmot
+  "10001":
     scientific_name: Sciurus
     match_terms:
       subset:
-      - squirrel
-  '10016':
+        - squirrel
+  "10016":
     scientific_name: Dipodomys
     match_terms:
       subset:
-      - kangaroo rat
-  '10114':
+        - kangaroo rat
+  "10114":
     scientific_name: Rattus
     match_terms:
       subset:
-      - Wistar rat
-  '10140':
+        - Wistar rat
+  "10140":
     scientific_name: Cavia
     match_terms:
       subset:
-      - GuineaPig
-  '13712':
+        - GuineaPig
+  "13712":
     scientific_name: Tamias
     match_terms:
       subset:
-      - chipmunk
-  '29090':
+        - chipmunk
+  "29090":
     scientific_name: Dolichotis
     match_terms:
       subset:
-      - mara
-  '30420':
+        - mara
+  "30420":
     scientific_name: Corvus
     match_terms:
       subset:
-      - crow
-      - raven
-      - crow bird
-  '37041':
+        - crow
+        - raven
+        - crow bird
+  "37041":
     scientific_name: Fregata
     match_terms:
       subset:
-      - Frigatebird
-      - Frigatebirds
-  '45449':
+        - Frigatebird
+        - Frigatebirds
+  "45449":
     scientific_name: Chrysomya
     match_terms:
       subset:
-      - Chrysomya (blowfly)
-  '45478':
+        - Chrysomya (blowfly)
+  "45478":
     scientific_name: Cynomys
     match_terms:
       subset:
-      - praerie dog
-      - prarie dog
-      - prairie dog
-  '68410':
+        - praerie dog
+        - prarie dog
+        - prairie dog
+  "68410":
     scientific_name: Moschus
     match_terms:
       subset:
-      - musk deer
-  '349401':
+        - musk deer
+  "349401":
     scientific_name: Megascops
     match_terms:
       subset:
-      - screech owl
-      - screech owls
-  '555355':
+        - screech owl
+        - screech owls
+  "555355":
     scientific_name: Thalasseus
     match_terms:
       subset:
-      - crested tern
-  '8955':
+        - crested tern
+  "8955":
     scientific_name: Accipitrinae
     match_terms:
       subset:
-      - buzzard
-  '9072':
+        - buzzard
+  "9072":
     scientific_name: Phasianinae
     match_terms:
       subset:
-      - capercailie grouse
-  '9480':
+        - capercailie grouse
+  "9480":
     scientific_name: Callitrichinae
     match_terms:
       subset:
-      - marmoset
-      - tamarin
-  '9963':
+        - marmoset
+        - tamarin
+  "9963":
     scientific_name: Caprinae
     match_terms:
       subset:
-      - caprine
-      - sheep, goats
-      - sheep and goat
-  '9991':
+        - caprine
+        - sheep, goats
+        - sheep and goat
+  "9991":
     scientific_name: Sciurinae
     match_terms:
       subset:
-      - red squirrel
-  '10026':
+        - red squirrel
+  "10026":
     scientific_name: Cricetinae
     match_terms:
       subset:
-      - hamster
-  '27592':
+        - hamster
+  "27592":
     scientific_name: Bovinae
     match_terms:
       subset:
-      - bovine
-      - calf
-      - calves
-      - buffalo
-      - steer
-      - Bubaline
+        - bovine
+        - calf
+        - calves
+        - buffalo
+        - steer
+        - Bubaline
       force:
-      - cattle or sheep
-  '39107':
+        - cattle or sheep
+  "39107":
     scientific_name: Murinae
     match_terms:
       subset:
-      - Cloudrat
-      - murine
-  '40082':
+        - Cloudrat
+        - murine
+  "40082":
     scientific_name: Galleriinae
     match_terms:
       subset:
-      - wax moth
-  '69501':
+        - wax moth
+  "69501":
     scientific_name: Troglodytinae
     match_terms:
       subset:
-      - wood-wren
-  '158449':
+        - wood-wren
+  "158449":
     scientific_name: Macropodinae
     match_terms:
       subset:
-      - kangaroo
-      - kangaroos
-      - white kangaroo
-  '169417':
+        - kangaroo
+        - kangaroos
+        - white kangaroo
+  "169417":
     scientific_name: Lutrinae
     match_terms:
       subset:
-      - otter
-  '169418':
+        - otter
+  "169418":
     scientific_name: Mustelinae
     match_terms:
       subset:
-      - mink
-  '186993':
+        - mink
+  "186993":
     scientific_name: Larainae
     match_terms:
       subset:
-      - Seagull
-  '6592':
+        - Seagull
+  "6592":
     scientific_name: Veneridae
     match_terms:
       subset:
-      - venus clam
-  '7157':
+        - venus clam
+  "7157":
     scientific_name: Culicidae
     match_terms:
       subset:
-      - mosquito
-  '8382':
+        - mosquito
+  "8382":
     scientific_name: Bufonidae
     match_terms:
       subset:
-      - Buffonidae
-  '8487':
+        - Buffonidae
+  "8487":
     scientific_name: Testudinidae
     match_terms:
       subset:
-      - tortoise
-  '8493':
+        - tortoise
+  "8493":
     scientific_name: Crocodylidae
     match_terms:
       subset:
-      - crocodile
-  '8899':
+        - crocodile
+  "8899":
     scientific_name: Ardeidae
     match_terms:
       subset:
-      - egret
-      - egrets
-      - night heron
-  '8926':
+        - egret
+        - egrets
+        - night heron
+  "8926":
     scientific_name: Ciconiidae
     match_terms:
       subset:
-      - stork
-  '8930':
+        - stork
+  "8930":
     scientific_name: Columbidae
     match_terms:
       subset:
-      - pigeon
-      - turtle dove
-  '8990':
+        - pigeon
+        - turtle dove
+  "8990":
     scientific_name: Numididae
     match_terms:
       subset:
-      - guinea fowl
-  '9005':
+        - guinea fowl
+  "9005":
     scientific_name: Phasianidae
     match_terms:
       subset:
-      - Pheasant
-      - Pheasants
-      - peafowl
-  '9158':
+        - Pheasant
+        - Pheasants
+        - peafowl
+  "9158":
     scientific_name: Passeridae
     match_terms:
       subset:
-      - sparrow
-  '9224':
+        - sparrow
+  "9224":
     scientific_name: Psittacidae
     match_terms:
       subset:
-      - macaw
-  '9231':
+        - macaw
+  "9231":
     scientific_name: Spheniscidae
     match_terms:
       subset:
-      - penguin
-  '9265':
+        - penguin
+  "9265":
     scientific_name: Didelphidae
     match_terms:
       subset:
-      - possum
-      - opossum
-  '9363':
+        - possum
+        - opossum
+  "9363":
     scientific_name: Erinaceidae
     match_terms:
       subset:
-      - hedgehog
-  '9697':
+        - hedgehog
+  "9697":
     scientific_name: Herpestidae
     match_terms:
       subset:
-      - mongoose
-  '9702':
+        - mongoose
+  "9702":
     scientific_name: Otariidae
     match_terms:
       subset:
-      - Otariinae
-  '9740':
+        - Otariinae
+  "9740":
     scientific_name: Phocoenidae
     match_terms:
       subset:
-      - Porpoise
-  '9780':
+        - Porpoise
+  "9780":
     scientific_name: Elephantidae
     match_terms:
       subset:
-      - elephant
-  '9821':
+        - elephant
+  "9821":
     scientific_name: Suidae
     match_terms:
       subset:
-      - hog
-      - hogs
-      - suine
-  '9835':
+        - hog
+        - hogs
+        - suine
+  "9835":
     scientific_name: Camelidae
     match_terms:
       subset:
-      - camelid
-  '9895':
+        - camelid
+  "9895":
     scientific_name: Bovidae
     match_terms:
       subset:
-      - antelope
-      - antelopes
-  '28725':
+        - antelope
+        - antelopes
+  "28725":
     scientific_name: Corvidae
     match_terms:
       subset:
-      - Mapgie
-      - Mapgies
-  '31031':
+        - Mapgie
+        - Mapgies
+  "31031":
     scientific_name: Tetraodontidae
     match_terms:
       subset:
-      - puffer fish
-  '34667':
+        - puffer fish
+  "34667":
     scientific_name: Cerambycidae
     match_terms:
       subset:
-      - longicorn
-  '35549':
+        - longicorn
+  "35549":
     scientific_name: Cacatuidae
     match_terms:
       subset:
-      - Cockatoo
-  '37067':
+        - Cockatoo
+  "37067":
     scientific_name: Diomedeidae
     match_terms:
       subset:
-      - albatros
-      - albatross
-      - albatrosses
-  '43148':
+        - albatros
+        - albatross
+        - albatrosses
+  "43148":
     scientific_name: Hirundinidae
     match_terms:
       subset:
-      - swallow
-  '56259':
+        - swallow
+  "56259":
     scientific_name: Accipitridae
     match_terms:
       subset:
-      - eagle
-      - eagles
-  '34735':
+        - eagle
+        - eagles
+  "34735":
     scientific_name: Apoidea
     match_terms:
       subset:
-      - bees
-      - bee
-  '70906':
+        - bees
+        - bee
+  "70906":
     scientific_name: Grylloidea
     match_terms:
       subset:
-      - cricket
-  '75546':
+        - cricket
+  "75546":
     scientific_name: Scarabaeoidea
     match_terms:
       subset:
-      - dung beetle
-  '3072906':
+        - dung beetle
+  "3072906":
     scientific_name: Musteloidea
     match_terms:
       subset:
-      - badger
-  '9722':
+        - badger
+  "9722":
     scientific_name: Odontoceti
     match_terms:
       subset:
-      - dolphin
-      - doplhins
-      - whale
-      - whales
-  '8570':
+        - dolphin
+        - doplhins
+        - whale
+        - whales
+  "8570":
     scientific_name: Serpentes
     match_terms:
       subset:
-      - snake
-  '314293':
+        - snake
+  "314293":
     scientific_name: Simiiformes
     match_terms:
       subset:
-      - monkey
-  '1955150':
+        - monkey
+  "1955150":
     scientific_name: Acrididea
     match_terms:
       subset:
-      - grasshopper
-  '9845':
+        - grasshopper
+  "9845":
     scientific_name: Ruminantia
     match_terms:
       subset:
-      - ruminant
-      - ruminants
-      - wild ruminants
-  '30560':
+        - ruminant
+        - ruminants
+        - wild ruminants
+  "30560":
     scientific_name: Yangochiroptera
     match_terms:
       subset:
-      - Microchiropteres
-  '33550':
+        - Microchiropteres
+  "33550":
     scientific_name: Hystricomorpha
     match_terms:
       subset:
-      - porcupine
-  '6683':
+        - porcupine
+  "6683":
     scientific_name: Decapoda
     match_terms:
       subset:
-      - Shrimp
-  '7147':
+        - Shrimp
+  "7147":
     scientific_name: Diptera
     match_terms:
       subset:
-      - fly
-      - Fly on chicken farm
-      - Fly on pig farm
+        - fly
+        - Fly on chicken farm
+        - Fly on pig farm
       force:
-      - poultry flies
-  '8342':
+        - poultry flies
+  "8342":
     scientific_name: Anura
     match_terms:
       subset:
-      - frog
-  '8459':
+        - frog
+  "8459":
     scientific_name: Testudines
     match_terms:
       subset:
-      - turtle
-  '8509':
+        - turtle
+  "8509":
     scientific_name: Squamata
     match_terms:
       subset:
-      - lizard
-      - lizards
-  '8826':
+        - lizard
+        - lizards
+  "8826":
     scientific_name: Anseriformes
     match_terms:
       subset:
-      - Waterfowl
-  '8976':
+        - Waterfowl
+  "8976":
     scientific_name: Galliformes
     match_terms:
       subset:
-      - quail
-      - breeding hens
-      - partridge
-      - egg laying hen
-  '9223':
+        - quail
+        - breeding hens
+        - partridge
+        - egg laying hen
+  "9223":
     scientific_name: Psittaciformes
     match_terms:
       subset:
-      - psittacine
-      - Parakeet
-  '9397':
+        - psittacine
+        - Parakeet
+  "9397":
     scientific_name: Chiroptera
     match_terms:
       subset:
-      - bat
-  '9443':
+        - bat
+  "9443":
     scientific_name: Primates
     match_terms:
       subset:
-      - primate
-  '9975':
+        - primate
+  "9975":
     scientific_name: Lagomorpha
     match_terms:
       subset:
-      - lagomorph
-  '30458':
+        - lagomorph
+  "30458":
     scientific_name: Strigiformes
     match_terms:
       subset:
-      - owl
-  '85823':
+        - owl
+  "85823":
     scientific_name: Blattodea
     match_terms:
       subset:
-      - cockroach
-  '91561':
+        - cockroach
+  "91561":
     scientific_name: Artiodactyla
     match_terms:
       subset:
-      - Bos taurus & Sus scrofa domesticus
-  '2558200':
+        - Bos taurus & Sus scrofa domesticus
+  "2558200":
     scientific_name: Accipitriformes
     match_terms:
       subset:
-      - vulture
-  '1549675':
+        - vulture
+  "1549675":
     scientific_name: Galloanserae
     match_terms:
       subset:
-      - poultry
-      - puoltry
-      - poultry animal
-  '6101':
+        - poultry
+        - puoltry
+        - poultry animal
+  "6101":
     scientific_name: Anthozoa
     match_terms:
       subset:
-      - Healthy coral
-  '6544':
+        - Healthy coral
+  "6544":
     scientific_name: Bivalvia
     match_terms:
       subset:
-      - Bivalve mollusk
-      - clam
-  '8782':
+        - Bivalve mollusk
+        - clam
+  "8782":
     scientific_name: Aves
     match_terms:
       subset:
-      - avain
-      - bird
-      - chick
-      - WildBird
-      - Wild bird
-      - waterbird
-      - Class Aves
-      - Migratory bird
-  '40674':
+        - avain
+        - bird
+        - chick
+        - WildBird
+        - Wild bird
+        - waterbird
+        - Class Aves
+        - Migratory bird
+  "40674":
     scientific_name: Mammalia
     match_terms:
       subset:
-      - mammal
-      - sea mammal
-      - mammalian
-      - Other mammals
-  '50557':
+        - mammal
+        - sea mammal
+        - mammalian
+        - Other mammals
+  "50557":
     scientific_name: Insecta
     match_terms:
       subset:
-      - insect
-  '7742':
+        - insect
+  "7742":
     scientific_name: Vertebrata
     match_terms:
       subset:
-      - fish
-      - marine fish
-      - vertebrata subphylum
-  '8457':
+        - fish
+        - marine fish
+        - vertebrata subphylum
+  "8457":
     scientific_name: Sauropsida
     match_terms:
       subset:
-      - reptile
-      - reptiles
-      - reptilia
-  '9347':
+        - reptile
+        - reptiles
+        - reptilia
+  "9347":
     scientific_name: Eutheria
     match_terms:
       subset:
-      - mouse/human
-  '32523':
+        - mouse/human
+  "32523":
     scientific_name: Tetrapoda
     match_terms:
       subset:
-      - amphibian and reptile
-  '3072905':
+        - amphibian and reptile
+  "3072905":
     scientific_name: Pinnipedia
     match_terms:
       subset:
-      - seal
-      - seals
-  '3073808':
+        - seal
+        - seals
+  "3073808":
     scientific_name: Telluraves
     match_terms:
       subset:
-      - bird of prey
-  '6447':
+        - bird of prey
+  "6447":
     scientific_name: Mollusca
     match_terms:
       subset:
-      - mollusc
-  '4751':
+        - mollusc
+  "4751":
     scientific_name: Fungi
     match_terms:
       subset:
-      - fungus
-  '33090':
+        - fungus
+  "33090":
     scientific_name: Viridiplantae
     match_terms:
       subset:
-      - plantae
-  '33208':
+        - plantae
+  "33208":
     scientific_name: Metazoa
     match_terms:
       subset:
-      - animal
-      - metazoan
-      - Wild Animal
-      - companion pet
-      - Companion animal
+        - animal
+        - metazoan
+        - Wild Animal
+        - companion pet
+        - Companion animal
       force:
-      - animal and human
-  '3208':
+        - animal and human
+  "3208":
     scientific_name: Bryophyta
     match_terms:
       subset:
-      - moss
-  '6545':
+        - moss
+  "6545":
     scientific_name: Pteriomorphia
     match_terms:
       subset:
-      - oyster
-  '9263':
+        - oyster
+  "9263":
     scientific_name: Metatheria
     match_terms:
       subset:
-      - marsupial
-      - Phalangeriformes
-  '9520':
+        - marsupial
+        - Phalangeriformes
+  "9520":
     scientific_name: Saimiri
     match_terms:
       force:
-      - Squirrel monkey
-  '52810':
+        - Squirrel monkey
+  "52810":
     scientific_name: Milvus migrans
     match_terms:
       force:
-      - Milvus lineatus lineatus
-  '9359':
+        - Milvus lineatus lineatus
+  "9359":
     scientific_name: Dasypodidae
     match_terms:
       force:
-      - Armadillo  # conflicts with 96820 (crustacean genus)
-  '9258':
+        - Armadillo # conflicts with 96820 (crustacean genus)
+  "9258":
     scientific_name: Ornithorhynchus anatinus
     match_terms:
       force:
-      - Platypus  # conflicts with 122836 (beetle genus)
-  '28586':
+        - Platypus # conflicts with 122836 (beetle genus)
+  "28586":
     scientific_name: Anastrepha ludens
     match_terms:
       force:
-        - 'Mexican Fruit fly: Anastrepha ludens'
-
+        - "Mexican Fruit fly: Anastrepha ludens"
 
 value_rejections:
   exact:
-  - colon
-  - dialysis
-  - cancer
-  - bronchus
-  - bovine-swine pool
-  - Lama glama and Vicugna pacos
-  - Non-Animal
-  - Escherichia
-  - Escherichia coli
-  - E. coli
-  - E coli
-  - Model bacteria E. coli C60
-  - Proteus mirabilis
-  - Enterococcus
-  - Enterococcus faecium
-  - Enterococcus faecalis
-  - Staphylococcus
-  - Staphylococcus aureus
-  - Klebsiella
-  - Klebsiella pneumoniae
-  - Acinetobacter
-  - Acinetobacter baumannii
-  - Pseudomonas
-  - Pseudomonas aeruginosa
-  - Pseudomonas aeruginosa PAO
-  - Enterobacter
-  - Gallionellaceae
-  - Mycobacterium tuberculosis
-  - Proteus mirabilis
-  - Scytonema hofmannii
-  - Acanthamoeba polyphaga mimivirus
-  - Rhodococcus sp. M4
-  - BL21
-  - 'USA: Atlanta'
-  - Poultry Farm
-  - Quail feed
-  - Klebsiella pneumoniae Kp2162 strain
-  - Klebsiella pneumoniae Kp2162 strain evo-1
-  - Klebsiella pneumoniae Kp2162 strain evo-2
-  - Klebsiella pneumoniae Kp2162 strain evo-3
-  - Klebsiella pneumoniae KPZ2
-  - Klebsiella pneumoniae pneumoniae ATCC 43816
-  - Klebsiella pneumoniae strain Kp2162_pvir_213_R1
-  - Klebsiella pneumoniae strain Kp2162_pvir_213_R2
-  - Klebsiella pneumoniae strain Kp2162_pvir_249_R1
-  - Klebsiella pneumoniae strain Kp2162_pvir_249_R2
-  - Klebsiella pneumoniae strain Kp2162_pvir_325_R1
-  - Klebsiella pneumoniae strain Kp2162_pvir_325_R2
+    - colon
+    - dialysis
+    - cancer
+    - bronchus
+    - bovine-swine pool
+    - Lama glama and Vicugna pacos
+    - Non-Animal
+    - Escherichia
+    - Escherichia coli
+    - E. coli
+    - E coli
+    - Model bacteria E. coli C60
+    - Proteus mirabilis
+    - Enterococcus
+    - Enterococcus faecium
+    - Enterococcus faecalis
+    - Staphylococcus
+    - Staphylococcus aureus
+    - Klebsiella
+    - Klebsiella pneumoniae
+    - Acinetobacter
+    - Acinetobacter baumannii
+    - Pseudomonas
+    - Pseudomonas aeruginosa
+    - Pseudomonas aeruginosa PAO
+    - Enterobacter
+    - Gallionellaceae
+    - Mycobacterium tuberculosis
+    - Proteus mirabilis
+    - Scytonema hofmannii
+    - Acanthamoeba polyphaga mimivirus
+    - Rhodococcus sp. M4
+    - BL21
+    - "USA: Atlanta"
+    - Poultry Farm
+    - Quail feed
+    - Klebsiella pneumoniae Kp2162 strain
+    - Klebsiella pneumoniae Kp2162 strain evo-1
+    - Klebsiella pneumoniae Kp2162 strain evo-2
+    - Klebsiella pneumoniae Kp2162 strain evo-3
+    - Klebsiella pneumoniae KPZ2
+    - Klebsiella pneumoniae pneumoniae ATCC 43816
+    - Klebsiella pneumoniae strain Kp2162_pvir_213_R1
+    - Klebsiella pneumoniae strain Kp2162_pvir_213_R2
+    - Klebsiella pneumoniae strain Kp2162_pvir_249_R1
+    - Klebsiella pneumoniae strain Kp2162_pvir_249_R2
+    - Klebsiella pneumoniae strain Kp2162_pvir_325_R1
+    - Klebsiella pneumoniae strain Kp2162_pvir_325_R2

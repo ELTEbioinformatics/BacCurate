@@ -20,7 +20,7 @@ ecoli:
   scientific_name: Escherichia coli
   ncbi_taxid: 562
   rank: species
-  also_taxids: [620]  # Shigella genus on NCBI. But genomically E. coli
+  also_taxids: [620] # Shigella genus on NCBI. But genomically E. coli
 
 saureus:
   scientific_name: Staphylococcus aureus
