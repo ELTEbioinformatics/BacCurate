@@ -41,6 +41,7 @@ from baccurate.standardizers.isolation import (
     IsolationEvidenceLevel,
     IsolationOrigin,
     IsolationOutcome,
+    IsolationReasoningStep,
     IsoStandardizer,
     LLMClassifier,
     OntologyManager,
@@ -1181,12 +1182,12 @@ def test_typed_record_outcome_preserves_model_reasoning_on_exact_cache_hit(tmp_p
     assert modelled.evidence_level is IsolationEvidenceLevel.SAMPLE
     assert modelled.diagnostics == (IsolationDiagnostic.LLM_CALL,)
     assert modelled.reasoning == (
-        {
-            "node": "classifier",
-            "reasoning": "clinical wound",
-            "selections": [WOUND],
-            "selected_terms": ["wound"],
-        },
+        IsolationReasoningStep(
+            node="classifier",
+            reasoning="clinical wound",
+            selections=(WOUND,),
+            selected_terms=("wound",),
+        ),
     )
     assert isinstance(cached, IsolationOutcome)
     assert cached.term_paths == modelled.term_paths
