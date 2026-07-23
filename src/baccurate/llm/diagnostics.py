@@ -186,7 +186,7 @@ _observability_context: ContextVar[LLMObservability | None] = ContextVar(
 
 
 class LLMObservability:
-    """Holds the measurements and call context for one run."""
+    """Hold the measurements and call context for one run."""
 
     def __init__(
         self,
