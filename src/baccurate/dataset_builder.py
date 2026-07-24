@@ -18,6 +18,12 @@ from baccurate.paths import CONFIG_DIR, DEFAULT_NAMES_DMP, DEFAULT_NODES_DMP
 from baccurate.source_snapshot import validate_derived_metadata_source
 from baccurate.standardizers._date_record import DateDiagnostic, DateOutcome, RecordDateStandardizer
 from baccurate.standardizers.host import HostDiagnostic, HostOutcome, HostStandardizer
+from baccurate.standardizers.host_isolation import (
+    HostInitialRouting,
+    HostIsolationStandardizer,
+    HostRetryRouting,
+    _host_isolation_standardizer_from_components,
+)
 from baccurate.standardizers.isolation import (
     IsolationDiagnostic,
     IsolationEvidenceLevel,
@@ -488,6 +494,7 @@ class DatasetBuilder:
             host_standardizer = (
                 self._host_standardizer_factory(request.host_config, request.logger)
                 if StandardizationAttribute.HOST in attributes
+                or StandardizationAttribute.ISOLATION_SOURCE in attributes
                 else None
             )
             isolation_standardizer = None
@@ -512,9 +519,17 @@ class DatasetBuilder:
                     )
             if isolation_standardizer is not None:
                 resources.callback(isolation_standardizer.close)
+            host_isolation_standardizer = (
+                _host_isolation_standardizer_from_components(
+                    host_standardizer,
+                    isolation_standardizer,
+                )
+                if host_standardizer is not None and isolation_standardizer is not None
+                else None
+            )
             host_lineage = (
                 self._host_lineage_factory(request.names_dmp, request.nodes_dmp)
-                if host_standardizer is not None
+                if StandardizationAttribute.HOST in attributes
                 else None
             )
             date_stats = (
@@ -529,7 +544,7 @@ class DatasetBuilder:
             )
             host_stats = (
                 {pathogen: _MutableHostStatistics() for pathogen in pathogens}
-                if host_standardizer is not None
+                if StandardizationAttribute.HOST in attributes
                 else {}
             )
             isolation_stats = (
@@ -548,6 +563,7 @@ class DatasetBuilder:
                     location_standardizer,
                     host_standardizer,
                     isolation_standardizer,
+                    host_isolation_standardizer,
                     host_lineage,
                     date_stats,
                     location_stats,
@@ -631,6 +647,7 @@ class DatasetBuilder:
         location_standardizer: LocationStandardizer | None,
         host_standardizer: HostStandardizer | None,
         isolation_standardizer: IsoStandardizer | None,
+        host_isolation_standardizer: HostIsolationStandardizer | None,
         host_lineage: HostLineageEnricher | None,
         date_stats: Mapping[str, _MutableDateStatistics],
         location_stats: Mapping[str, _MutableLocationStatistics],
@@ -691,8 +708,60 @@ class DatasetBuilder:
                         location_outcome = location_result
 
                 host_outcome = None
+                isolation_outcome = None
                 lineage_outcome = None
-                if host_standardizer is not None:
+                if host_isolation_standardizer is not None:
+                    host_isolation_result = host_isolation_standardizer.standardize(record)
+                    host_outcome = host_isolation_result.host
+                    isolation_result = host_isolation_result.isolation
+
+                    if host_stats:
+                        host_record_stats = host_stats[pathogen]
+                        host_record_stats.processed += 1
+                        host_record_stats.diagnostics.update(host_isolation_result.diagnostics.host)
+                        if host_isolation_result.routing.host_initial is HostInitialRouting.MATCHED:
+                            host_record_stats.matched += 1
+                            host_record_stats.low_confidence += int(host_outcome.low_confidence)
+                        elif (
+                            host_isolation_result.routing.host_initial
+                            is HostInitialRouting.OVERFLOW
+                        ):
+                            host_record_stats.overflow += 1
+                        else:
+                            host_record_stats.rejected += 1
+                        if (
+                            host_isolation_result.routing.host_retry
+                            is not HostRetryRouting.NOT_ELIGIBLE
+                        ):
+                            host_record_stats.retry_eligible += 1
+                            if host_outcome.standardized is not None:
+                                host_record_stats.matched += 1
+                                host_record_stats.low_confidence += int(host_outcome.low_confidence)
+                    if host_lineage is not None and host_outcome.standardized is not None:
+                        lineage_outcome = host_lineage.enrich(host_outcome.standardized.taxid)
+
+                    isolation_record_stats = isolation_stats[pathogen]
+                    isolation_record_stats.processed += 1
+                    isolation_record_stats.diagnostics.update(
+                        host_isolation_result.diagnostics.isolation
+                    )
+                    isolation_record_stats.host_retries += int(
+                        host_isolation_result.routing.host_retry
+                        is not HostRetryRouting.NOT_ELIGIBLE
+                    )
+                    if isinstance(isolation_result, IsolationRejection):
+                        isolation_record_stats.rejected += 1
+                    else:
+                        isolation_outcome = isolation_result
+                        isolation_record_stats.host_contexts += int(
+                            bool(isolation_result.host_context)
+                        )
+                        isolation_record_stats.matched += 1
+                        isolation_record_stats.exact_matches += isolation_result.exact_matches
+                        isolation_record_stats.cache_hits += isolation_result.cache_hits
+                        isolation_record_stats.llm_calls += isolation_result.llm_calls
+                        isolation_record_stats.evidence_levels[isolation_result.evidence_level] += 1
+                elif host_standardizer is not None:
                     stats = host_stats[pathogen]
                     stats.processed += 1
                     host_result = host_standardizer.standardize(record)
@@ -708,8 +777,7 @@ class DatasetBuilder:
                         stats.rejected += 1
                     stats.retry_eligible += int(host_result.retry_eligible)
 
-                isolation_outcome = None
-                if isolation_standardizer is not None:
+                if host_isolation_standardizer is None and isolation_standardizer is not None:
                     stats = isolation_stats[pathogen]
                     stats.processed += 1
                     standardized_host = (
@@ -738,7 +806,8 @@ class DatasetBuilder:
                         stats.evidence_levels[isolation_result.evidence_level] += 1
 
                 if (
-                    host_standardizer is not None
+                    host_isolation_standardizer is None
+                    and host_standardizer is not None
                     and host_outcome is not None
                     and host_outcome.standardized is None
                     and isolation_outcome is not None
@@ -763,7 +832,11 @@ class DatasetBuilder:
                     date_outcome is not None
                     or location_outcome is not None
                     or isolation_outcome is not None
-                    or (host_outcome is not None and host_outcome.standardized is not None)
+                    or (
+                        StandardizationAttribute.HOST in attributes
+                        and host_outcome is not None
+                        and host_outcome.standardized is not None
+                    )
                 ):
                     reasoning_json = (
                         _isolation_reasoning_json(accession, pathogen, isolation_outcome)
@@ -999,6 +1072,6 @@ def _isolation_reasoning_json(
         "ontology_links": outcome.ontology_links,
         "evidence_level": outcome.evidence_level.value,
         "diagnostics": [diagnostic.value for diagnostic in outcome.diagnostics],
-        "reasoning": list(outcome.reasoning),
+        "reasoning": [step.as_dict() for step in outcome.reasoning],
     }
     return json.dumps(record, ensure_ascii=False)

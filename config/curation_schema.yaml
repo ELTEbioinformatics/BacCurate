@@ -242,7 +242,7 @@ targets:
         - geographic location elevation
         - samp_store_loc
       non_specimen_geography:
-        - food_origin        # Describes food source, which in a lot of cases is different from sampling location
+        - food_origin # Describes food source, which in a lot of cases is different from sampling location
         - coll_site_geo_feat # Describes mostly isolation source
 
   date:

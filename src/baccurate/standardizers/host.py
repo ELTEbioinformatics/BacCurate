@@ -355,11 +355,36 @@ class HostStandardizer:
         ncbi_curated_entries: list[tuple[str, TaxonInfo]] = []
         broad_entries: list[tuple[str, TaxonInfo]] = []
 
-        for idx, row in ncbi_df.iterrows():
+        optional_columns = {
+            "rank": "",
+            "synonym": None,
+            "genbank_common_name": None,
+            "common_name": None,
+        }
+        for column, default in optional_columns.items():
+            if column not in ncbi_df.columns:
+                ncbi_df[column] = default
+        lookup_columns = (
+            "taxid",
+            "scientific_name",
+            "rank",
+            "synonym",
+            "genbank_common_name",
+            "common_name",
+        )
+        lookup_rows = ncbi_df.loc[:, lookup_columns].itertuples(index=False, name=None)
+        for idx, (
+            taxid,
+            scientific_name,
+            rank,
+            synonym,
+            genbank_common_name,
+            common_name,
+        ) in enumerate(lookup_rows):
             info = TaxonInfo(
-                taxid=int(row["taxid"]),
-                scientific_name=str(row["scientific_name"]),
-                rank=str(row.get("rank", "")).strip().lower(),
+                taxid=int(taxid),
+                scientific_name=str(scientific_name),
+                rank=str(rank).strip().lower(),
                 table_priority=idx,
             )
             self.taxid_to_info[str(info.taxid)] = info
@@ -370,11 +395,11 @@ class HostStandardizer:
                 self.sciname_to_info.setdefault(norm_sciname, info)
                 self._index_for_subset(norm_sciname, info)
 
-            for term in self._split_cell(row.get("synonym")):
+            for term in self._split_cell(synonym):
                 synonym_entries.append((_normalize_text(term), info))
-            for term in self._split_cell(row.get("genbank_common_name")):
+            for term in self._split_cell(genbank_common_name):
                 ncbi_curated_entries.append((_normalize_text(term), info))
-            for term in self._split_cell(row.get("common_name")):
+            for term in self._split_cell(common_name):
                 broad_entries.append((_normalize_text(term), info))
 
         ncbi_exact_terms = dict(self.sciname_to_info)
@@ -765,7 +790,11 @@ class HostStandardizer:
         )
 
     def retry(self, accession: str, attributes: str, values: str) -> HostOutcome:
-        """Retry host classification after eligible isolation interpretation."""
+        """Match a host in isolation-source values the ontology judged host-implying.
+
+        The iso_keyword guard is skipped: it exists to keep isolation wording out
+        of host matching, and here that wording is the input.
+        """
         match, diagnostic = self._classify_row_with_diagnostic(
             accession,
             attributes,

@@ -1,0 +1,10 @@
+{
+  "private": true,
+  "scripts": {
+    "format": "prettier --write \"*.{json,md,yaml,yml}\" \".github/**/*.{json,md,yaml,yml}\" \"config/**/*.{json,md,yaml,yml}\" \"docs/**/*.{json,md,yaml,yml}\"",
+    "format:check": "prettier --check \"*.{json,md,yaml,yml}\" \".github/**/*.{json,md,yaml,yml}\" \"config/**/*.{json,md,yaml,yml}\" \"docs/**/*.{json,md,yaml,yml}\""
+  },
+  "devDependencies": {
+    "prettier": "3.9.6"
+  }
+}
