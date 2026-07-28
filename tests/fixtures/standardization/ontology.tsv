@@ -1,0 +1,21 @@
+term_path	display_term	external_ontology_identifier	crosslink_targets	comment	synonyms
+host-associated	host-associated			Host evidence
+host-associated:animal host	animal host			Animal host evidence
+host-associated:animal host:bodily fluid	bodily fluid			Animal bodily fluid
+host-associated:animal host:bodily fluid:blood	blood	ENVO:02000020		Blood material
+host-associated:animal host:digestive tract	digestive tract			Digestive tract
+host-associated:animal host:digestive tract:intestine	intestine			Intestinal material
+host-associated:animal host:digestive tract:intestine:rectum	rectum	UBERON:0001052		Rectal material	rectal swab
+host-associated:animal host:feces	feces	ENVO:00002003		Fecal material	stool
+host-associated:animal host:wound	wound	UBERON:0001003		Wound material
+host-associated:plant host	plant host			Plant host evidence
+host-associated:plant host:rhizosphere	rhizosphere	ENVO:00005801	soil	Root-associated material
+environmental	environmental			Environmental evidence
+environmental:natural environment	natural environment			Natural environment
+environmental:natural environment:terrestrial	terrestrial			Terrestrial environment
+environmental:natural environment:terrestrial:soil	soil	ENVO:00001998		Soil material
+environmental:anthropogenic environment	anthropogenic environment			Human-shaped environment
+environmental:anthropogenic environment:food	food	FOODON:00002403		Food material
+environmental:anthropogenic environment:food:animal product	animal product	FOODON:00004270		Animal-derived food
+environmental:anthropogenic environment:food:animal product:meat product	meat product	FOODON:00001006		Meat product	chicken meat
+unspecified	unspecified			No specific evidence	no host

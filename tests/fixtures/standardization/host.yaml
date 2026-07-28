@@ -1,0 +1,39 @@
+schema_version: 3
+normalization:
+  ignored_substrings:
+    - ", adult"
+    - healthy
+routing:
+  isolation_source_keywords:
+    - food
+    - meat
+curated_taxa:
+  "9606":
+    scientific_name: Homo sapiens
+    match_terms:
+      exact:
+        - human
+  "9615":
+    scientific_name: Canis lupus familiaris
+    match_terms:
+      subset:
+        - Canis lupus familaris
+  "9031":
+    scientific_name: Gallus gallus
+    match_terms:
+      subset:
+        - chicken
+  "9913":
+    scientific_name: Bos taurus
+    match_terms:
+      exact:
+        - Holstein
+  "9520":
+    scientific_name: Saimiri
+    match_terms:
+      force:
+        - Squirrel monkey
+value_rejections:
+  exact:
+    - no host
+    - cancer
