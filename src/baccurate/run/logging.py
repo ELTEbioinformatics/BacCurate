@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+LIFECYCLE_LOGGER_NAME = "baccurate.main"
+
 
 class BoundedDebugFilter(logging.Filter):
     """Let each distinct DEBUG message through once per logger, dropping repeats."""
@@ -37,7 +39,7 @@ class LifecycleInfoFilter(logging.Filter):
     """Allow INFO only from the main CLI lifecycle logger."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        return record.levelno != logging.INFO or record.name == "baccurate.main"
+        return record.levelno != logging.INFO or record.name == LIFECYCLE_LOGGER_NAME
 
 
 class LocalOffsetFormatter(logging.Formatter):

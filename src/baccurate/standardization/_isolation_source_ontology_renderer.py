@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from baccurate.standardizers.isolation import OntologyManager
+    from baccurate.standardization.isolation import OntologyManager
 
 TOP_LEVEL_ORDER = (
     "environmental",

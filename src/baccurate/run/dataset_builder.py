@@ -1,0 +1,1016 @@
+"""Build one final standardized dataset from extracted metadata."""
+
+import csv
+import json
+import logging
+from collections import Counter
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from contextlib import ExitStack
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Protocol, TextIO
+
+from baccurate.adapters.llm.client import LLMSettings, load_llm_settings
+from baccurate.adapters.progress import make_progress_bar
+from baccurate.pathogen_registry.registry import PathogenRegistry
+from baccurate.pathogen_registry.species_label_matching import load_atb_accessions_by_pathogen
+from baccurate.paths import DEFAULT_NAMES_DMP, DEFAULT_NODES_DMP
+from baccurate.provenance.source_snapshot import validate_extracted_metadata_bundle
+from baccurate.run.statistics import (
+    DatasetBuildProgress,
+    DatasetBuildStatistics,
+    DateBuildStatistics,
+    DateStatistics,
+    HostBuildStatistics,
+    HostStatistics,
+    IsolationSourceBuildStatistics,
+    IsolationSourceStatistics,
+    LocationBuildStatistics,
+    LocationStatistics,
+)
+from baccurate.standardization.collection_date import (
+    DateDiagnostic,
+    DateOutcome,
+    RecordDateStandardizer,
+)
+from baccurate.standardization.host import (
+    HostDiagnostic,
+    HostOutcome,
+    HostPolicy,
+    HostStandardizer,
+)
+from baccurate.standardization.host_isolation_source import (
+    HostInitialRouting,
+    HostIsolationSourceStandardizer,
+    HostRecoveryRouting,
+    host_isolation_source_standardizer_from_components,
+)
+from baccurate.standardization.host_lineage import HostLineage, HostLineageEnricher
+from baccurate.standardization.isolation_source import (
+    IsolationSourceDiagnostic,
+    IsolationSourceEvidenceLevel,
+    IsolationSourceOutcome,
+    IsolationSourcePromptPolicy,
+    IsolationSourceRejection,
+    IsolationSourceStandardizer,
+)
+from baccurate.standardization.location import (
+    LocationDiagnostic,
+    LocationOutcome,
+    LocationPolicy,
+    LocationRejection,
+    LocationStandardizer,
+)
+from baccurate.standardization_target.policy_slot import PolicySlot
+from baccurate.standardization_target.specifications import (
+    DATASET_COLUMN_ORDER,
+    TARGET_SPECS,
+    StandardizationTarget,
+    required_policy_slots,
+)
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class DatasetBuildRequest:
+    """Inputs, selection, destination, and runtime settings for one build."""
+
+    extracted_metadata: Path
+    biosample_snapshot_manifest: Path
+    bioproject_snapshot_manifest: Path
+    requested_pathogens: tuple[str, ...]
+    requested_targets: tuple[StandardizationTarget, ...]
+    final_destination: Path
+    atb_index: Path
+    pathogen_registry: PathogenRegistry
+    host_policy: HostPolicy | None = None
+    location_policy: LocationPolicy | None = None
+    isolation_source_prompt_policy: IsolationSourcePromptPolicy | None = None
+    isolation_source_reasoning_destination: Path | None = None
+    names_dmp: Path = DEFAULT_NAMES_DMP
+    nodes_dmp: Path = DEFAULT_NODES_DMP
+    overwrite: bool = False
+    skip_llm: bool = False
+    llm_settings: LLMSettings | None = None
+    logger: logging.Logger = field(default_factory=lambda: logger)
+    disable_progress: bool = False
+    progress: DatasetBuildProgress = field(default_factory=DatasetBuildProgress)
+
+
+@dataclass(slots=True)
+class _MutableDateStatistics:
+    processed: int = 0
+    standardized: int = 0
+    rejected: int = 0
+
+
+@dataclass(slots=True)
+class _MutableLocationStatistics:
+    processed: int = 0
+    standardized: int = 0
+    rejected: int = 0
+    coordinate_decodes: int = 0
+    direct_matches: int = 0
+    cache_hits: int = 0
+    llm_calls: int = 0
+    diagnostics: Counter[LocationDiagnostic] = field(default_factory=Counter)
+
+
+@dataclass(slots=True)
+class _MutableHostStatistics:
+    processed: int = 0
+    standardized: int = 0
+    rejected: int = 0
+    overflow: int = 0
+    needs_review: int = 0
+    host_recovery_passes: int = 0
+    diagnostics: Counter[HostDiagnostic] = field(default_factory=Counter)
+
+
+@dataclass(slots=True)
+class _MutableIsolationSourceStatistics:
+    processed: int = 0
+    standardized: int = 0
+    rejected: int = 0
+    exact_matches: int = 0
+    cache_hits: int = 0
+    llm_calls: int = 0
+    host_contexts: int = 0
+    host_recovery_passes: int = 0
+    evidence_levels: Counter[IsolationSourceEvidenceLevel] = field(default_factory=Counter)
+    diagnostics: Counter[IsolationSourceDiagnostic] = field(default_factory=Counter)
+
+
+@dataclass(frozen=True, slots=True)
+class _FinalRow:
+    accession: str
+    pathogen: str
+    in_atb: bool
+    bioproject: str
+    date: DateOutcome | None
+    location: LocationOutcome | None
+    isolation_source: IsolationSourceOutcome | None
+    host: HostOutcome | None
+    host_lineage: HostLineage | None
+
+
+class _RowWriter(Protocol):
+    def writerow(self, final_row_values: Iterable[object], /) -> object:
+        """Write one projected dataset row."""
+
+
+class _FinalRowAssembler:
+    """Turn an extracted metadata record and standardized outcomes into a final dataset row."""
+
+    base_columns = (
+        "accession",
+        "pathogen_scientific_name",
+        "in_ATB",
+        "bioproject",
+    )
+
+    def __init__(
+        self,
+        atb_by_pathogen: Mapping[str, set[str]],
+        targets: Sequence[StandardizationTarget],
+        pathogen_registry: PathogenRegistry,
+    ):
+        self.atb_by_pathogen = atb_by_pathogen
+        self._pathogen_registry = pathogen_registry
+        self._selected_targets = tuple(targets)
+        selected = set(targets)
+        self.columns = self.base_columns
+        for target in DATASET_COLUMN_ORDER:
+            if target in selected:
+                self.columns += TARGET_SPECS[target].output_columns
+
+    def assemble(
+        self,
+        extracted_record: Mapping[str, str],
+        date: DateOutcome | None,
+        location: LocationOutcome | None,
+        isolation_source: IsolationSourceOutcome | None,
+        host: HostOutcome | None,
+        host_lineage: HostLineage | None,
+    ) -> _FinalRow:
+        """Assemble a final dataset row.
+
+        Inputs are one extracted metadata record and its standardized outcomes.
+        """
+        pathogen = extracted_record["pathogen"]
+        accession = extracted_record["accession"]
+        return _FinalRow(
+            accession=accession,
+            pathogen=self._pathogen_registry.scientific_name(pathogen),
+            in_atb=accession in self.atb_by_pathogen.get(pathogen, set()),
+            bioproject=extracted_record.get("bioproject_accession", ""),
+            date=date,
+            location=location,
+            isolation_source=isolation_source,
+            host=host,
+            host_lineage=host_lineage,
+        )
+
+    def project(self, final_row: _FinalRow) -> tuple[object, ...]:
+        values: tuple[object, ...] = (
+            final_row.accession,
+            final_row.pathogen,
+            final_row.in_atb,
+            final_row.bioproject,
+        )
+        if StandardizationTarget.DATE in self._selected_targets:
+            if final_row.date is None:
+                values += ("", "", "", "", "")
+            else:
+                attributes = "||".join(pair.attribute for pair in final_row.date.supporting_pairs)
+                date_values = "||".join(pair.value for pair in final_row.date.supporting_pairs)
+                values += (
+                    attributes,
+                    date_values,
+                    final_row.date.bounds.start.isoformat(),
+                    final_row.date.bounds.end.isoformat(),
+                    final_row.date.reliability_score,
+                )
+        if StandardizationTarget.LOCATION in self._selected_targets:
+            if final_row.location is None:
+                values += ("", "", "", "", "")
+            else:
+                values += (
+                    "||".join(pair.attribute for pair in final_row.location.supporting_pairs),
+                    "||".join(pair.value for pair in final_row.location.supporting_pairs),
+                    final_row.location.un_region,
+                    final_row.location.country,
+                    final_row.location.sublocation or "NA",
+                )
+        if StandardizationTarget.ISOLATION_SOURCE in self._selected_targets:
+            if final_row.isolation_source is None:
+                values += ("", "", "", "", "")
+            else:
+                values += (
+                    "||".join(
+                        pair.attribute for pair in final_row.isolation_source.supporting_pairs
+                    ),
+                    "||".join(pair.value for pair in final_row.isolation_source.supporting_pairs),
+                    final_row.isolation_source.term_paths,
+                    final_row.isolation_source.display_terms,
+                    final_row.isolation_source.external_ontology_identifiers,
+                )
+        if StandardizationTarget.HOST in self._selected_targets:
+            if final_row.host is None or final_row.host.standardized is None:
+                values += ("", "", "", "", "", "", "", "", "")
+            else:
+                pair = final_row.host.supporting_pairs[0]
+                lineage = final_row.host_lineage
+                if lineage is None:
+                    raise ValueError(f"Missing host lineage enrichment for {final_row.accession}")
+                values += (
+                    pair.attribute,
+                    pair.value,
+                    final_row.host.standardized.taxid,
+                    final_row.host.standardized.scientific_name,
+                    lineage.common_names,
+                    lineage.lineage_names,
+                    lineage.lineage_taxids,
+                    final_row.host.match_quality_score,
+                    final_row.host.needs_review,
+                )
+        return values
+
+
+class DatasetBuilder:
+    """
+    Stream one final dataset for the requested records and standardization targets.
+
+    The four optional factories are substitution seams for collaborators that reach outside the
+    process or read bulk reference resources. ``location_standardizer_factory`` and
+    ``isolation_source_standardizer_factory`` substitute LLM clients;
+    ``host_standardizer_factory`` substitutes the NCBI Taxonomy reference table; and
+    ``host_lineage_factory`` substitutes the NCBI ``names.dmp`` and ``nodes.dmp`` readers.
+    """
+
+    def __init__(
+        self,
+        location_standardizer_factory: (
+            Callable[[LocationPolicy, logging.Logger], LocationStandardizer] | None
+        ) = None,
+        host_standardizer_factory: (
+            Callable[[HostPolicy, logging.Logger], HostStandardizer] | None
+        ) = None,
+        host_lineage_factory: Callable[[Path, Path], HostLineageEnricher] | None = None,
+        isolation_source_standardizer_factory: (
+            Callable[
+                [IsolationSourcePromptPolicy, Path, logging.Logger], IsolationSourceStandardizer
+            ]
+            | None
+        ) = None,
+    ) -> None:
+        self._location_standardizer_factory = location_standardizer_factory
+        self._host_standardizer_factory = host_standardizer_factory or (
+            lambda policy, result_logger: HostStandardizer(
+                policy,
+                result_logger=result_logger,
+            )
+        )
+        self._host_lineage_factory = host_lineage_factory or HostLineageEnricher
+        self._isolation_source_standardizer_factory = isolation_source_standardizer_factory
+
+    def build(self, request: DatasetBuildRequest) -> DatasetBuildStatistics:
+        pathogens, targets = self._validate_request(request)
+        llm_settings = request.llm_settings or load_llm_settings()
+        request.progress.processed_rows = 0
+        request.progress.rows_written = 0
+        destination = Path(request.final_destination)
+        reasoning_destination = (
+            Path(request.isolation_source_reasoning_destination)
+            if StandardizationTarget.ISOLATION_SOURCE in targets
+            and request.isolation_source_reasoning_destination is not None
+            else None
+        )
+        destinations = tuple(
+            path for path in (destination, reasoning_destination) if path is not None
+        )
+        if not request.overwrite:
+            collision = next((path for path in destinations if path.exists()), None)
+            if collision is not None:
+                raise FileExistsError(f"Build output already exists: {collision}")
+        for path in destinations:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        mode = "w" if request.overwrite else "x"
+
+        with ExitStack() as resources:
+            destination_stream = resources.enter_context(
+                destination.open(mode, encoding="utf-8", newline="")
+            )
+            reasoning_stream = (
+                resources.enter_context(
+                    reasoning_destination.open(mode, encoding="utf-8", newline="")
+                )
+                if reasoning_destination is not None
+                else None
+            )
+            writer = csv.writer(destination_stream, delimiter="\t", lineterminator="\n")
+            writer.writerow(_FinalRowAssembler({}, targets, request.pathogen_registry).columns)
+
+            source_contract = validate_extracted_metadata_bundle(
+                request.extracted_metadata,
+                request.biosample_snapshot_manifest,
+                request.bioproject_snapshot_manifest,
+            )
+            extracted_row_counts = self._count_selected_extracted_rows(
+                request.extracted_metadata, pathogens
+            )
+            atb_by_pathogen = load_atb_accessions_by_pathogen(request.atb_index)
+            assembler = _FinalRowAssembler(
+                atb_by_pathogen,
+                targets,
+                request.pathogen_registry,
+            )
+            date_standardizers = (
+                {
+                    pathogen: RecordDateStandardizer(source_contract.metadata_reference_date)
+                    for pathogen in pathogens
+                }
+                if StandardizationTarget.DATE in targets
+                else {}
+            )
+            location_standardizer = None
+            if StandardizationTarget.LOCATION in targets:
+                if self._location_standardizer_factory is not None:
+                    location_standardizer = self._location_standardizer_factory(
+                        request.location_policy,
+                        request.logger,
+                    )
+                else:
+                    location_options = {
+                        "result_logger": request.logger,
+                        "llm_settings": llm_settings,
+                    }
+                    if request.skip_llm:
+                        location_options["client"] = None
+                    location_standardizer = LocationStandardizer(
+                        request.location_policy, **location_options
+                    )
+            if location_standardizer is not None:
+                resources.callback(location_standardizer.close)
+            host_standardizer = (
+                self._host_standardizer_factory(request.host_policy, request.logger)
+                if StandardizationTarget.HOST in targets
+                or StandardizationTarget.ISOLATION_SOURCE in targets
+                else None
+            )
+            isolation_source_standardizer = None
+            if StandardizationTarget.ISOLATION_SOURCE in targets:
+                if self._isolation_source_standardizer_factory is not None:
+                    isolation_source_standardizer = self._isolation_source_standardizer_factory(
+                        request.isolation_source_prompt_policy,
+                        request.extracted_metadata,
+                        request.logger,
+                    )
+                else:
+                    isolation_source_options = {
+                        "result_logger": request.logger,
+                        "llm_settings": llm_settings,
+                    }
+                    if request.skip_llm:
+                        isolation_source_options["client"] = None
+                    isolation_source_standardizer = IsolationSourceStandardizer(
+                        request.isolation_source_prompt_policy,
+                        request.extracted_metadata,
+                        **isolation_source_options,
+                    )
+            if isolation_source_standardizer is not None:
+                resources.callback(isolation_source_standardizer.close)
+            host_isolation_source_standardizer = (
+                host_isolation_source_standardizer_from_components(
+                    host_standardizer,
+                    isolation_source_standardizer,
+                )
+                if host_standardizer is not None and isolation_source_standardizer is not None
+                else None
+            )
+            host_lineage = (
+                self._host_lineage_factory(request.names_dmp, request.nodes_dmp)
+                if StandardizationTarget.HOST in targets
+                else None
+            )
+            date_stats = (
+                {pathogen: _MutableDateStatistics() for pathogen in pathogens}
+                if date_standardizers
+                else {}
+            )
+            location_stats = (
+                {pathogen: _MutableLocationStatistics() for pathogen in pathogens}
+                if location_standardizer is not None
+                else {}
+            )
+            host_stats = (
+                {pathogen: _MutableHostStatistics() for pathogen in pathogens}
+                if StandardizationTarget.HOST in targets
+                else {}
+            )
+            isolation_source_stats = (
+                {pathogen: _MutableIsolationSourceStatistics() for pathogen in pathogens}
+                if isolation_source_standardizer is not None
+                else {}
+            )
+            rows_written = 0
+            try:
+                rows_written = self._process_extracted_records(
+                    request,
+                    pathogens,
+                    targets,
+                    extracted_row_counts,
+                    date_standardizers,
+                    location_standardizer,
+                    host_standardizer,
+                    isolation_source_standardizer,
+                    host_isolation_source_standardizer,
+                    host_lineage,
+                    date_stats,
+                    location_stats,
+                    host_stats,
+                    isolation_source_stats,
+                    assembler,
+                    writer,
+                    reasoning_stream,
+                )
+            finally:
+                request.progress.statistics = self._make_build_statistics(
+                    destination,
+                    date_stats,
+                    date_standardizers,
+                    location_stats,
+                    host_stats,
+                    isolation_source_stats,
+                    request.progress.rows_written,
+                )
+        statistics = request.progress.statistics
+        self._warn_recoverable_conditions(request.logger, statistics)
+        request.logger.info("Built final dataset with %d rows at %s", rows_written, destination)
+        return statistics
+
+    @staticmethod
+    def _warn_recoverable_conditions(
+        result_logger: logging.Logger,
+        statistics: DatasetBuildStatistics,
+    ) -> None:
+        if statistics.location is None:
+            return
+        summaries = {
+            LocationDiagnostic.LLM_DISABLED: "location LLM disabled",
+            LocationDiagnostic.RECOVERABLE_LLM_FAILURE: "recoverable location LLM failure",
+            LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE: (
+                "recoverable coordinate resolution failure"
+            ),
+            LocationDiagnostic.INVALID_LLM_RESPONSE: "invalid location LLM response",
+        }
+        for diagnostic, description in summaries.items():
+            count = statistics.location.aggregate.diagnostics.get(diagnostic, 0)
+            if count:
+                result_logger.warning("%s: %d record(s)", description.capitalize(), count)
+
+    @staticmethod
+    def _validate_request(
+        request: DatasetBuildRequest,
+    ) -> tuple[tuple[str, ...], tuple[StandardizationTarget, ...]]:
+        pathogens = tuple(request.requested_pathogens)
+        if not pathogens:
+            raise ValueError("Need at least one pathogen")
+        if len(set(pathogens)) != len(pathogens):
+            raise ValueError("Pathogens must be unique")
+        targets = tuple(request.requested_targets)
+        if not targets:
+            raise ValueError("Need at least one standardization attribute")
+        if len(set(targets)) != len(targets):
+            raise ValueError("Standardization attributes must be unique")
+        required_policies = required_policy_slots(targets)
+        if PolicySlot.HOST in required_policies and request.host_policy is None:
+            raise ValueError("Host or isolation-source standardization requires a host policy")
+        if PolicySlot.LOCATION in required_policies and request.location_policy is None:
+            raise ValueError("Geographic-location standardization requires a location policy")
+        if (
+            PolicySlot.ISOLATION_SOURCE in required_policies
+            and request.isolation_source_prompt_policy is None
+        ):
+            raise ValueError(
+                "Isolation-source standardization requires an isolation-source prompt policy"
+            )
+        return pathogens, targets
+
+    @staticmethod
+    def _count_selected_extracted_rows(
+        input_path: Path,
+        pathogens: Sequence[str],
+    ) -> dict[str, int]:
+        counts = dict.fromkeys(pathogens, 0)
+        with Path(input_path).open("r", encoding="utf-8", newline="") as stream:
+            for record in csv.DictReader(stream, delimiter="\t"):
+                pathogen = (record.get("pathogen") or "").strip()
+                if pathogen in counts:
+                    counts[pathogen] += 1
+        return counts
+
+    @staticmethod
+    def _process_extracted_records(
+        request: DatasetBuildRequest,
+        pathogens: Sequence[str],
+        targets: Sequence[StandardizationTarget],
+        extracted_row_counts: Mapping[str, int],
+        date_standardizers: Mapping[str, RecordDateStandardizer],
+        location_standardizer: LocationStandardizer | None,
+        host_standardizer: HostStandardizer | None,
+        isolation_source_standardizer: IsolationSourceStandardizer | None,
+        host_isolation_source_standardizer: HostIsolationSourceStandardizer | None,
+        host_lineage: HostLineageEnricher | None,
+        date_stats: Mapping[str, _MutableDateStatistics],
+        location_stats: Mapping[str, _MutableLocationStatistics],
+        host_stats: Mapping[str, _MutableHostStatistics],
+        isolation_source_stats: Mapping[str, _MutableIsolationSourceStatistics],
+        assembler: _FinalRowAssembler,
+        writer: _RowWriter,
+        reasoning_stream: TextIO | None,
+    ) -> int:
+        selected = set(pathogens)
+        rows_written = 0
+        total = sum(extracted_row_counts.values())
+        with (
+            make_progress_bar(
+                total, "dataset build", disable=request.disable_progress
+            ) as progress_bar,
+            Path(request.extracted_metadata).open(
+                "r",
+                encoding="utf-8",
+                newline="",
+            ) as stream,
+        ):
+            reader = csv.DictReader(stream, delimiter="\t")
+            _require_columns(reader.fieldnames, targets)
+            for row_number, extracted_record in enumerate(reader, start=1):
+                accession = (extracted_record.get("accession") or "").strip()
+                pathogen = (extracted_record.get("pathogen") or "").strip()
+                if not accession:
+                    raise ValueError(f"Record {row_number} has no accession")
+                if not pathogen:
+                    raise ValueError(f"Record {accession} has no pathogen")
+                if pathogen not in selected:
+                    continue
+                date_outcome = None
+                if pathogen in date_standardizers:
+                    stats = date_stats[pathogen]
+                    stats.processed += 1
+                    date_outcome = date_standardizers[pathogen].standardize(extracted_record)
+                    if date_outcome is None:
+                        stats.rejected += 1
+                    else:
+                        stats.standardized += 1
+
+                location_outcome = None
+                if location_standardizer is not None:
+                    stats = location_stats[pathogen]
+                    stats.processed += 1
+                    location_result = location_standardizer.standardize(extracted_record)
+                    stats.coordinate_decodes += location_result.coordinate_decodes
+                    stats.direct_matches += location_result.direct_matches
+                    stats.cache_hits += location_result.cache_hits
+                    stats.llm_calls += location_result.llm_calls
+                    stats.diagnostics.update(location_result.diagnostics)
+                    if isinstance(location_result, LocationRejection):
+                        stats.rejected += 1
+                    else:
+                        stats.standardized += 1
+                        location_outcome = location_result
+
+                host_outcome = None
+                isolation_source_outcome = None
+                lineage_outcome = None
+                if host_isolation_source_standardizer is not None:
+                    host_isolation_source_result = host_isolation_source_standardizer.standardize(
+                        extracted_record
+                    )
+                    host_outcome = host_isolation_source_result.host
+                    isolation_source_result = host_isolation_source_result.isolation_source
+
+                    if host_stats:
+                        host_pathogen_stats = host_stats[pathogen]
+                        host_pathogen_stats.processed += 1
+                        host_pathogen_stats.diagnostics.update(
+                            host_isolation_source_result.diagnostics.host
+                        )
+                        if (
+                            host_isolation_source_result.routing.host_initial
+                            is HostInitialRouting.MATCHED
+                        ):
+                            host_pathogen_stats.standardized += 1
+                            host_pathogen_stats.needs_review += int(host_outcome.needs_review)
+                        elif (
+                            host_isolation_source_result.routing.host_initial
+                            is HostInitialRouting.OVERFLOW
+                        ):
+                            host_pathogen_stats.overflow += 1
+                        else:
+                            host_pathogen_stats.rejected += 1
+                        if (
+                            host_isolation_source_result.routing.host_recovery
+                            is not HostRecoveryRouting.NOT_ELIGIBLE
+                        ):
+                            host_pathogen_stats.host_recovery_passes += 1
+                            if host_outcome.standardized is not None:
+                                host_pathogen_stats.standardized += 1
+                                host_pathogen_stats.needs_review += int(host_outcome.needs_review)
+                    if host_lineage is not None and host_outcome.standardized is not None:
+                        lineage_outcome = host_lineage.enrich(host_outcome.standardized.taxid)
+
+                    isolation_source_pathogen_stats = isolation_source_stats[pathogen]
+                    isolation_source_pathogen_stats.processed += 1
+                    isolation_source_pathogen_stats.diagnostics.update(
+                        host_isolation_source_result.diagnostics.isolation_source
+                    )
+                    isolation_source_pathogen_stats.host_recovery_passes += int(
+                        host_isolation_source_result.routing.host_recovery
+                        is not HostRecoveryRouting.NOT_ELIGIBLE
+                    )
+                    if isinstance(isolation_source_result, IsolationSourceRejection):
+                        isolation_source_pathogen_stats.rejected += 1
+                    else:
+                        isolation_source_outcome = isolation_source_result
+                        isolation_source_pathogen_stats.host_contexts += int(
+                            bool(isolation_source_result.host_context)
+                        )
+                        isolation_source_pathogen_stats.standardized += 1
+                        isolation_source_pathogen_stats.exact_matches += (
+                            isolation_source_result.exact_matches
+                        )
+                        isolation_source_pathogen_stats.cache_hits += (
+                            isolation_source_result.cache_hits
+                        )
+                        isolation_source_pathogen_stats.llm_calls += (
+                            isolation_source_result.llm_calls
+                        )
+                        isolation_source_pathogen_stats.evidence_levels[
+                            isolation_source_result.evidence_level
+                        ] += 1
+                elif host_standardizer is not None:
+                    stats = host_stats[pathogen]
+                    stats.processed += 1
+                    host_result = host_standardizer.standardize(extracted_record)
+                    host_outcome = host_result
+                    stats.diagnostics.update(host_result.diagnostics)
+                    if host_result.standardized is not None:
+                        stats.standardized += 1
+                        stats.needs_review += int(host_result.needs_review)
+                        lineage_outcome = host_lineage.enrich(host_result.standardized.taxid)
+                    elif host_result.overflow is not None:
+                        stats.overflow += 1
+                    else:
+                        stats.rejected += 1
+                    stats.host_recovery_passes += int(host_result.from_recovery_pass)
+
+                if (
+                    host_isolation_source_standardizer is None
+                    and isolation_source_standardizer is not None
+                ):
+                    stats = isolation_source_stats[pathogen]
+                    stats.processed += 1
+                    standardized_host = (
+                        host_outcome.standardized.scientific_name
+                        if host_outcome is not None and host_outcome.standardized is not None
+                        else ""
+                    )
+                    host_context = (
+                        standardized_host
+                        or str(extracted_record.get("host_val_orig", "") or "").strip()
+                    )
+                    isolation_source_result = isolation_source_standardizer.standardize(
+                        extracted_record,
+                        host_context=host_context,
+                        overflow=(host_outcome.overflow if host_outcome is not None else None),
+                    )
+                    stats.host_contexts += int(bool(host_context))
+                    stats.diagnostics.update(isolation_source_result.diagnostics)
+                    if isinstance(isolation_source_result, IsolationSourceRejection):
+                        stats.rejected += 1
+                    else:
+                        isolation_source_outcome = isolation_source_result
+                        stats.standardized += 1
+                        stats.exact_matches += isolation_source_result.exact_matches
+                        stats.cache_hits += isolation_source_result.cache_hits
+                        stats.llm_calls += isolation_source_result.llm_calls
+                        stats.evidence_levels[isolation_source_result.evidence_level] += 1
+
+                if (
+                    host_isolation_source_standardizer is None
+                    and host_standardizer is not None
+                    and host_outcome is not None
+                    and host_outcome.standardized is None
+                    and isolation_source_outcome is not None
+                    and isolation_source_outcome.host_recovery_eligible
+                    and isolation_source_outcome.host_recovery_pairs
+                ):
+                    isolation_source_stats[pathogen].host_recovery_passes += 1
+                    recovery_outcome = host_standardizer.recovery_pass(
+                        accession,
+                        "||".join(
+                            pair.attribute for pair in isolation_source_outcome.host_recovery_pairs
+                        ),
+                        "||".join(
+                            pair.value for pair in isolation_source_outcome.host_recovery_pairs
+                        ),
+                    )
+                    host_stats[pathogen].host_recovery_passes += 1
+                    host_stats[pathogen].diagnostics.update(recovery_outcome.diagnostics)
+                    host_outcome = recovery_outcome
+                    if recovery_outcome.standardized is not None:
+                        host_stats[pathogen].standardized += 1
+                        host_stats[pathogen].needs_review += int(recovery_outcome.needs_review)
+                        lineage_outcome = host_lineage.enrich(recovery_outcome.standardized.taxid)
+
+                if (
+                    date_outcome is not None
+                    or location_outcome is not None
+                    or isolation_source_outcome is not None
+                    or (
+                        StandardizationTarget.HOST in targets
+                        and host_outcome is not None
+                        and host_outcome.standardized is not None
+                    )
+                ):
+                    reasoning_json = (
+                        _isolation_source_reasoning_json(
+                            accession, pathogen, isolation_source_outcome
+                        )
+                        if isolation_source_outcome is not None and reasoning_stream is not None
+                        else None
+                    )
+                    final_row = assembler.assemble(
+                        extracted_record,
+                        date_outcome,
+                        location_outcome,
+                        isolation_source_outcome,
+                        host_outcome,
+                        lineage_outcome,
+                    )
+                    writer.writerow(assembler.project(final_row))
+                    if reasoning_json is not None and reasoning_stream is not None:
+                        reasoning_stream.write(reasoning_json + "\n")
+                    rows_written += 1
+                    request.progress.rows_written = rows_written
+                request.progress.processed_rows += 1
+                progress_bar.update(1)
+        return rows_written
+
+    @staticmethod
+    def _make_build_statistics(
+        destination: Path,
+        date_stats: Mapping[str, _MutableDateStatistics],
+        date_standardizers: Mapping[str, RecordDateStandardizer],
+        location_stats: Mapping[str, _MutableLocationStatistics],
+        host_stats: Mapping[str, _MutableHostStatistics],
+        isolation_source_stats: Mapping[str, _MutableIsolationSourceStatistics],
+        rows_written: int,
+    ) -> DatasetBuildStatistics:
+        date_statistics = DatasetBuilder._make_date_statistics(date_stats, date_standardizers)
+        location_statistics = DatasetBuilder._make_location_statistics(location_stats)
+        host_statistics = DatasetBuilder._make_host_statistics(host_stats)
+        isolation_source_statistics = DatasetBuilder._make_isolation_source_statistics(
+            isolation_source_stats
+        )
+        return DatasetBuildStatistics(
+            final_destination=destination,
+            rows_written=rows_written,
+            date=date_statistics,
+            location=location_statistics,
+            host=host_statistics,
+            isolation_source=isolation_source_statistics,
+        )
+
+    @staticmethod
+    def _make_date_statistics(
+        mutable_stats: Mapping[str, _MutableDateStatistics],
+        standardizers: Mapping[str, RecordDateStandardizer],
+    ) -> DateBuildStatistics | None:
+        if not mutable_stats:
+            return None
+        by_pathogen: dict[str, DateStatistics] = {}
+        aggregate_diagnostics: Counter[DateDiagnostic] = Counter()
+        aggregate_rejections: Counter[str] = Counter()
+        aggregate_notices: Counter[str] = Counter()
+        for pathogen, stats in mutable_stats.items():
+            standardizer = standardizers[pathogen]
+            rejection_counts = dict(sorted(standardizer.rejection_counts.items()))
+            notice_counts = dict(sorted(standardizer.notice_counts.items()))
+            aggregate_rejections.update(rejection_counts)
+            aggregate_notices.update(notice_counts)
+            aggregate_diagnostics.update(getattr(standardizer, "diagnostic_counts", {}))
+            by_pathogen[pathogen] = DateStatistics(
+                processed=stats.processed,
+                standardized=stats.standardized,
+                rejected=stats.rejected,
+                diagnostics=dict(sorted(getattr(standardizer, "diagnostic_counts", {}).items())),
+                parsed_date_rejections=rejection_counts,
+                notices=notice_counts,
+            )
+        aggregate = DateStatistics(
+            processed=sum(stats.processed for stats in mutable_stats.values()),
+            standardized=sum(stats.standardized for stats in mutable_stats.values()),
+            rejected=sum(stats.rejected for stats in mutable_stats.values()),
+            diagnostics=dict(sorted(aggregate_diagnostics.items())),
+            parsed_date_rejections=dict(sorted(aggregate_rejections.items())),
+            notices=dict(sorted(aggregate_notices.items())),
+        )
+        return DateBuildStatistics(aggregate=aggregate, by_pathogen=by_pathogen)
+
+    @staticmethod
+    def _make_location_statistics(
+        mutable_stats: Mapping[str, _MutableLocationStatistics],
+    ) -> LocationBuildStatistics | None:
+        if not mutable_stats:
+            return None
+
+        def freeze(stats: _MutableLocationStatistics) -> LocationStatistics:
+            return LocationStatistics(
+                processed=stats.processed,
+                standardized=stats.standardized,
+                rejected=stats.rejected,
+                coordinate_decodes=stats.coordinate_decodes,
+                direct_matches=stats.direct_matches,
+                cache_hits=stats.cache_hits,
+                llm_calls=stats.llm_calls,
+                diagnostics=dict(sorted(stats.diagnostics.items())),
+            )
+
+        by_pathogen = {pathogen: freeze(stats) for pathogen, stats in mutable_stats.items()}
+        aggregate = LocationStatistics(
+            processed=sum(stats.processed for stats in mutable_stats.values()),
+            standardized=sum(stats.standardized for stats in mutable_stats.values()),
+            rejected=sum(stats.rejected for stats in mutable_stats.values()),
+            coordinate_decodes=sum(stats.coordinate_decodes for stats in mutable_stats.values()),
+            direct_matches=sum(stats.direct_matches for stats in mutable_stats.values()),
+            cache_hits=sum(stats.cache_hits for stats in mutable_stats.values()),
+            llm_calls=sum(stats.llm_calls for stats in mutable_stats.values()),
+            diagnostics=dict(
+                sorted(
+                    sum((stats.diagnostics for stats in mutable_stats.values()), Counter()).items()
+                )
+            ),
+        )
+        return LocationBuildStatistics(aggregate=aggregate, by_pathogen=by_pathogen)
+
+    @staticmethod
+    def _make_host_statistics(
+        mutable_stats: Mapping[str, _MutableHostStatistics],
+    ) -> HostBuildStatistics | None:
+        if not mutable_stats:
+            return None
+
+        def freeze(stats: _MutableHostStatistics) -> HostStatistics:
+            return HostStatistics(
+                processed=stats.processed,
+                standardized=stats.standardized,
+                rejected=stats.rejected,
+                overflow=stats.overflow,
+                needs_review=stats.needs_review,
+                host_recovery_passes=stats.host_recovery_passes,
+                diagnostics=dict(sorted(stats.diagnostics.items())),
+            )
+
+        by_pathogen = {pathogen: freeze(stats) for pathogen, stats in mutable_stats.items()}
+        aggregate_diagnostics: Counter[HostDiagnostic] = Counter()
+        for stats in mutable_stats.values():
+            aggregate_diagnostics.update(stats.diagnostics)
+        aggregate = HostStatistics(
+            processed=sum(stats.processed for stats in mutable_stats.values()),
+            standardized=sum(stats.standardized for stats in mutable_stats.values()),
+            rejected=sum(stats.rejected for stats in mutable_stats.values()),
+            overflow=sum(stats.overflow for stats in mutable_stats.values()),
+            needs_review=sum(stats.needs_review for stats in mutable_stats.values()),
+            host_recovery_passes=sum(
+                stats.host_recovery_passes for stats in mutable_stats.values()
+            ),
+            diagnostics=dict(sorted(aggregate_diagnostics.items())),
+        )
+        return HostBuildStatistics(aggregate=aggregate, by_pathogen=by_pathogen)
+
+    @staticmethod
+    def _make_isolation_source_statistics(
+        mutable_stats: Mapping[str, _MutableIsolationSourceStatistics],
+    ) -> IsolationSourceBuildStatistics | None:
+        if not mutable_stats:
+            return None
+
+        def freeze(stats: _MutableIsolationSourceStatistics) -> IsolationSourceStatistics:
+            return IsolationSourceStatistics(
+                processed=stats.processed,
+                standardized=stats.standardized,
+                rejected=stats.rejected,
+                exact_matches=stats.exact_matches,
+                cache_hits=stats.cache_hits,
+                llm_calls=stats.llm_calls,
+                host_contexts=stats.host_contexts,
+                host_recovery_passes=stats.host_recovery_passes,
+                evidence_levels=dict(sorted(stats.evidence_levels.items())),
+                diagnostics=dict(sorted(stats.diagnostics.items())),
+            )
+
+        by_pathogen = {pathogen: freeze(stats) for pathogen, stats in mutable_stats.items()}
+        aggregate_diagnostics: Counter[IsolationSourceDiagnostic] = Counter()
+        aggregate_evidence_levels: Counter[IsolationSourceEvidenceLevel] = Counter()
+        for stats in mutable_stats.values():
+            aggregate_diagnostics.update(stats.diagnostics)
+            aggregate_evidence_levels.update(stats.evidence_levels)
+        aggregate = IsolationSourceStatistics(
+            processed=sum(stats.processed for stats in mutable_stats.values()),
+            standardized=sum(stats.standardized for stats in mutable_stats.values()),
+            rejected=sum(stats.rejected for stats in mutable_stats.values()),
+            exact_matches=sum(stats.exact_matches for stats in mutable_stats.values()),
+            cache_hits=sum(stats.cache_hits for stats in mutable_stats.values()),
+            llm_calls=sum(stats.llm_calls for stats in mutable_stats.values()),
+            host_contexts=sum(stats.host_contexts for stats in mutable_stats.values()),
+            host_recovery_passes=sum(
+                stats.host_recovery_passes for stats in mutable_stats.values()
+            ),
+            evidence_levels=dict(sorted(aggregate_evidence_levels.items())),
+            diagnostics=dict(sorted(aggregate_diagnostics.items())),
+        )
+        return IsolationSourceBuildStatistics(aggregate=aggregate, by_pathogen=by_pathogen)
+
+
+def _require_columns(
+    fieldnames: Sequence[str] | None,
+    targets: Sequence[StandardizationTarget],
+) -> None:
+    required = {
+        "accession",
+        "pathogen",
+        "bioproject_accession",
+    }
+    for target in targets:
+        required.update(TARGET_SPECS[target].input_columns)
+    available = set(fieldnames or ())
+    missing = sorted(required - available)
+    if missing:
+        raise ValueError(f"Extracted metadata is missing required columns: {', '.join(missing)}")
+
+
+def _isolation_source_reasoning_json(
+    accession: str,
+    pathogen: str,
+    outcome: IsolationSourceOutcome,
+) -> str:
+    """Render an extracted metadata record's isolation-source reasoning as a JSON line."""
+    reasoning_record = {
+        "accession": accession,
+        "pathogen": pathogen,
+        "origins": [
+            {"attribute": pair.attribute, "value": pair.value} for pair in outcome.supporting_pairs
+        ],
+        "host_context": outcome.host_context,
+        "term_path_roots": outcome.term_path_roots,
+        "term_paths": outcome.term_paths,
+        "display_terms": outcome.display_terms,
+        "external_ontology_identifiers": outcome.external_ontology_identifiers,
+        "evidence_level": outcome.evidence_level.value,
+        "diagnostics": [diagnostic.value for diagnostic in outcome.diagnostics],
+        "reasoning": [step.as_dict() for step in outcome.reasoning],
+    }
+    return json.dumps(reasoning_record, ensure_ascii=False)

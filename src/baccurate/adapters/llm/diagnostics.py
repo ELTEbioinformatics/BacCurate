@@ -67,15 +67,7 @@ class _MetricBucket:
 
 
 class _LLMMetrics:
-    """LLM call metrics for one run, grouped by (target, model).
-
-    Tracks:
-    - attempts
-    - retries
-    - durations
-    - token usage
-    - failures
-    """
+    """Track attempts, retries, durations, token usage, and failures by target and model."""
 
     def __init__(self, model_identifiers: Mapping[str, str | None]) -> None:
         self._default_models = dict(model_identifiers)
@@ -127,8 +119,8 @@ class _LLMMetrics:
     def record_failure(self, *, target: str, model: str, category: LLMFailureCategory) -> None:
         """Record a failure that the transport counted as a successful call.
 
-        The HTTP request itself succeeded, but the result was unusable — an
-        invalid model response, or the SDK giving up after its retries. Any
+        The HTTP request itself succeeded, but the result was unusable. Either the
+        model returned an invalid response, or the SDK gave up after its retries. Any
         successful responses still pending on this (target, model) bucket are
         reclassified under `category` (at least one, even if none are pending).
         """
@@ -151,7 +143,7 @@ class _LLMMetrics:
         bucket.pending_successful_responses = 0
 
     def snapshot(self, cache_hits: Mapping[str, int] | None = None) -> dict[str, object]:
-        """Return stable JSON values, adding build-report cache counts by target."""
+        """Return stable JSON values, adding build-statistics cache counts by target."""
         cache_hits = cache_hits or {}
         entries = []
         aggregate = _MetricBucket()

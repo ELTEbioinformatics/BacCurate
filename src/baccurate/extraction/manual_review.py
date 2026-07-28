@@ -1,4 +1,4 @@
-"""Build TSV reports for metadata that needs manual review."""
+"""Build TSV worklists for metadata that needs manual review."""
 
 from __future__ import annotations
 
@@ -71,8 +71,8 @@ class _UncertainBucket:
         return json.dumps(examples, ensure_ascii=False)
 
 
-class ReviewReports:
-    """Collect counts and a few examples for the reports written after extraction."""
+class ReviewWorklists:
+    """Collect counts and examples for the review worklists written after extraction."""
 
     def __init__(self) -> None:
         self._unreviewed: dict[tuple[str, str, str], _UnreviewedBucket] = {}
@@ -85,7 +85,7 @@ class ReviewReports:
 
     @property
     def unreviewed_count(self) -> int:
-        """Return the number of unreviewed candidate occurrences."""
+        """Return the number of unreviewed attribute occurrences."""
         return sum(bucket.count for bucket in self._unreviewed.values())
 
     @property

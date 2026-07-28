@@ -1,6 +1,7 @@
-"""Validate raw extraction snapshots and the metadata derived from them."""
+"""Validate acquired source snapshots and publish extracted metadata bundles."""
 
 import hashlib
+import os
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -11,9 +12,13 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+# Ordered upstream Relevance flags retained as BioProject context;
+# Medical and Evolution are omitted.
+BIOPROJECT_RELEVANCE_FLAGS = ("Agricultural", "Environmental", "Veterinary")
+
 
 class SourceSnapshotError(ValueError):
-    """A source snapshot manifest or derived source record is invalid."""
+    """An acquired source snapshot manifest or bundle provenance record is invalid."""
 
 
 class SourceFile(BaseModel):
@@ -275,7 +280,7 @@ def sha256_file(path: Path | str) -> str:
 
 
 def provenance_path_for(extracted_metadata_path: Path | str) -> Path:
-    """Return the derived source record path for an extracted metadata TSV."""
+    """Return the bundle provenance record path for an extracted metadata TSV."""
     path = Path(extracted_metadata_path)
     return path.with_name(f"{path.stem}.provenance.yaml")
 
@@ -286,12 +291,32 @@ def bioproject_catalog_path_for(extracted_metadata_path: Path | str) -> Path:
     return path.with_name(f"{path.stem}.bioproject_context.jsonl")
 
 
-def validate_derived_metadata_source(
+def _publish_bundle(
+    *,
+    temporary_output_path: Path,
+    output_path: Path,
+    temporary_catalog_path: Path,
+    catalog_path: Path,
+    temporary_provenance_path: Path,
+    provenance_path: Path,
+) -> None:
+    """Publish bundle members with provenance last as the bundle-validity marker."""
+    provenance_path.unlink(missing_ok=True)
+    try:
+        os.replace(temporary_output_path, output_path)
+        os.replace(temporary_catalog_path, catalog_path)
+        os.replace(temporary_provenance_path, provenance_path)
+    except Exception:
+        provenance_path.unlink(missing_ok=True)
+        raise
+
+
+def validate_extracted_metadata_bundle(
     extracted_metadata_path: Path | str,
     biosample_manifest_path: Path | str,
     bioproject_manifest_path: Path | str,
 ) -> PairedSourceContract:
-    """Validate a derived bundle and return both source manifest identities."""
+    """Validate an extracted metadata bundle and return both acquired snapshot identities."""
     biosample_manifest = SourceSnapshotManifest.load(biosample_manifest_path)
     bioproject_manifest = SourceSnapshotManifest.load(bioproject_manifest_path)
     provenance_path = provenance_path_for(extracted_metadata_path)

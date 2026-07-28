@@ -9,7 +9,7 @@ import httpx
 import openai
 from dotenv import load_dotenv
 
-from baccurate.llm.diagnostics import ObservedLLMTransport
+from baccurate.adapters.llm.diagnostics import ObservedLLMTransport
 
 logger = logging.getLogger(__name__)
 

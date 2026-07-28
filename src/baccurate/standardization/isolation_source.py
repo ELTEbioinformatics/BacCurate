@@ -7,7 +7,9 @@ See docs/isolation_source.md for the full pipeline description.
 
 import json
 import logging
+import os
 import re
+import string
 from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
@@ -18,24 +20,27 @@ from typing import Literal
 import instructor
 import openai
 import pandas as pd
-from pydantic import BaseModel, Field, create_model, field_validator
+from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator
 
-from baccurate.llm.client import LLMSettings, load_llm_client, load_llm_settings
-from baccurate.llm.diagnostics import LLMFailureCategory, observe_llm_call
-from baccurate.llm.request import CanonicalLLMRequest, canonical_json_sha256
-from baccurate.paths import DEFAULT_ISO_CACHE_DB, DEFAULT_ONTOLOGY_TSV
-from baccurate.source_snapshot import (
+from baccurate.adapters.llm.client import LLMSettings, load_llm_client, load_llm_settings
+from baccurate.adapters.llm.diagnostics import LLMFailureCategory, observe_llm_call
+from baccurate.adapters.llm.request import CanonicalLLMRequest, canonical_json_sha256
+from baccurate.adapters.policy_yaml import PolicyConfigurationError, load_policy_mapping
+from baccurate.paths import DEFAULT_ISOLATION_SOURCE_CACHE_DB, DEFAULT_ONTOLOGY_TSV
+from baccurate.provenance.source_snapshot import (
+    BIOPROJECT_RELEVANCE_FLAGS,
     SourceSnapshotError,
     bioproject_catalog_path_for,
 )
-from baccurate.standardizers.host import HostOverflowContext
-from baccurate.standardizers.iso_renderer import (
+from baccurate.standardization._attribute_value_text import normalize_keyword, split_pipe_separated
+from baccurate.standardization._cache import SQLiteKVCache
+from baccurate.standardization._isolation_source_ontology_renderer import (
     render_ontology,
     valid_display_terms,
 )
-from baccurate.utils.cache import SQLiteKVCache
-from baccurate.utils.config import load_config
-from baccurate.utils.text import normalize_keyword, split_pipe_separated
+from baccurate.standardization.host import HostOverflowContext
+from baccurate.standardization.supporting_attribute_value_pair import SupportingAttributeValuePair
+from baccurate.standardization_target.specifications import TARGET_SPECS, StandardizationTarget
 
 logger = logging.getLogger(__name__)
 
@@ -49,17 +54,18 @@ ONTOLOGY_ID_PATTERN = re.compile(r"\b([A-Z]+:\d+)\b", re.IGNORECASE)
 # Branches whose terms name an organism rather than a place or a process, so a
 # host may still be recoverable from the isolation-source text. Food products
 # qualify because the material is the organism ('chicken meat', 'cow milk').
-HOST_RETRY_TRIGGERS: tuple[str, ...] = (
+HOST_RECOVERY_TRIGGERS: tuple[str, ...] = (
     "host-associated",
     "environmental:anthropogenic environment:food:animal product",
     "environmental:anthropogenic environment:food:plant food product",
 )
 
-ISOLATION_LLM_PARAMETERS: dict[str, object] = {"temperature": 0, "seed": 100}
-ISOLATION_RESPONSE_SCHEMA_ID = "baccurate.isolation.classification.v2"
+ISOLATION_SOURCE_LLM_PARAMETERS: dict[str, object] = {"temperature": 0, "seed": 100}
+# The value is part of existing request fingerprints and cache keys.
+ISOLATION_SOURCE_RESPONSE_SCHEMA_ID = "baccurate.isolation.classification.v2"
 
-# Relevance flags that count as origin evidence (spec excludes Medical/Evolution).
-_ORIGIN_RELEVANCE = frozenset({"Agricultural", "Environmental", "Veterinary"})
+# Flags records from the upstream Relevance element, excluding Medical and Evolution.
+_BIOPROJECT_RELEVANCE_FLAG_SET = frozenset(BIOPROJECT_RELEVANCE_FLAGS)
 
 # The ontology's explicit "looked and found nothing" term, as opposed to the
 # empty string, which means the classification never produced a result.
@@ -69,8 +75,18 @@ _UNSPECIFIED_TERM = "unspecified"
 
 
 @dataclass(frozen=True, slots=True)
-class IsolationPrompts:
-    """The isolation source prompt text used in canonical LLM requests."""
+class IsolationSourcePromptTemplates:
+    """Validated isolation-source prompt templates before ontology rendering."""
+
+    sample_system_template: str
+    sample_user_template: str
+    bioproject_system: str
+    bioproject_user_template: str
+
+
+@dataclass(frozen=True, slots=True)
+class IsolationSourcePrompts:
+    """Effective isolation-source prompt text used in canonical LLM requests."""
 
     system: str
     user_template: str
@@ -78,14 +94,260 @@ class IsolationPrompts:
     bioproject_user: str
 
 
-def effective_isolation_prompts(config: dict, ontology: "OntologyManager") -> IsolationPrompts:
-    """Return prompt text with the run's ontology rendered into the system prompt."""
-    system_template = config.get("system_prompt") or ""
-    return IsolationPrompts(
-        system=system_template.replace("{ontology_tree}", render_ontology(ontology)),
-        user_template=config.get("user_prompt") or "",
-        bioproject_system=config.get("bioproject_system_prompt") or "",
-        bioproject_user=config.get("bioproject_user_prompt") or "",
+@dataclass(frozen=True, slots=True)
+class IsolationSourcePromptPolicy:
+    """Validated isolation-source prompt, ontology, and cache policy."""
+
+    schema_version: int
+    prompt_version: str
+    prompts: IsolationSourcePromptTemplates
+    effective_prompts: IsolationSourcePrompts
+    ontology_tsv_path: Path
+    cache_db_path: Path
+    configured_ontology_tsv_path: str | None
+    configured_cache_db_path: str | None
+
+    @classmethod
+    def load(cls, path: Path | str) -> "IsolationSourcePromptPolicy":
+        """Strictly load isolation-source prompt policy from one YAML file."""
+        policy_path = Path(path)
+        return _parse_isolation_source_prompt_policy(load_policy_mapping(policy_path), policy_path)
+
+    def serialize(self) -> str:
+        """Return deterministic canonical JSON without changing legacy identities."""
+        return json.dumps(
+            {
+                "schema_version": self.schema_version,
+                "prompt_version": self.prompt_version,
+                "system_prompt": self.prompts.sample_system_template,
+                "user_prompt": self.prompts.sample_user_template,
+                "bioproject_system_prompt": self.prompts.bioproject_system,
+                "bioproject_user_prompt": self.prompts.bioproject_user_template,
+                "ontology_tsv_path": self.ontology_tsv_path.as_posix(),
+                "cache_db_path": self.cache_db_path.as_posix(),
+            },
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+
+    def as_legacy_mapping(self) -> dict[str, object]:
+        """Return the established mapping shape used by configuration fingerprints."""
+        configuration: dict[str, object] = {
+            "prompt_version": self.prompt_version,
+            "system_prompt": self.prompts.sample_system_template,
+            "user_prompt": self.prompts.sample_user_template,
+            "bioproject_system_prompt": self.prompts.bioproject_system,
+            "bioproject_user_prompt": self.prompts.bioproject_user_template,
+        }
+        if self.configured_ontology_tsv_path is not None:
+            configuration["ontology_tsv_path"] = self.configured_ontology_tsv_path
+        if self.configured_cache_db_path is not None:
+            configuration["cache_db_path"] = self.configured_cache_db_path
+        return configuration
+
+
+def _isolation_source_policy_error(
+    policy_path: Path, key: str, message: str
+) -> PolicyConfigurationError:
+    return PolicyConfigurationError(f"{policy_path}: {key}: {message}")
+
+
+def _require_isolation_source_string(
+    config: Mapping[object, object],
+    key: str,
+    policy_path: Path,
+) -> str:
+    value = config.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise _isolation_source_policy_error(policy_path, key, "must be a non-empty string")
+    return value
+
+
+def _validate_isolation_source_prompt(
+    template: str,
+    *,
+    policy_path: Path,
+    key: str,
+    required_fields: tuple[str, ...],
+    uses_format: bool = False,
+) -> None:
+    if uses_format:
+        try:
+            parsed_fields = [
+                (field_name, format_spec, conversion)
+                for _, field_name, format_spec, conversion in string.Formatter().parse(template)
+                if field_name is not None
+            ]
+        except ValueError as error:
+            raise _isolation_source_policy_error(
+                policy_path, key, f"malformed format string: {error}"
+            ) from error
+        expected_fields = [(field, "", None) for field in required_fields]
+        if len(parsed_fields) == len(expected_fields) and set(parsed_fields) == set(
+            expected_fields
+        ):
+            return
+        fields = [field_name for field_name, _, _ in parsed_fields]
+    else:
+        braced_values = re.findall(r"(?<!{){([^{}\n]*)}(?!})", template)
+        fields = [value for value in braced_values if not value.lstrip().startswith(('"', "'"))]
+    if sorted(fields) != sorted(required_fields):
+        placeholders = ", ".join(f"{{{field}}}" for field in required_fields)
+        raise _isolation_source_policy_error(
+            policy_path,
+            key,
+            f"must contain exactly one of each required placeholder ({placeholders}) "
+            "and no other placeholders",
+        )
+
+
+def _isolation_source_resource_selection(
+    config: Mapping[object, object],
+    key: str,
+    default: Path,
+    policy_path: Path,
+) -> tuple[str | None, str]:
+    """Return configured spelling and effective path text for one resource."""
+    if key not in config:
+        return None, str(default)
+    value = config[key]
+    if not isinstance(value, str) or not value.strip():
+        raise _isolation_source_policy_error(policy_path, key, "must be a non-empty string")
+    return value, value
+
+
+def _parse_isolation_source_prompt_policy(
+    config: Mapping[object, object],
+    policy_path: Path,
+) -> IsolationSourcePromptPolicy:
+    allowed = {
+        "schema_version",
+        "prompt_version",
+        "system_prompt",
+        "user_prompt",
+        "bioproject_system_prompt",
+        "bioproject_user_prompt",
+        "ontology_tsv_path",
+        "cache_db_path",
+    }
+    unknown = set(config) - allowed
+    if unknown:
+        key = sorted(str(value) for value in unknown)[0]
+        raise _isolation_source_policy_error(policy_path, f"top level.{key}", "unknown policy key")
+
+    schema_version = config.get("schema_version")
+    if type(schema_version) is not int:
+        raise _isolation_source_policy_error(
+            policy_path, "schema_version", "must be integer version 1"
+        )
+    if schema_version != 1:
+        raise _isolation_source_policy_error(
+            policy_path,
+            "schema_version",
+            f"unsupported schema version {schema_version}; supported schema version is 1; "
+            "migrate this isolation-source prompt policy before retrying",
+        )
+
+    prompt_version = _require_isolation_source_string(config, "prompt_version", policy_path)
+    sample_system = _require_isolation_source_string(config, "system_prompt", policy_path)
+    sample_user = _require_isolation_source_string(config, "user_prompt", policy_path)
+    bioproject_system = _require_isolation_source_string(
+        config, "bioproject_system_prompt", policy_path
+    )
+    bioproject_user = _require_isolation_source_string(
+        config, "bioproject_user_prompt", policy_path
+    )
+    _validate_isolation_source_prompt(
+        sample_system,
+        policy_path=policy_path,
+        key="system_prompt",
+        required_fields=("ontology_tree",),
+    )
+    _validate_isolation_source_prompt(
+        sample_user,
+        policy_path=policy_path,
+        key="user_prompt",
+        required_fields=("metadata", "bioproject_context"),
+        uses_format=True,
+    )
+    _validate_isolation_source_prompt(
+        bioproject_system,
+        policy_path=policy_path,
+        key="bioproject_system_prompt",
+        required_fields=(),
+    )
+    _validate_isolation_source_prompt(
+        bioproject_user,
+        policy_path=policy_path,
+        key="bioproject_user_prompt",
+        required_fields=("bioproject_context",),
+        uses_format=True,
+    )
+
+    configured_ontology_value, ontology_value = _isolation_source_resource_selection(
+        config,
+        "ontology_tsv_path",
+        DEFAULT_ONTOLOGY_TSV,
+        policy_path,
+    )
+    ontology_path = Path(ontology_value)
+    try:
+        with ontology_path.open("r", encoding="utf-8"):
+            pass
+    except (OSError, UnicodeError) as error:
+        raise _isolation_source_policy_error(
+            policy_path,
+            "ontology_tsv_path",
+            f"must select a readable file: {error}",
+        ) from error
+
+    configured_cache_value, cache_value = _isolation_source_resource_selection(
+        config,
+        "cache_db_path",
+        DEFAULT_ISOLATION_SOURCE_CACHE_DB,
+        policy_path,
+    )
+    cache_path = Path(cache_value)
+    cache_parent = cache_path.parent
+    if not cache_parent.is_dir():
+        raise _isolation_source_policy_error(
+            policy_path,
+            "cache_db_path",
+            f"parent directory does not exist: {cache_parent}",
+        )
+    writable_cache_target = cache_path if cache_path.exists() else cache_parent
+    if (cache_path.exists() and not cache_path.is_file()) or not os.access(
+        writable_cache_target, os.W_OK
+    ):
+        raise _isolation_source_policy_error(
+            policy_path,
+            "cache_db_path",
+            "must select a writable database file",
+        )
+
+    prompts = IsolationSourcePromptTemplates(
+        sample_system_template=sample_system,
+        sample_user_template=sample_user,
+        bioproject_system=bioproject_system,
+        bioproject_user_template=bioproject_user,
+    )
+    ontology = IsolationSourceOntology(ontology_path)
+    return IsolationSourcePromptPolicy(
+        schema_version=1,
+        prompt_version=prompt_version,
+        prompts=prompts,
+        effective_prompts=IsolationSourcePrompts(
+            system=sample_system.replace("{ontology_tree}", render_ontology(ontology)),
+            user_template=sample_user,
+            bioproject_system=bioproject_system,
+            bioproject_user=bioproject_user,
+        ),
+        ontology_tsv_path=ontology_path,
+        cache_db_path=cache_path,
+        configured_ontology_tsv_path=configured_ontology_value,
+        configured_cache_db_path=configured_cache_value,
     )
 
 
@@ -103,14 +365,17 @@ def ontology_semantics_fingerprint(
         for term_path, metadata in sorted(node_metadata.items())
     }
     hierarchy = {parent: sorted(children) for parent, children in sorted(children_map.items())}
-    crosslinks = {source: sorted(targets) for source, targets in sorted(crosslink_map.items())}
+    crosslinks = {
+        source_term_path: sorted(targets)
+        for source_term_path, targets in sorted(crosslink_map.items())
+    }
     return canonical_json_sha256({"nodes": nodes, "hierarchy": hierarchy, "crosslinks": crosslinks})
 
 
 # --- Data structures ---
 
 
-class IsolationEvidenceLevel(StrEnum):
+class IsolationSourceEvidenceLevel(StrEnum):
     """The BioSample or BioProject level evidence supporting an isolation-source result."""
 
     SAMPLE = "sample"
@@ -119,7 +384,7 @@ class IsolationEvidenceLevel(StrEnum):
     NONE = "none"
 
 
-class _IsolationRequestMode(StrEnum):
+class _IsolationSourceRequestMode(StrEnum):
     """Which context the prompt actually carried."""
 
     SAMPLE_ONLY = "sample_only"
@@ -130,49 +395,52 @@ class _IsolationRequestMode(StrEnum):
 # The model cannot cite evidence it was never shown, so the request mode narrows
 # the Literal of evidence levels its response schema will accept.
 _EVIDENCE_LEVELS_BY_REQUEST_MODE = {
-    _IsolationRequestMode.SAMPLE_ONLY: (
-        IsolationEvidenceLevel.SAMPLE,
-        IsolationEvidenceLevel.NONE,
+    _IsolationSourceRequestMode.SAMPLE_ONLY: (
+        IsolationSourceEvidenceLevel.SAMPLE,
+        IsolationSourceEvidenceLevel.NONE,
     ),
-    _IsolationRequestMode.PROJECT_ONLY: (
-        IsolationEvidenceLevel.PROJECT,
-        IsolationEvidenceLevel.NONE,
+    _IsolationSourceRequestMode.PROJECT_ONLY: (
+        IsolationSourceEvidenceLevel.PROJECT,
+        IsolationSourceEvidenceLevel.NONE,
     ),
-    _IsolationRequestMode.COMBINED: tuple(IsolationEvidenceLevel),
+    _IsolationSourceRequestMode.COMBINED: tuple(IsolationSourceEvidenceLevel),
 }
 
 
 @dataclass(frozen=True, slots=True)
-class StandardizedSource:
-    """Standardization result for one record."""
+class StandardizedIsolationSource:
+    """Isolation-source classification for one extracted metadata record."""
 
-    categories: str
+    # Deduplicated, sorted first segments of the selected ontology term paths.
+    term_path_roots: str
     display_terms: str
-    ontology_links: str
+    external_ontology_identifiers: str
     term_paths: str
     reasoning: list[dict]
-    evidence_level: IsolationEvidenceLevel = IsolationEvidenceLevel.NONE
+    evidence_level: IsolationSourceEvidenceLevel = IsolationSourceEvidenceLevel.NONE
     request_fingerprint: str | None = None
 
 
-def _canonicalize_unspecified(record: StandardizedSource) -> StandardizedSource:
+def _canonicalize_unspecified(
+    classification: StandardizedIsolationSource,
+) -> StandardizedIsolationSource:
     """Represent an accepted empty classification as the explicit ontology term."""
-    if record.term_paths:
-        return record
+    if classification.term_paths:
+        return classification
     return replace(
-        record,
-        categories=_UNSPECIFIED_TERM,
+        classification,
+        term_path_roots=_UNSPECIFIED_TERM,
         display_terms=_UNSPECIFIED_TERM,
-        ontology_links="NA",
+        external_ontology_identifiers="NA",
         term_paths=_UNSPECIFIED_TERM,
-        evidence_level=IsolationEvidenceLevel.NONE,
+        evidence_level=IsolationSourceEvidenceLevel.NONE,
     )
 
 
-class IsolationDiagnostic(StrEnum):
-    """The fixed set of isolation-source results used in build reports."""
+class IsolationSourceDiagnostic(StrEnum):
+    """The fixed set of isolation-source results used in build statistics."""
 
-    NO_CANDIDATES = "no_candidates"
+    NO_CLASSIFICATION_INPUT = "no_classification_input"
     EXACT_MATCH = "exact_match"
     CACHE_HIT = "cache_hit"
     LLM_CALL = "llm_call"
@@ -180,55 +448,50 @@ class IsolationDiagnostic(StrEnum):
     UNRESOLVED_BIOPROJECT_LINK = "unresolved_bioproject_link"
 
 
-@dataclass(frozen=True, slots=True)
-class IsolationOrigin:
-    """One source attribute/value pair used for isolation classification."""
-
-    attribute: str
-    value: str
-
-
-def _isolation_origins(
+def _parse_supporting_pairs(
     accession: str,
     attributes: str,
     values: str,
-) -> tuple[IsolationOrigin, ...]:
-    """Parse aligned isolation candidates while preserving their raw pairing."""
+) -> tuple[SupportingAttributeValuePair, ...]:
+    """Parse aligned selected attribute-value pairs while preserving their raw pairing."""
     attribute_parts = split_pipe_separated(attributes)
     value_parts = split_pipe_separated(values)
     if len(attribute_parts) != len(value_parts):
         raise ValueError(
-            f"Malformed isolation-source candidates for accession {accession}: "
+            f"Malformed isolation-source selected attribute-value pairs for accession {accession}: "
             f"{len(attribute_parts)} attributes for {len(value_parts)} values"
         )
     return tuple(
-        IsolationOrigin(attribute.strip(), value.strip())
+        SupportingAttributeValuePair(attribute.strip(), value.strip())
         for attribute, value in zip(attribute_parts, value_parts, strict=True)
         if value.strip()
     )
 
 
 @dataclass(frozen=True, slots=True)
-class IsolationReasoningStep:
+class IsolationSourceReasoningStep:
     """One step in the classifier's reasoning trace.
 
-    `selections` are the term paths the step contributed; `selected_terms` are the
-    display names the model returned verbatim, and only the classifier step has them.
+    `selected_term_paths` are the term paths the step contributed;
+    `selected_display_terms` are the display names the model returned verbatim, and only the
+    classifier step has them.
     """
 
     node: str
     reasoning: str
-    selections: tuple[str, ...]
-    selected_terms: tuple[str, ...] = ()
+    selected_term_paths: tuple[str, ...]
+    selected_display_terms: tuple[str, ...] = ()
 
     @classmethod
-    def from_mapping(cls, value: Mapping[str, object]) -> "IsolationReasoningStep":
+    def from_mapping(cls, value: Mapping[str, object]) -> "IsolationSourceReasoningStep":
         """Type one raw step from the classifier or the cache."""
         return cls(
             node=str(value.get("node", "")),
             reasoning=str(value.get("reasoning", "")),
-            selections=tuple(str(item) for item in value.get("selections", ())),
-            selected_terms=tuple(str(item) for item in value.get("selected_terms", ())),
+            selected_term_paths=tuple(str(item) for item in value.get("selected_term_paths", ())),
+            selected_display_terms=tuple(
+                str(item) for item in value.get("selected_display_terms", ())
+            ),
         )
 
     def as_dict(self) -> dict[str, object]:
@@ -236,27 +499,28 @@ class IsolationReasoningStep:
         result: dict[str, object] = {
             "node": self.node,
             "reasoning": self.reasoning,
-            "selections": list(self.selections),
+            "selected_term_paths": list(self.selected_term_paths),
         }
-        if self.selected_terms:
-            result["selected_terms"] = list(self.selected_terms)
+        if self.selected_display_terms:
+            result["selected_display_terms"] = list(self.selected_display_terms)
         return result
 
 
 @dataclass(frozen=True, slots=True)
-class IsolationOutcome:
-    """Typed isolation-source classification for one extracted record."""
+class IsolationSourceOutcome:
+    """Typed isolation-source classification for one extracted metadata record."""
 
-    categories: str
+    # Deduplicated, sorted first segments of the selected ontology term paths.
+    term_path_roots: str
     display_terms: str
-    ontology_links: str
+    external_ontology_identifiers: str
     term_paths: str
-    evidence_level: IsolationEvidenceLevel
+    evidence_level: IsolationSourceEvidenceLevel
     host_context: str
-    origins: tuple[IsolationOrigin, ...]
-    sample_origins: tuple[IsolationOrigin, ...]
-    reasoning: tuple[IsolationReasoningStep, ...]
-    diagnostics: tuple[IsolationDiagnostic, ...]
+    supporting_pairs: tuple[SupportingAttributeValuePair, ...]
+    host_recovery_pairs: tuple[SupportingAttributeValuePair, ...]
+    reasoning: tuple[IsolationSourceReasoningStep, ...]
+    diagnostics: tuple[IsolationSourceDiagnostic, ...]
     exact_matches: int
     cache_hits: int
     llm_calls: int
@@ -269,20 +533,20 @@ class IsolationOutcome:
         return tuple(split_pipe_separated(self.term_paths)) if self.term_paths else ()
 
     @property
-    def host_retry_eligible(self) -> bool:
-        """Whether this classification can support another host attempt."""
+    def host_recovery_eligible(self) -> bool:
+        """Whether this classification can support a host recovery pass."""
         return any(
             path == trigger or path.startswith(f"{trigger}:")
             for path in self.standardized_term_paths
-            for trigger in HOST_RETRY_TRIGGERS
+            for trigger in HOST_RECOVERY_TRIGGERS
         )
 
 
 @dataclass(frozen=True, slots=True)
-class IsolationRejection:
-    """A record with no isolation-source candidates to classify."""
+class IsolationSourceRejection:
+    """An extracted metadata record with no isolation-source classification input."""
 
-    diagnostics: tuple[IsolationDiagnostic, ...]
+    diagnostics: tuple[IsolationSourceDiagnostic, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -296,7 +560,7 @@ class ResolvedBioProjectContext:
     relevance: tuple[str, ...]
 
     def prompt_object(self) -> dict[str, object]:
-        """Return the stable JSON shape supplied to the isolation prompt."""
+        """Return the stable JSON shape supplied to the isolation-source prompt."""
         return {
             "id": self.id,
             "accession": self.accession,
@@ -346,8 +610,8 @@ def _load_bioproject_catalog(
     return projects
 
 
-# Public name for benchmark clients. Retain the established private name used by
-# integrated regression tests until those callers migrate independently.
+# Public interface for benchmark clients. Integrated regression tests still import
+# the private name.
 load_bioproject_catalog = _load_bioproject_catalog
 
 
@@ -385,7 +649,10 @@ def _validate_bioproject_context(
             )
     if (
         not isinstance(relevance, list)
-        or any(not isinstance(flag, str) or flag not in _ORIGIN_RELEVANCE for flag in relevance)
+        or any(
+            not isinstance(flag, str) or flag not in _BIOPROJECT_RELEVANCE_FLAG_SET
+            for flag in relevance
+        )
         or len(relevance) != len(set(relevance))
     ):
         raise SourceSnapshotError(
@@ -410,73 +677,65 @@ class SQLiteCache(SQLiteKVCache):
     _CREATE_TABLE_SQL = """
         CREATE TABLE IF NOT EXISTS cache (
             hash_id TEXT PRIMARY KEY,
-            category TEXT,
-            display_term TEXT,
-            ontology_link TEXT,
-            term_path TEXT,
+            term_path_roots TEXT,
+            display_terms TEXT,
+            external_ontology_identifiers TEXT,
+            term_paths TEXT,
             reasoning TEXT,
             evidence_level TEXT NOT NULL DEFAULT 'none'
         )
     """
 
-    def __init__(self, db_path: Path | str = DEFAULT_ISO_CACHE_DB) -> None:
+    def __init__(self, db_path: Path | str = DEFAULT_ISOLATION_SOURCE_CACHE_DB) -> None:
         super().__init__(db_path)
-        # In-place migration for caches written before evidence levels existed.
-        # Their rows default to 'none' rather than being discarded.
-        columns = {row[1] for row in self.cursor.execute("PRAGMA table_info(cache)").fetchall()}
-        if "evidence_level" not in columns:
-            self.cursor.execute(
-                "ALTER TABLE cache ADD COLUMN evidence_level TEXT NOT NULL DEFAULT 'none'"
-            )
-            self.conn.commit()
 
-    def get(self, request_fingerprint: str) -> StandardizedSource | None:
+    def get(self, request_fingerprint: str) -> StandardizedIsolationSource | None:
         self.cursor.execute(
-            "SELECT category, display_term, ontology_link, term_path, reasoning, "
-            "evidence_level "
+            "SELECT term_path_roots, display_terms, external_ontology_identifiers, term_paths, "
+            "reasoning, evidence_level "
             "FROM cache WHERE hash_id=?",
             (request_fingerprint,),
         )
-        row = self.cursor.fetchone()
-        if row is None:
+        cache_entry = self.cursor.fetchone()
+        if cache_entry is None:
             return None
 
         # Restore the original reasoning in case of cache hit
         reasoning = (
-            json.loads(row[4])
-            if row[4]
-            else [{"node": "cache", "reasoning": "Cache hit", "selections": []}]
+            json.loads(cache_entry[4])
+            if cache_entry[4]
+            else [{"node": "cache", "reasoning": "Cache hit", "selected_term_paths": []}]
         )
 
-        return StandardizedSource(
-            categories=row[0],
-            display_terms=row[1],
-            ontology_links=row[2],
-            term_paths=row[3] or "",
+        return StandardizedIsolationSource(
+            term_path_roots=cache_entry[0],
+            display_terms=cache_entry[1],
+            external_ontology_identifiers=cache_entry[2],
+            term_paths=cache_entry[3] or "",
             reasoning=reasoning,
-            evidence_level=IsolationEvidenceLevel(row[5]),
+            evidence_level=IsolationSourceEvidenceLevel(cache_entry[5]),
         )
 
     def set(
         self,
         request_fingerprint: str,
-        record: StandardizedSource,
+        classification: StandardizedIsolationSource,
     ) -> None:
         self.cursor.execute(
             """
             INSERT OR REPLACE INTO cache
-                (hash_id, category, display_term, ontology_link, term_path, reasoning,
-                 evidence_level)
+                (hash_id, term_path_roots, display_terms, external_ontology_identifiers, term_paths,
+                 reasoning, evidence_level)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 request_fingerprint,
-                record.categories,
-                record.display_terms,
-                record.ontology_links,
-                record.term_paths,
-                json.dumps(record.reasoning),
-                record.evidence_level.value,
+                classification.term_path_roots,
+                classification.display_terms,
+                classification.external_ontology_identifiers,
+                classification.term_paths,
+                json.dumps(classification.reasoning),
+                classification.evidence_level.value,
             ),
         )
         self.conn.commit()
@@ -485,7 +744,7 @@ class SQLiteCache(SQLiteKVCache):
 # --- Ontology graph ---
 
 
-class OntologyManager:
+class IsolationSourceOntology:
     """Parse the ontology TSV into a tree with crosslinks and lookup indexes."""
 
     def __init__(self, ontology_tsv_path: Path | str):
@@ -493,7 +752,7 @@ class OntologyManager:
         # parent_path -> list of full child_paths
         self.children_map: dict[str, list[str]] = defaultdict(list)
 
-        # full_path -> {display_term, ontology_link}
+        # full_path -> {display_term, external_ontology_identifier}
         self.node_metadata: dict[str, dict[str, str]] = {}
 
         # term -> full_path
@@ -518,16 +777,16 @@ class OntologyManager:
     def _build_tree(self, df: pd.DataFrame) -> None:
         """Populate the node metadata, the lookup indexes and the parent-child edges."""
         for _, row in df.iterrows():
-            term_path = str(row.get("term", "")).strip()
+            term_path = str(row.get("term_path", "")).strip()
 
             raw_display = row.get("display_term")
             if pd.notna(raw_display) and str(raw_display).strip():
                 display_term = str(raw_display).strip()
             else:
                 display_term = term_path.split(":")[-1] if term_path else ""
-            ont_link = (
-                str(row.get("ontology_link", "")).strip()
-                if pd.notna(row.get("ontology_link"))
+            external_ontology_identifier = (
+                str(row.get("external_ontology_identifier", "")).strip()
+                if pd.notna(row.get("external_ontology_identifier"))
                 else ""
             )
             comment = str(row.get("comment", "")).strip() if pd.notna(row.get("comment")) else ""
@@ -540,7 +799,7 @@ class OntologyManager:
 
             self.node_metadata[term_path] = {
                 "display_term": display_term,
-                "ontology_link": ont_link,
+                "external_ontology_identifier": external_ontology_identifier,
                 "comment": comment,
                 "synonyms": synonyms,
             }
@@ -567,11 +826,11 @@ class OntologyManager:
                 if norm_syn and norm_syn not in self.exact_match_index:
                     self.exact_match_index[norm_syn] = term_path
 
-            if ont_link:
-                for link in ont_link.split(";"):
-                    link_upper = link.strip().upper()
-                    if link_upper not in self.id_match_index:
-                        self.id_match_index[link_upper] = term_path
+            if external_ontology_identifier:
+                for identifier in external_ontology_identifier.split(";"):
+                    identifier_upper = identifier.strip().upper()
+                    if identifier_upper not in self.id_match_index:
+                        self.id_match_index[identifier_upper] = term_path
 
             # Build the tree hierarchy. Each ':' in the term_path defines
             # a parent-child edge. The empty string acts as the root.
@@ -595,12 +854,12 @@ class OntologyManager:
         and can only be resolved once every term is indexed. Unresolvable targets
         are logged and skipped rather than raising: the ontology stays usable.
         """
-        if "crosslink_term" not in df.columns:
+        if "crosslink_targets" not in df.columns:
             return
 
         for _, row in df.iterrows():
-            term_path = str(row.get("term", "")).strip()
-            raw = row.get("crosslink_term", "")
+            term_path = str(row.get("term_path", "")).strip()
+            raw = row.get("crosslink_targets", "")
             if pd.isna(raw) or not str(raw).strip():
                 continue
 
@@ -630,13 +889,13 @@ class OntologyManager:
 
 def _build_schema(
     valid_display_terms_normalized: set[str],
-    request_mode: _IsolationRequestMode,
+    request_mode: _IsolationSourceRequestMode,
 ) -> type[BaseModel]:
     """Build a Pydantic model whose `terms` is validated against the ontology."""
 
     valid = valid_display_terms_normalized
 
-    class IsolationClassificationBase(BaseModel):
+    class IsolationSourceClassificationBase(BaseModel):
         reasoning: str = Field(..., description="Brief reason for the chosen terms.")
         terms: list[str] = Field(
             ...,
@@ -678,8 +937,10 @@ def _build_schema(
         tuple(level.value for level in permitted_evidence_levels)
     )
     return create_model(
-        "IsolationClassification",
-        __base__=IsolationClassificationBase,
+        "IsolationSourceClassification",
+        __base__=IsolationSourceClassificationBase,
+        # Preserve the response schema, request fingerprint, and existing cache entries.
+        __config__=ConfigDict(title="IsolationClassification"),
         evidence_level=(evidence_literal, Field(..., description=evidence_description)),
     )
 
@@ -688,21 +949,21 @@ def _resolve_evidence_level(
     *,
     direct_paths: set[str],
     llm_paths: set[str],
-    claimed_level: IsolationEvidenceLevel,
-) -> IsolationEvidenceLevel:
+    claimed_level: IsolationSourceEvidenceLevel,
+) -> IsolationSourceEvidenceLevel:
     """Reconcile model provenance with the specific terms in the final result."""
     specific_direct_paths = direct_paths - {_UNSPECIFIED_TERM}
     specific_llm_paths = llm_paths - {_UNSPECIFIED_TERM}
     if not specific_direct_paths and not specific_llm_paths:
-        return IsolationEvidenceLevel.NONE
+        return IsolationSourceEvidenceLevel.NONE
     if specific_direct_paths and not specific_llm_paths:
-        return IsolationEvidenceLevel.SAMPLE
+        return IsolationSourceEvidenceLevel.SAMPLE
     if specific_direct_paths and claimed_level in {
-        IsolationEvidenceLevel.PROJECT,
-        IsolationEvidenceLevel.SAMPLE_AND_PROJECT,
+        IsolationSourceEvidenceLevel.PROJECT,
+        IsolationSourceEvidenceLevel.SAMPLE_AND_PROJECT,
     }:
-        return IsolationEvidenceLevel.SAMPLE_AND_PROJECT
-    if claimed_level is IsolationEvidenceLevel.NONE:
+        return IsolationSourceEvidenceLevel.SAMPLE_AND_PROJECT
+    if claimed_level is IsolationSourceEvidenceLevel.NONE:
         raise ValueError("A specific isolation source must name supporting evidence")
     return claimed_level
 
@@ -715,8 +976,8 @@ class LLMClassifier:
 
     def __init__(
         self,
-        config: dict,
-        ontology_manager: OntologyManager,
+        policy: IsolationSourcePromptPolicy,
+        ontology: IsolationSourceOntology,
         cache_manager: SQLiteCache,
         result_logger: logging.Logger | None = None,
         client: object = _LOAD_CONFIGURED_CLIENT,
@@ -724,19 +985,23 @@ class LLMClassifier:
         read_cache: bool = True,
     ) -> None:
         self.logger = result_logger or logger
-        self.config = config
-        self.ont = ontology_manager
+        self.policy = policy
+        self.ont = ontology
         self.cache = cache_manager
         self.read_cache = read_cache
         self.stats = {"cache_hits": 0, "exact_matches": 0, "llm_calls": 0}
 
+        settings = llm_settings or load_llm_settings()
         if client is _LOAD_CONFIGURED_CLIENT:
-            raw_client, env_model = load_llm_client(llm_settings)
+            raw_client, env_model = load_llm_client(settings)
         else:
             raw_client = client
-            settings = llm_settings or load_llm_settings()
             env_model = settings.model
         self._raw_client = raw_client
+        # This classifier resolves the endpoint and therefore owns the endpoint used
+        # in run identity. Answers from different endpoints are not interchangeable,
+        # so callers must read the endpoint here instead of restating it.
+        self.server = settings.server
         try:
             self.model = env_model or ""
             self.client = instructor.from_openai(raw_client) if raw_client else None
@@ -744,9 +1009,9 @@ class LLMClassifier:
             valid_set = {normalize_keyword(t) for t in valid_display_terms(self.ont)}
             self._response_schemas = {
                 request_mode: _build_schema(valid_set, request_mode)
-                for request_mode in _IsolationRequestMode
+                for request_mode in _IsolationSourceRequestMode
             }
-            prompts = effective_isolation_prompts(self.config, self.ont)
+            prompts = policy.effective_prompts
             self.system_prompt = prompts.system
             self.user_template = prompts.user_template
             self.bioproject_system_prompt = prompts.bioproject_system
@@ -784,7 +1049,7 @@ class LLMClassifier:
         value: str,
         host: str,
         bioproject_contexts: tuple[ResolvedBioProjectContext, ...] = (),
-    ) -> StandardizedSource:
+    ) -> StandardizedIsolationSource:
         """Classify one record through deterministic matching, cache, and model fallback."""
 
         attrs = split_pipe_separated(str(attr_name))
@@ -800,16 +1065,16 @@ class LLMClassifier:
         # with no isolation-source attribute of its own.
         has_sample_context = bool(valid_vals) or bool(host.strip())
         if not has_sample_context and not bioproject_contexts:
-            return StandardizedSource(
-                categories="unspecified",
+            return StandardizedIsolationSource(
+                term_path_roots="unspecified",
                 display_terms="unspecified",
-                ontology_links="NA",
+                external_ontology_identifiers="NA",
                 term_paths="",
                 reasoning=[
                     {
                         "node": "classifier",
-                        "reasoning": "No non-empty candidate values were provided.",
-                        "selections": [],
+                        "reasoning": "No non-empty selected values were provided.",
+                        "selected_term_paths": [],
                     }
                 ],
             )
@@ -831,29 +1096,29 @@ class LLMClassifier:
         # coverage still goes to the model, which sees the unresolved values in
         # context rather than having them dropped.
         direct_covers_all = bool(valid_vals) and direct_match_count == len(valid_vals)
-        evidence_level = IsolationEvidenceLevel.NONE
+        evidence_level = IsolationSourceEvidenceLevel.NONE
 
         if direct_covers_all:
             final_nodes |= direct_paths
             evidence_level = _resolve_evidence_level(
                 direct_paths=direct_paths,
                 llm_paths=set(),
-                claimed_level=IsolationEvidenceLevel.NONE,
+                claimed_level=IsolationSourceEvidenceLevel.NONE,
             )
             reasoning_history.append(
                 {
                     "node": "direct_match",
                     "reasoning": "All values resolved manually.",
-                    "selections": sorted(direct_paths),
+                    "selected_term_paths": sorted(direct_paths),
                 }
             )
         else:
             request_mode = (
-                _IsolationRequestMode.COMBINED
+                _IsolationSourceRequestMode.COMBINED
                 if has_sample_context and bioproject_contexts
-                else _IsolationRequestMode.SAMPLE_ONLY
+                else _IsolationSourceRequestMode.SAMPLE_ONLY
                 if has_sample_context
-                else _IsolationRequestMode.PROJECT_ONLY
+                else _IsolationSourceRequestMode.PROJECT_ONLY
             )
             response_schema = self._response_schemas[request_mode]
             permitted_evidence_levels = _EVIDENCE_LEVELS_BY_REQUEST_MODE[request_mode]
@@ -880,9 +1145,9 @@ class LLMClassifier:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ),
-                parameters=ISOLATION_LLM_PARAMETERS,
+                parameters=ISOLATION_SOURCE_LLM_PARAMETERS,
                 response_schema_id=(
-                    f"{ISOLATION_RESPONSE_SCHEMA_ID}:"
+                    f"{ISOLATION_SOURCE_RESPONSE_SCHEMA_ID}:"
                     f"{canonical_json_sha256(response_schema.model_json_schema())}"
                 ),
             )
@@ -900,13 +1165,13 @@ class LLMClassifier:
                 evidence_level = _resolve_evidence_level(
                     direct_paths=direct_paths,
                     llm_paths=set(),
-                    claimed_level=IsolationEvidenceLevel.NONE,
+                    claimed_level=IsolationSourceEvidenceLevel.NONE,
                 )
                 reasoning_history.append(
                     {
                         "node": "classifier",
                         "reasoning": "LLM classification is disabled.",
-                        "selections": [],
+                        "selected_term_paths": [],
                     }
                 )
             else:
@@ -915,7 +1180,7 @@ class LLMClassifier:
                     self.stats["llm_calls"] += 1
                     with observe_llm_call(
                         accession=accession,
-                        target="isolation",
+                        target=TARGET_SPECS[StandardizationTarget.ISOLATION_SOURCE].published_key,
                         model=self.model,
                     ) as call:
                         resp = self.client.chat.completions.create(
@@ -924,10 +1189,10 @@ class LLMClassifier:
                             messages=list(request.messages),
                             **request.parameters,
                         )
-                    evidence_level = IsolationEvidenceLevel(resp.evidence_level)
+                    evidence_level = IsolationSourceEvidenceLevel(resp.evidence_level)
                     if evidence_level not in permitted_evidence_levels:
                         raise ValueError(
-                            f"Invalid isolation evidence level {evidence_level.value!r} "
+                            f"Invalid isolation-source evidence level {evidence_level.value!r} "
                             "for the available record context"
                         )
                     for term in resp.terms:
@@ -956,8 +1221,8 @@ class LLMClassifier:
                     {
                         "node": "classifier",
                         "reasoning": resp.reasoning,
-                        "selections": sorted(llm_paths),
-                        "selected_terms": list(resp.terms),
+                        "selected_term_paths": sorted(llm_paths),
+                        "selected_display_terms": list(resp.terms),
                     }
                 )
 
@@ -972,7 +1237,7 @@ class LLMClassifier:
                 {
                     "node": "crosslink",
                     "reasoning": "Crosslinks applied from selected terms.",
-                    "selections": sorted(extra_crosslink_nodes),
+                    "selected_term_paths": sorted(extra_crosslink_nodes),
                 }
             )
 
@@ -982,50 +1247,50 @@ class LLMClassifier:
             final_nodes.remove(_UNSPECIFIED_TERM)
 
         if not final_nodes:
-            final_record = StandardizedSource(
-                categories="unspecified",
+            classification = StandardizedIsolationSource(
+                term_path_roots="unspecified",
                 display_terms="unspecified",
-                ontology_links="NA",
+                external_ontology_identifiers="NA",
                 term_paths="",
                 reasoning=reasoning_history,
-                evidence_level=IsolationEvidenceLevel.NONE,
+                evidence_level=IsolationSourceEvidenceLevel.NONE,
             )
         else:
-            cat_list, term_list, link_list = [], [], []
+            root_list, term_list, identifier_list = [], [], []
             for node in sorted(final_nodes):
-                cat_list.append(node.split(":")[0])
+                root_list.append(node.split(":")[0])
                 meta = self.ont.node_metadata.get(node, {})
                 term_list.append(meta.get("display_term", node.split(":")[-1]))
-                link = meta.get("ontology_link", "")
-                link_list.append(link if link else "NA")
-            final_record = StandardizedSource(
-                categories="||".join(sorted(set(cat_list))),
+                identifier = meta.get("external_ontology_identifier", "")
+                identifier_list.append(identifier if identifier else "NA")
+            classification = StandardizedIsolationSource(
+                term_path_roots="||".join(sorted(set(root_list))),
                 display_terms="||".join(term_list),
-                ontology_links="||".join(link_list),
+                external_ontology_identifiers="||".join(identifier_list),
                 term_paths="||".join(sorted(final_nodes)),
                 reasoning=reasoning_history,
                 evidence_level=evidence_level,
             )
 
-        final_record = _canonicalize_unspecified(final_record)
-        # `request` exists only on the branch that built one, which is exactly the
-        # branch where direct matching fell short -- hence both guards.
+        classification = _canonicalize_unspecified(classification)
+        # `request` exists only when direct matching falls short, which is why both
+        # guards are needed.
         if not direct_covers_all and self.client is not None:
-            self.cache.set(request.fingerprint, final_record)
+            self.cache.set(request.fingerprint, classification)
         if not direct_covers_all:
-            final_record = replace(final_record, request_fingerprint=request.fingerprint)
-        return final_record
+            classification = replace(classification, request_fingerprint=request.fingerprint)
+        return classification
 
 
 # --- Main class ---
 
 
-class IsoStandardizer:
-    """Standardize isolation source for one record, with BioProject study context."""
+class IsolationSourceStandardizer:
+    """Standardize one extracted metadata record using BioProject study context."""
 
     def __init__(
         self,
-        config_path: Path | str,
+        policy: IsolationSourcePromptPolicy,
         extracted_metadata_path: Path | str,
         result_logger: logging.Logger | None = None,
         client: object = _LOAD_CONFIGURED_CLIENT,
@@ -1033,17 +1298,14 @@ class IsoStandardizer:
         read_llm_cache: bool = True,
     ) -> None:
         self.logger = result_logger or logger
-        self.config = load_config(config_path)
+        self.policy = policy
         self._projects_by_accession = load_bioproject_catalog(extracted_metadata_path)
 
-        db_path = self.config.get("cache_db_path", DEFAULT_ISO_CACHE_DB)
-        ontology_path = self.config.get("ontology_tsv_path", DEFAULT_ONTOLOGY_TSV)
-
-        self.cache = SQLiteCache(db_path)
+        self.cache = SQLiteCache(policy.cache_db_path)
         try:
-            self.ontology = OntologyManager(ontology_path)
+            self.ontology = IsolationSourceOntology(policy.ontology_tsv_path)
             self.pipeline = LLMClassifier(
-                self.config,
+                policy,
                 self.ontology,
                 self.cache,
                 result_logger=self.logger,
@@ -1054,36 +1316,39 @@ class IsoStandardizer:
         except BaseException:
             self.cache.close()
             raise
-        self.logger.info("IsoStandardizer initialised (LLMClassifier).")
+        self.logger.info("IsolationSourceStandardizer initialised (LLMClassifier).")
 
     def standardize(
         self,
-        record: Mapping[str, str],
+        extracted_record: Mapping[str, str],
         *,
         host_context: str,
         overflow: HostOverflowContext | None = None,
-    ) -> IsolationOutcome | IsolationRejection:
-        """Classify one record, including any overflow values from the host pass.
+    ) -> IsolationSourceOutcome | IsolationSourceRejection:
+        """Classify one extracted metadata record, including host overflow values.
 
-        `overflow` carries values the host standardizer rejected as hosts but kept
-        as isolation-source candidates. They join the classification input, while
-        `sample_origins` stays the record's own pairs, so a host retry never sees
-        back the values host already declined.
+        `overflow` contains values the host standardizer rejected as hosts but retained
+        for isolation-source standardization. The classifier includes them in its input.
+        `host_recovery_pairs` contains only the extracted metadata record's own pairs,
+        preventing the recovery pass from reconsidering values the host standardizer
+        already rejected.
         """
-        accession = str(record.get("accession", "") or "")
-        sample_attributes = str(record.get("iso_attr_orig", "") or "")
-        sample_values = str(record.get("iso_val_orig", "") or "")
-        sample_origins = _isolation_origins(accession, sample_attributes, sample_values)
+        accession = str(extracted_record.get("accession", "") or "")
+        sample_attributes = str(extracted_record.get("iso_attr_orig", "") or "")
+        sample_values = str(extracted_record.get("iso_val_orig", "") or "")
+        host_recovery_pairs = _parse_supporting_pairs(accession, sample_attributes, sample_values)
         attributes = sample_attributes
         values = sample_values
         if overflow is not None and overflow.value.strip():
             attributes = "||".join(part for part in (attributes, overflow.attribute) if part)
             values = "||".join(part for part in (values, overflow.value) if part)
 
-        origins = _isolation_origins(accession, attributes, values)
-        linked_project_ids = split_pipe_separated(str(record.get("bioproject_id", "") or ""))
+        supporting_pairs = _parse_supporting_pairs(accession, attributes, values)
+        linked_project_ids = split_pipe_separated(
+            str(extracted_record.get("bioproject_id", "") or "")
+        )
         linked_project_accessions = split_pipe_separated(
-            str(record.get("bioproject_accession", "") or "")
+            str(extracted_record.get("bioproject_accession", "") or "")
         )
         # Extraction emits an accession per ID it could resolve, so a shortfall in
         # the accession list means a linked project never made it into the catalog.
@@ -1098,17 +1363,17 @@ class IsoStandardizer:
         project_contexts = tuple(
             resolved_projects[accession] for accession in sorted(resolved_projects)
         )
-        if not origins and not host_context.strip() and not project_contexts:
-            diagnostics = [IsolationDiagnostic.NO_CANDIDATES]
+        if not supporting_pairs and not host_context.strip() and not project_contexts:
+            diagnostics = [IsolationSourceDiagnostic.NO_CLASSIFICATION_INPUT]
             if has_unresolved_project_link:
-                diagnostics.append(IsolationDiagnostic.UNRESOLVED_BIOPROJECT_LINK)
-            return IsolationRejection(tuple(diagnostics))
+                diagnostics.append(IsolationSourceDiagnostic.UNRESOLVED_BIOPROJECT_LINK)
+            return IsolationSourceRejection(tuple(diagnostics))
 
         before = dict(self.pipeline.stats)
         standardized = self.pipeline.standardize_record(
             accession,
-            "||".join(origin.attribute for origin in origins),
-            "||".join(origin.value for origin in origins),
+            "||".join(pair.attribute for pair in supporting_pairs),
+            "||".join(pair.value for pair in supporting_pairs),
             host_context,
             project_contexts,
         )
@@ -1117,26 +1382,26 @@ class IsoStandardizer:
         llm_calls = self.pipeline.stats["llm_calls"] - before["llm_calls"]
         diagnostics = []
         if exact_matches:
-            diagnostics.append(IsolationDiagnostic.EXACT_MATCH)
+            diagnostics.append(IsolationSourceDiagnostic.EXACT_MATCH)
         if cache_hits:
-            diagnostics.append(IsolationDiagnostic.CACHE_HIT)
+            diagnostics.append(IsolationSourceDiagnostic.CACHE_HIT)
         if llm_calls:
-            diagnostics.append(IsolationDiagnostic.LLM_CALL)
+            diagnostics.append(IsolationSourceDiagnostic.LLM_CALL)
         if standardized.term_paths == _UNSPECIFIED_TERM:
-            diagnostics.append(IsolationDiagnostic.UNSPECIFIED)
+            diagnostics.append(IsolationSourceDiagnostic.UNSPECIFIED)
         if has_unresolved_project_link:
-            diagnostics.append(IsolationDiagnostic.UNRESOLVED_BIOPROJECT_LINK)
-        return IsolationOutcome(
-            categories=standardized.categories,
+            diagnostics.append(IsolationSourceDiagnostic.UNRESOLVED_BIOPROJECT_LINK)
+        return IsolationSourceOutcome(
+            term_path_roots=standardized.term_path_roots,
             display_terms=standardized.display_terms,
-            ontology_links=standardized.ontology_links,
+            external_ontology_identifiers=standardized.external_ontology_identifiers,
             term_paths=standardized.term_paths,
             evidence_level=standardized.evidence_level,
             host_context=host_context,
-            origins=origins,
-            sample_origins=sample_origins,
+            supporting_pairs=supporting_pairs,
+            host_recovery_pairs=host_recovery_pairs,
             reasoning=tuple(
-                IsolationReasoningStep.from_mapping(step) for step in standardized.reasoning
+                IsolationSourceReasoningStep.from_mapping(step) for step in standardized.reasoning
             ),
             diagnostics=tuple(diagnostics),
             exact_matches=exact_matches,

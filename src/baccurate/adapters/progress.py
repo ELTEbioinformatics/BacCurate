@@ -20,12 +20,10 @@ def make_progress_bar(
     disable: bool = False,
     position: int = 1,
 ) -> tqdm:
-    """
-    Per-iteration bar. One unit = one row (or file, for extraction).
+    """Create a per-iteration bar, with one unit per row or extraction file.
 
-    `unit_scale=True` applies SI suffixes (k/M/G) to the count and rate so
-    millions of rows render as e.g. "599k/1.41M [178krec/s]" instead of the
-    raw nine-digit numbers.
+    `unit_scale=True` adds SI suffixes (k/M/G) to the count and rate, so millions
+    of rows appear as "599k/1.41M [178krec/s]" instead of raw nine-digit numbers.
     """
     return tqdm(
         total=total,
@@ -41,11 +39,10 @@ def make_progress_bar(
 
 @contextmanager
 def progress_context(disable: bool = False):
-    """
-    Route `logging` output through `tqdm.write` while the context is active.
+    """Route `logging` output through `tqdm.write` while the context is active.
 
-    No-op when bars are disabled - keeps log formatting identical to a
-    bar-less run.
+    When bars are disabled, the context does nothing and preserves the log
+    formatting used in a run without progress bars.
     """
     if disable:
         with nullcontext():

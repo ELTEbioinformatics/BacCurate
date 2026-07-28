@@ -3,6 +3,9 @@ Maps a ``sylph_species`` label (GTDB-style) back to the short pathogen key
 used across the project. GTDB splits polyphyletic taxa with an uppercase suffix
 (``Enterococcus_B``, ``kobei_A``) that is absent from NCBI names, so those suffixes
 are stripped before matching against the pathogen registry.
+
+Also reads the index's own pathogen assignment, whose columns are named for the
+All the Bacteria catalogue that produced them.
 """
 
 from __future__ import annotations
@@ -12,8 +15,8 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
-from baccurate.pathogens import load_pathogens
-from baccurate.utils.compressed_io import open_text
+from baccurate.adapters.compressed_io import open_text
+from baccurate.pathogen_registry.registry import PathogenRegistry
 
 NA = "NA"
 
@@ -24,11 +27,13 @@ def _norm(token: str) -> str:
     return _GTDB_SUFFIX.sub("", token).lower()
 
 
-def build_keyword_maps() -> tuple[dict[str, str], dict[tuple[str, str], str]]:
+def build_keyword_maps(
+    pathogen_registry: PathogenRegistry,
+) -> tuple[dict[str, str], dict[tuple[str, str], str]]:
     """Build (genus -> keyword) and ((genus, species) -> keyword) lookups from the registry."""
     genus_map: dict[str, str] = {}
     species_map: dict[tuple[str, str], str] = {}
-    for p in load_pathogens().values():
+    for p in pathogen_registry.target_pathogens.values():
         tokens = p.scientific_name.lower().split()
         genus = tokens[0]
         if p.rank == "genus":

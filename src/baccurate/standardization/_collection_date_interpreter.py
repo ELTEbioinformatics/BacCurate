@@ -43,7 +43,7 @@ class DateBounds:
 
     start: date
     end: date
-    score: float
+    reliability_score: float
 
     def __post_init__(self) -> None:
         if self.start > self.end:
@@ -204,26 +204,26 @@ def _parse_numeric_year_last_day(match: re.Match[str]) -> SingleParse:
         return DateRejection("invalid_calendar_date")
     if day_first is None:
         chosen = month_first
-        score = 1.0
+        reliability_score = 1.0
     elif month_first is None or day_first == month_first:
         chosen = day_first
-        score = 1.0
+        reliability_score = 1.0
     else:
         chosen = day_first
-        score = 0.7
+        reliability_score = 0.7
     assert chosen is not None
-    return DateBounds(chosen, chosen, score)
+    return DateBounds(chosen, chosen, reliability_score)
 
 
-def score_for_interval(start: date, end: date) -> float:
-    """Score an interval using calendar-anniversary width thresholds."""
-    for years, score in ((1, 0.6), (3, 0.5), (6, 0.4), (10, 0.3)):
+def reliability_score_for_interval(start: date, end: date) -> float:
+    """Calculate a date reliability score from calendar-anniversary width thresholds."""
+    for years, reliability_score in ((1, 0.6), (3, 0.5), (6, 0.4), (10, 0.3)):
         try:
             anniversary = start.replace(year=start.year + years)
         except ValueError:
             anniversary = start.replace(year=start.year + years, day=28)
         if end <= anniversary:
-            return score
+            return reliability_score
     return 0.2
 
 
@@ -247,14 +247,17 @@ def _finalize_interval(
         start_result.bounds.start == end_result.bounds.start
         and start_result.bounds.end == end_result.bounds.end
     ):
-        score = min(start_result.bounds.score, end_result.bounds.score)
+        reliability_score = min(
+            start_result.bounds.reliability_score,
+            end_result.bounds.reliability_score,
+        )
     else:
-        score = score_for_interval(combined_start, combined_end)
+        reliability_score = reliability_score_for_interval(combined_start, combined_end)
     notices = start_result.notices + end_result.notices
     if start_result.bounds.start > end_result.bounds.end:
         notices += ("reversed_interval_normalized",)
     return DateInterpretation(
-        DateBounds(combined_start, combined_end, score),
+        DateBounds(combined_start, combined_end, reliability_score),
         format_id,
         notices,
     )
