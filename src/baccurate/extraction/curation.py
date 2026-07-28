@@ -1,28 +1,28 @@
-"""Validated curation schema for selecting BioSample metadata candidates."""
+"""Validated curation schema for selecting BioSample attribute-value pairs."""
 
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Self
+from types import MappingProxyType
+from typing import Self, cast
 
-import yaml
-
-from baccurate.extraction.metadata_types import (
-    ATTRIBUTES,
-    DATE_OTHER,
-    DATE_SAMPLING,
-    AttributeMatch,
+from baccurate.adapters.policy_yaml import PolicyConfigurationError, load_policy_mapping
+from baccurate.extraction.metadata_types import EXTRACTION_TARGET_ORDER, TargetMatch
+from baccurate.standardization_target.specifications import (
+    COLLECTION_DATE_CATEGORY,
+    FALLBACK_DATE_CATEGORY,
 )
 
 _TOKEN_BOUNDARIES = re.compile(r"[\W_]+", re.UNICODE)
-_TARGETS = frozenset(ATTRIBUTES)
+_TARGETS = frozenset(EXTRACTION_TARGET_ORDER)
 
 
-class CurationSchemaError(ValueError):
+class CurationSchemaError(PolicyConfigurationError):
     """Raised when the curation schema is missing or invalid."""
 
 
@@ -39,18 +39,18 @@ class CurationEvent:
 
 @dataclass(frozen=True, slots=True)
 class CurationDecision:
-    """Candidate matches and review events for one unchanged raw pair."""
+    """Target matches and review events for one unchanged BioSample attribute-value pair."""
 
     attribute: str
     value: str
-    matches: tuple[AttributeMatch, ...]
+    matches: tuple[TargetMatch, ...]
     events: tuple[CurationEvent, ...]
-    xml_source: str = ""
+    xml_element: str = ""
 
 
 @dataclass(frozen=True, slots=True)
 class _TargetRules:
-    accepted: Mapping[str, str]
+    selected: Mapping[str, str]
     ignored: frozenset[str]
     discoveries: tuple[_DiscoveryRule, ...]
     value_rejections: tuple[_ValueRejectionRule, ...]
@@ -124,8 +124,14 @@ class _LocationRescue:
         return False
 
 
+@dataclass(frozen=True, slots=True, init=False)
 class CurationSchema:
-    """Match raw attributes against reviewed per-target accept/ignore/reject lists."""
+    """Match raw attributes against reviewed per-target select/ignore/reject lists."""
+
+    schema_version: int
+    _targets: Mapping[str, _TargetRules]
+    _universal_missing: _ValueRejectionRule
+    _location_rescue: _LocationRescue | None
 
     def __init__(
         self,
@@ -133,9 +139,19 @@ class CurationSchema:
         universal_missing: _ValueRejectionRule,
         location_rescue: _LocationRescue | None,
     ) -> None:
-        self._targets = dict(targets)
-        self._universal_missing = universal_missing
-        self._location_rescue = location_rescue
+        immutable_targets = {
+            target: _TargetRules(
+                selected=MappingProxyType(dict(rules.selected)),
+                ignored=rules.ignored,
+                discoveries=rules.discoveries,
+                value_rejections=rules.value_rejections,
+            )
+            for target, rules in targets.items()
+        }
+        object.__setattr__(self, "schema_version", 3)
+        object.__setattr__(self, "_targets", MappingProxyType(immutable_targets))
+        object.__setattr__(self, "_universal_missing", universal_missing)
+        object.__setattr__(self, "_location_rescue", location_rescue)
 
     @classmethod
     def load(cls, config_path: Path | str) -> Self:
@@ -145,7 +161,7 @@ class CurationSchema:
             path,
             config,
             {"schema_version", "universal_missing", "location_rescue", "targets"},
-            "top level",
+            "",
         )
         if config.get("schema_version") != 3:
             raise CurationSchemaError(f"{path}: schema_version must be 3")
@@ -172,14 +188,41 @@ class CurationSchema:
             location_rescue,
         )
 
+    def serialize(self) -> str:
+        """Return deterministic, schema-versioned JSON for the effective schema."""
+        location_rescue = (
+            {
+                "prefixes": list(self._location_rescue.prefixes),
+                "separators": list(self._location_rescue.separators),
+            }
+            if self._location_rescue is not None
+            else None
+        )
+        return json.dumps(
+            {
+                "schema_version": self.schema_version,
+                "universal_missing": _serialize_value_rejection(self._universal_missing),
+                "location_rescue": location_rescue,
+                "targets": [
+                    _serialize_target(target, self._targets[target])
+                    for target in EXTRACTION_TARGET_ORDER
+                    if target in self._targets
+                ],
+            },
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+
     def evaluate(self, *, attribute: str, value: str) -> CurationDecision:
         normalized_attribute = _normalize(attribute)
         normalized_value = _normalize_rejection_value(value)
         presentation_value = _presentation_normalize(value)
         identified = [
-            AttributeMatch(target, self._targets[target].accepted[normalized_attribute])
-            for target in ATTRIBUTES
-            if target in self._targets and normalized_attribute in self._targets[target].accepted
+            TargetMatch(target, self._targets[target].selected[normalized_attribute])
+            for target in EXTRACTION_TARGET_ORDER
+            if target in self._targets and normalized_attribute in self._targets[target].selected
         ]
         location_rules = self._targets.get("loc")
         if (
@@ -189,7 +232,7 @@ class CurationSchema:
             and not any(match.target == "loc" for match in identified)
             and self._location_rescue.matches(value)
         ):
-            identified.append(AttributeMatch("loc"))
+            identified.append(TargetMatch("loc"))
         events: list[CurationEvent] = []
         matches = []
         for match in identified:
@@ -217,7 +260,7 @@ class CurationSchema:
                 matches.append(match)
 
         matched_targets = {match.target for match in identified}
-        for target in ATTRIBUTES:
+        for target in EXTRACTION_TARGET_ORDER:
             target_rules = self._targets.get(target)
             if (
                 target_rules is None
@@ -241,16 +284,43 @@ class CurationSchema:
 
 def _load_config(path: Path) -> Mapping[str, object]:
     try:
-        text = path.read_text(encoding="utf-8")
-    except OSError as error:
-        raise CurationSchemaError(f"{path}: cannot read curation schema: {error}") from error
-    try:
-        config = yaml.safe_load(text)
-    except yaml.YAMLError as error:
-        raise CurationSchemaError(f"{path}: invalid YAML: {error}") from error
-    if not isinstance(config, Mapping):
-        raise CurationSchemaError(f"{path}: top level must be a mapping")
-    return config
+        config = load_policy_mapping(path)
+    except PolicyConfigurationError as error:
+        raise CurationSchemaError(str(error)) from error
+    return cast(Mapping[str, object], config)
+
+
+def _serialize_target(target: str, rules: _TargetRules) -> dict[str, object]:
+    return {
+        "target": target,
+        "selected_attributes": [
+            {"attribute": attribute, "decision": decision}
+            for attribute, decision in rules.selected.items()
+        ],
+        "ignored_attributes": sorted(rules.ignored),
+        "attribute_discovery": [
+            {
+                "family": discovery.family,
+                "tokens": sorted(discovery.tokens),
+                "phrases": list(discovery.phrases),
+                "patterns": [pattern.pattern for pattern in discovery.patterns],
+            }
+            for discovery in rules.discoveries
+        ],
+        "value_rejections": [
+            _serialize_value_rejection(rejection) for rejection in rules.value_rejections
+        ],
+    }
+
+
+def _serialize_value_rejection(rule: _ValueRejectionRule) -> dict[str, object]:
+    return {
+        "family": rule.family,
+        "exact": sorted(rule.exact),
+        "explanation_prefixes": list(rule.explanation_prefixes),
+        "explanation_suffixes": sorted(rule.explanation_suffixes),
+        "fuzzy_references": sorted(rule.fuzzy_references),
+    }
 
 
 def _compile_target(path: Path, target: str, raw_config: object) -> _TargetRules:
@@ -261,16 +331,16 @@ def _compile_target(path: Path, target: str, raw_config: object) -> _TargetRules
         config,
         {
             "attribute_discovery",
-            "accepted_attributes",
+            "selected_attributes",
             "ignored_attributes",
             "value_rejections",
         },
         prefix,
     )
-    accept_groups = _mapping(
+    selection_groups = _mapping(
         path,
-        f"{prefix}.accepted_attributes",
-        config.get("accepted_attributes", {}),
+        f"{prefix}.selected_attributes",
+        config.get("selected_attributes", {}),
     )
     ignore_groups = _mapping(
         path,
@@ -278,22 +348,22 @@ def _compile_target(path: Path, target: str, raw_config: object) -> _TargetRules
         config.get("ignored_attributes", {}),
     )
     if target == "date":
-        unknown_categories = set(accept_groups) - {"sampling", "fallback"}
+        unknown_categories = set(selection_groups) - {"collection", "fallback"}
         if unknown_categories:
             raise CurationSchemaError(
-                f"{path}: {prefix}.accepted_attributes has invalid date category "
+                f"{path}: {prefix}.selected_attributes has invalid date category "
                 f"{', '.join(sorted(str(item) for item in unknown_categories))!r}; "
-                "expected sampling or fallback"
+                "expected collection or fallback"
             )
-    accepted = _accepted_decisions(path, target, accept_groups)
+    selected = _selected_decisions(path, target, selection_groups)
     ignored = frozenset(
         value
         for _family, value in _decision_values(path, f"{prefix}.ignored_attributes", ignore_groups)
     )
-    overlap = set(accepted) & ignored
+    overlap = set(selected) & ignored
     if overlap:
         raise CurationSchemaError(
-            f"{path}: {prefix} attribute {sorted(overlap)[0]!r} is both accepted and ignored"
+            f"{path}: {prefix} attribute {sorted(overlap)[0]!r} is both selected and ignored"
         )
     discovery_groups = _mapping(
         path,
@@ -312,7 +382,7 @@ def _compile_target(path: Path, target: str, raw_config: object) -> _TargetRules
         _compile_value_rejection_rule(path, f"{prefix}.value_rejections.{family}", family, rule)
         for family, rule in rejection_groups.items()
     )
-    return _TargetRules(accepted, ignored, discoveries, value_rejections)
+    return _TargetRules(selected, ignored, discoveries, value_rejections)
 
 
 def _compile_location_rescue(path: Path, raw_config: object) -> _LocationRescue | None:
@@ -413,14 +483,18 @@ def _compile_value_rejection_rule(
     )
 
 
-def _accepted_decisions(path: Path, target: str, groups: Mapping[str, object]) -> dict[str, str]:
-    categories = {"sampling": DATE_SAMPLING, "fallback": DATE_OTHER} if target == "date" else {}
-    values = _decision_values(path, f"targets.{target}.accepted_attributes", groups)
+def _selected_decisions(path: Path, target: str, groups: Mapping[str, object]) -> dict[str, str]:
+    categories = (
+        {"collection": COLLECTION_DATE_CATEGORY, "fallback": FALLBACK_DATE_CATEGORY}
+        if target == "date"
+        else {}
+    )
+    values = _decision_values(path, f"targets.{target}.selected_attributes", groups)
     result = {}
     for family, normalized in values:
         if normalized in result:
             raise CurationSchemaError(
-                f"{path}: targets.{target}.accepted_attributes repeats attribute {normalized!r}"
+                f"{path}: targets.{target}.selected_attributes repeats attribute {normalized!r}"
             )
         result[normalized] = categories.get(family, "")
     return result
@@ -488,27 +562,29 @@ def _target_rejection(
 
 def _fuzzy_classification(normalized_value: str, references: frozenset[str]) -> str | None:
     """Apply whole-value fuzzy matching inside one closed vocabulary."""
-    candidate_tokens = normalized_value.split()
+    value_tokens = normalized_value.split()
     safe_matches = 0
     near_matches = 0
     for reference in references:
         reference_tokens = reference.split()
-        if len(candidate_tokens) != len(reference_tokens):
+        if len(value_tokens) != len(reference_tokens):
             continue
         distances = []
         eligible = True
-        for candidate, expected in zip(candidate_tokens, reference_tokens, strict=True):
-            if candidate == expected:
+        for value_token, reference_token in zip(value_tokens, reference_tokens, strict=True):
+            if value_token == reference_token:
                 distances.append(0)
                 continue
             if (
-                not candidate.isalpha()
-                or not expected.isalpha()
-                or min(len(candidate), len(expected)) < 5
+                not value_token.isalpha()
+                or not reference_token.isalpha()
+                or min(len(value_token), len(reference_token)) < 5
             ):
                 eligible = False
                 break
-            distances.append(_optimal_string_alignment_distance_at_most_two(candidate, expected))
+            distances.append(
+                _optimal_string_alignment_distance_at_most_two(value_token, reference_token)
+            )
         if not eligible or any(distance > 2 for distance in distances):
             continue
         total_distance = sum(distances)
@@ -583,9 +659,9 @@ def _reject_unknown_keys(
 ) -> None:
     unknown = set(mapping) - allowed
     if unknown:
-        raise CurationSchemaError(
-            f"{path}: {prefix} has unknown key(s): {', '.join(sorted(str(key) for key in unknown))}"
-        )
+        unknown_key = sorted(str(key) for key in unknown)[0]
+        policy_key = f"{prefix}.{unknown_key}" if prefix else unknown_key
+        raise CurationSchemaError(f"{path}: {policy_key}: unknown policy key")
 
 
 def _normalize(value: str) -> str:

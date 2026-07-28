@@ -12,10 +12,12 @@ from pathlib import Path
 from lxml import etree
 from lxml import html as lxml_html
 
-from baccurate.source_snapshot import SourceSnapshotError
-from baccurate.utils.compressed_io import open_binary
+from baccurate.adapters.compressed_io import open_binary
+from baccurate.provenance.source_snapshot import (
+    BIOPROJECT_RELEVANCE_FLAGS,
+    SourceSnapshotError,
+)
 
-_ORIGIN_RELEVANCE = ("Agricultural", "Environmental", "Veterinary")
 _AFFIRMATIVE_VALUES = frozenset({"1", "true", "yes"})
 _BLOCK_ELEMENTS = frozenset(
     {
@@ -96,9 +98,9 @@ def resolve_bioproject_contexts(
             collect_ids=False,
         )
         try:
-            for _event, record in context:
+            for _event, bioproject_record in context:
                 try:
-                    archive_id = record.find(".//ArchiveID")
+                    archive_id = bioproject_record.find(".//ArchiveID")
                     project_id = (
                         (archive_id.get("id") or "").strip() if archive_id is not None else ""
                     )
@@ -108,7 +110,7 @@ def resolve_bioproject_contexts(
                         raise SourceSnapshotError(
                             f"Duplicate linked BioProject ID {project_id!r} in source snapshot"
                         )
-                    project = _project_context(record, archive_id)
+                    project = _project_context(bioproject_record, archive_id)
                     previous_id = project_id_by_accession.get(project.accession)
                     if previous_id is not None:
                         raise SourceSnapshotError(
@@ -118,7 +120,7 @@ def resolve_bioproject_contexts(
                     resolved[project_id] = project
                     project_id_by_accession[project.accession] = project_id
                 finally:
-                    _clear_record(record)
+                    _clear_bioproject_record(bioproject_record)
         finally:
             del context
     return resolved
@@ -170,11 +172,13 @@ def write_unresolved_bioproject_links(
     return path
 
 
-def _project_context(record: etree._Element, archive_id: etree._Element) -> BioProjectContext:
+def _project_context(
+    bioproject_record: etree._Element, archive_id: etree._Element
+) -> BioProjectContext:
     project_id = (archive_id.get("id") or "").strip()
     accession = (archive_id.get("accession") or "").strip()
-    title = _clean_project_text(record.find(".//ProjectDescr/Title"))
-    description = _clean_project_text(record.find(".//ProjectDescr/Description"))
+    title = _clean_project_text(bioproject_record.find(".//ProjectDescr/Title"))
+    description = _clean_project_text(bioproject_record.find(".//ProjectDescr/Description"))
     require_numeric_bioproject_id(project_id)
     if not accession:
         raise SourceSnapshotError(
@@ -183,10 +187,10 @@ def _project_context(record: etree._Element, archive_id: etree._Element) -> BioP
     if not title:
         raise SourceSnapshotError(f"Linked BioProject ID {project_id!r} requires title")
 
-    relevance_element = record.find(".//ProjectDescr/Relevance")
+    relevance_element = bioproject_record.find(".//ProjectDescr/Relevance")
     relevance = tuple(
         name
-        for name in _ORIGIN_RELEVANCE
+        for name in BIOPROJECT_RELEVANCE_FLAGS
         if relevance_element is not None
         and (relevance_element.findtext(name) or "").strip().casefold() in _AFFIRMATIVE_VALUES
     )
@@ -228,9 +232,9 @@ def _readable_fragment_text(element: etree._Element) -> str:
     return "".join(parts)
 
 
-def _clear_record(record: etree._Element) -> None:
-    record.clear()
-    parent = record.getparent()
+def _clear_bioproject_record(bioproject_record: etree._Element) -> None:
+    bioproject_record.clear()
+    parent = bioproject_record.getparent()
     if parent is not None:
-        while record.getprevious() is not None:
+        while bioproject_record.getprevious() is not None:
             del parent[0]

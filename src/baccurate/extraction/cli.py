@@ -3,7 +3,6 @@
 import argparse
 import csv
 import logging
-import os
 import tempfile
 from collections import defaultdict
 from collections.abc import Sequence
@@ -12,7 +11,7 @@ from datetime import date
 from pathlib import Path
 
 from baccurate import paths
-from baccurate.extraction._review_reports import ReviewReports
+from baccurate.adapters.progress import make_progress_bar
 from baccurate.extraction.bioproject import (
     BioProjectContext,
     resolve_bioproject_contexts,
@@ -21,15 +20,17 @@ from baccurate.extraction.bioproject import (
 )
 from baccurate.extraction.curation import CurationSchema
 from baccurate.extraction.io import load_pathogen_map
-from baccurate.extraction.tables import COLUMNS, record_row
-from baccurate.extraction.xml import CandidateCounters, process_biosample_xml
-from baccurate.source_snapshot import (
+from baccurate.extraction.manual_review import ReviewWorklists
+from baccurate.extraction.tables import COLUMNS, extracted_metadata_row
+from baccurate.extraction.xml import CurationCounters, process_biosample_xml
+from baccurate.provenance.source_snapshot import (
     DerivedBundleProvenance,
+    _publish_bundle,
     bioproject_catalog_path_for,
     provenance_path_for,
     validate_paired_source_contract,
 )
-from baccurate.utils.progress import make_progress_bar
+from baccurate.standardization_target.policy_slot import POLICY_FILENAMES, PolicySlot
 
 logger = logging.getLogger(__name__)
 
@@ -38,14 +39,14 @@ logger = logging.getLogger(__name__)
 class ExtractionReport:
     """Data provenance and a curation summary of extraction."""
 
-    source_xml_paths: tuple[Path, ...]
+    prepared_input_paths: tuple[Path, ...]
     extracted_metadata_path: Path
     extracted_record_count: int
-    counters: CandidateCounters
+    counters: CurationCounters
     automatic_rejection_counts: dict[str, dict[str, int]]
     unreviewed_count: int
     uncertain_count: int
-    review_artifact_paths: dict[str, Path]
+    review_worklist_paths: dict[str, Path]
     biosample_snapshot_id: str
     bioproject_snapshot_id: str
     metadata_reference_date: date
@@ -58,9 +59,9 @@ def run_extraction(
     index_path: Path = paths.DEFAULT_INDEX_TSV,
     names: list[str] | None = None,
     log_level: str = "INFO",
-    config_dir: Path = paths.CONFIG_DIR,
     disable_progress: bool = False,
-    curation_schema: CurationSchema | None = None,
+    *,
+    curation_schema: CurationSchema,
 ) -> ExtractionReport:
     logging.basicConfig(
         level=log_level.upper(),
@@ -75,10 +76,8 @@ def run_extraction(
         bioproject_manifest_path=paths.DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
     )
 
-    if curation_schema is None:
-        curation_schema = CurationSchema.load(config_dir / "curation_schema.yaml")
-    counters = CandidateCounters()
-    review_reports = ReviewReports()
+    counters = CurationCounters()
+    review_worklists = ReviewWorklists()
 
     pathogen_by_accession = load_pathogen_map(index_path, names)
 
@@ -105,23 +104,23 @@ def run_extraction(
             ) as bar:
                 for xml_file in biosample_paths:
                     logger.info("Parsing %s...", xml_file)
-                    for accession, candidates, bioproject_ids in process_biosample_xml(
+                    for accession, decisions, bioproject_ids in process_biosample_xml(
                         str(xml_file), curation_schema.evaluate, counters
                     ):
-                        for decision in candidates:
-                            review_reports.observe(decision, accession=accession)
+                        for decision in decisions:
+                            review_worklists.observe(decision, accession=accession)
                         pathogen = pathogen_by_accession.get(accession)
                         if pathogen is None:
                             continue
-                        row = record_row(
+                        extracted_metadata_values = extracted_metadata_row(
                             accession=accession,
                             pathogen=pathogen,
                             bioproject_id="||".join(bioproject_ids),
                             bioproject_accession="",
-                            candidates=candidates,
+                            decisions=decisions,
                         )
-                        if row is not None:
-                            writer.writerow(row)
+                        if extracted_metadata_values is not None:
+                            writer.writerow(extracted_metadata_values)
                             extracted_record_count += 1
                             for project_id in bioproject_ids:
                                 linked_project_samples[project_id].add(accession)
@@ -143,19 +142,19 @@ def run_extraction(
         )
         provenance.write(temporary_provenance_path)
 
-        review_artifact_paths = review_reports.write(output_path.parent)
+        review_worklist_paths = review_worklists.write(output_path.parent)
         unresolved_path = write_unresolved_bioproject_links(
             linked_project_samples,
             resolved_projects.keys(),
             output_path.parent / "unresolved_bioproject_links.tsv",
         )
         if unresolved_path is not None:
-            review_artifact_paths["unresolved_bioproject_links"] = unresolved_path
-        if review_reports.has_unreviewed:
+            review_worklist_paths["unresolved_bioproject_links"] = unresolved_path
+        if review_worklists.has_unreviewed:
             logger.warning(
                 "Unreviewed metadata attributes were excluded. See unreviewed_attributes.tsv"
             )
-        review_reports.log_automatic_rejections(logger)
+        review_worklists.log_automatic_rejections(logger)
         logger.info("Curation summary: %s", counters.summary())
 
         _publish_bundle(
@@ -167,14 +166,14 @@ def run_extraction(
             provenance_path=bundle_provenance_path,
         )
     return ExtractionReport(
-        source_xml_paths=(*biosample_paths, paths.DEFAULT_BIOPROJECT_XML_INPUT),
+        prepared_input_paths=(*biosample_paths, paths.DEFAULT_BIOPROJECT_XML_INPUT),
         extracted_metadata_path=output_path,
         extracted_record_count=extracted_record_count,
         counters=counters,
-        automatic_rejection_counts=review_reports.automatic_rejection_counts,
-        unreviewed_count=review_reports.unreviewed_count,
-        uncertain_count=review_reports.uncertain_count,
-        review_artifact_paths=review_artifact_paths,
+        automatic_rejection_counts=review_worklists.automatic_rejection_counts,
+        unreviewed_count=review_worklists.unreviewed_count,
+        uncertain_count=review_worklists.uncertain_count,
+        review_worklist_paths=review_worklist_paths,
         biosample_snapshot_id=source_contract.biosample.snapshot_id,
         bioproject_snapshot_id=source_contract.bioproject.snapshot_id,
         metadata_reference_date=source_contract.metadata_reference_date,
@@ -212,25 +211,6 @@ def _write_resolved_rows(
             writer.writerow(row)
 
 
-def _publish_bundle(
-    *,
-    temporary_output_path: Path,
-    output_path: Path,
-    temporary_catalog_path: Path,
-    catalog_path: Path,
-    temporary_provenance_path: Path,
-    provenance_path: Path,
-) -> None:
-    provenance_path.unlink(missing_ok=True)
-    try:
-        os.replace(temporary_output_path, output_path)
-        os.replace(temporary_catalog_path, catalog_path)
-        os.replace(temporary_provenance_path, provenance_path)
-    except Exception:
-        provenance_path.unlink(missing_ok=True)
-        raise
-
-
 def cli(argv: Sequence[str] | None = None) -> None:
     """Run the extraction command-line interface."""
     parser = argparse.ArgumentParser()
@@ -244,9 +224,13 @@ def cli(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--log-level", default="INFO")
     parser.add_argument("--quiet", action="store_true", help="Disable progress bars.")
     args = parser.parse_args(argv)
+    curation_schema = CurationSchema.load(
+        paths.CONFIG_DIR / POLICY_FILENAMES[PolicySlot.CURATION_SCHEMA]
+    )
 
     run_extraction(
         output_path=Path(args.output),
+        curation_schema=curation_schema,
         index_path=Path(args.index),
         names=args.names,
         log_level=args.log_level,

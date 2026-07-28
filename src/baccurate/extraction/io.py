@@ -3,7 +3,7 @@
 import csv
 from pathlib import Path
 
-from baccurate.utils.compressed_io import open_text
+from baccurate.adapters.compressed_io import open_text
 
 
 def load_pathogen_map(index_path: Path, names: list[str] | None = None) -> dict[str, str]:
