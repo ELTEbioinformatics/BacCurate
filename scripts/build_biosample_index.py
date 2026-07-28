@@ -21,7 +21,12 @@ import pandas as pd
 
 # make the package importable when run as a plain script
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from baccurate.atb import NA, build_keyword_maps, sylph_to_keyword
+from baccurate.pathogen_registry.registry import PathogenRegistry, load_pathogen_registry
+from baccurate.pathogen_registry.species_label_matching import (
+    NA,
+    build_keyword_maps,
+    sylph_to_keyword,
+)
 from baccurate.paths import DEFAULT_INDEX_TSV, RAW_DIR
 
 log = logging.getLogger("build_biosample_index")
@@ -46,13 +51,19 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def load_taxonomy_branch(id_lists_dir: Path) -> pd.DataFrame:
-    """Concatenate per-pathogen-key TSVs into accession / pathogen_biosample / organism_value."""
+def load_taxonomy_branch(
+    id_lists_dir: Path,
+    pathogen_registry: PathogenRegistry,
+) -> pd.DataFrame:
+    """Load registered pathogen-key TSVs, resolving overlaps in registry order.
+
+    Missing registered files are skipped, and unregistered TSVs are excluded.
+    """
     frames = []
-    for f in sorted(id_lists_dir.glob("*.tsv")):
-        if f.name == "manifest.tsv":
+    for pathogen_key in pathogen_registry.pathogen_keys:
+        f = id_lists_dir / f"{pathogen_key}.tsv"
+        if not f.exists():
             continue
-        pathogen_key = f.stem
         d = pd.read_csv(f, sep="\t", dtype=str, keep_default_na=False)
         if d.empty:
             continue
@@ -68,7 +79,8 @@ def load_taxonomy_branch(id_lists_dir: Path) -> pd.DataFrame:
     if not conflicts.empty:
         n = conflicts["accession"].nunique()
         log.warning(
-            "%d accession(s) matched more than one pathogen-key query. Keeping first by file order",
+            "%d accession(s) matched more than one pathogen-key query. "
+            "Keeping first by registry order",
             n,
         )
     return tax.drop_duplicates("accession", keep="first")
@@ -108,10 +120,16 @@ def main() -> int:
     log.info("atb_metadata:  %s", args.atb_metadata)
     log.info("  sha256: %s", sha256(args.atb_metadata))
 
+    pathogen_registry = load_pathogen_registry()
+
     # taxonomy branch
-    tax = load_taxonomy_branch(args.id_lists_dir)
+    tax = load_taxonomy_branch(args.id_lists_dir, pathogen_registry)
     tax_acc = set(tax["accession"])
-    pathogen_key_files = [f for f in args.id_lists_dir.glob("*.tsv") if f.name != "manifest.tsv"]
+    pathogen_key_files = [
+        args.id_lists_dir / f"{pathogen_key}.tsv"
+        for pathogen_key in pathogen_registry.pathogen_keys
+        if (args.id_lists_dir / f"{pathogen_key}.tsv").exists()
+    ]
     log.info(
         "NCBI taxonomy: %d accessions across %d pathogen-key files",
         len(tax_acc),
@@ -122,7 +140,10 @@ def main() -> int:
     if manifest.exists():
         m = pd.read_csv(manifest, sep="\t", dtype=str, keep_default_na=False)
         if "status" in m.columns:
-            bad = m.loc[m["status"] != "ok", "pathogen_key"].tolist()
+            bad = m.loc[
+                (m["status"] != "ok") & m["pathogen_key"].isin(pathogen_registry.pathogen_keys),
+                "pathogen_key",
+            ].tolist()
             if bad:
                 log.warning(
                     "Manifest flags incomplete pathogen-key fetch(es). re-fetch recommended: %s",
@@ -131,7 +152,7 @@ def main() -> int:
 
     # ATB branch
     atb = pd.read_csv(args.atb_metadata, sep="\t", dtype=str, keep_default_na=False)
-    genus_map, species_map = build_keyword_maps()
+    genus_map, species_map = build_keyword_maps(pathogen_registry)
     keyword_of = {
         s: sylph_to_keyword(s, genus_map, species_map)
         for s in atb["sylph_species"].drop_duplicates()

@@ -31,5 +31,5 @@ DEFAULT_NODES_DMP = DEFAULT_TAXONOMY_DIR / "nodes.dmp"
 DEFAULT_ONTOLOGY_TSV = REFERENCE_DIR / "ontology_terms.tsv"
 DEFAULT_GEO_LOC_LIST = REFERENCE_DIR / "geo_loc_list.txt"
 
-DEFAULT_ISO_CACHE_DB = CACHE_DIR / "llm_iso_cache.db"
+DEFAULT_ISOLATION_SOURCE_CACHE_DB = CACHE_DIR / "llm_iso_cache.db"
 DEFAULT_LOC_CACHE_DB = CACHE_DIR / "llm_loc_cache.db"
