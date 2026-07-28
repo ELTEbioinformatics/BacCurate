@@ -1,47 +1,59 @@
-"""Tests for geographical location standardization.
-Uses a monkeypatch instead of calling an actual LLM API.
-"""
+"""Pin the geographic-location standardization contract."""
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
 import openai
 import pytest
+import yaml
 
-import baccurate.standardizers.location as location_module
-from baccurate.llm.client import LLMSettings
-from baccurate.standardizers.location import (
+import baccurate.standardization.location as location_module
+from baccurate.adapters.llm.client import LLMSettings
+from baccurate.standardization.location import (
     LocationDiagnostic,
-    LocationMatch,
-    LocationOrigin,
     LocationOutcome,
+    LocationPolicy,
     LocationRejection,
     LocationStandardizer,
 )
-
-ROOT = Path(__file__).parent.parent
-CONFIG_PATH = ROOT / "config" / "location.yaml"
-
-
-def _location_config(tmp_path: Path, *, suffix: str = "") -> Path:
-    config_path = tmp_path / f"location-{len(list(tmp_path.glob('location-*.yaml')))}.yaml"
-    config_path.write_text(
-        CONFIG_PATH.read_text(encoding="utf-8")
-        + f'\ncache_db_path: "{(tmp_path / "location-cache.db").as_posix()}"\n'
-        + suffix,
-        encoding="utf-8",
-    )
-    return config_path
+from baccurate.standardization.supporting_attribute_value_pair import (
+    SupportingAttributeValuePair,
+)
 
 
-def _location_client(calls: list[dict]) -> SimpleNamespace:
+def _location_policy(
+    tmp_path: Path,
+    fixture_policy: LocationPolicy,
+    *,
+    overrides: dict[str, object] | None = None,
+) -> LocationPolicy:
+    policy_path = tmp_path / f"location-{len(list(tmp_path.glob('location-*.yaml')))}.yaml"
+    config = {
+        "schema_version": 1,
+        "prompt_version": "synthetic-v1",
+        "coordinate_attributes": ["synthetic_coordinate"],
+        "llm_system_prompt": "Resolve one standardized country.",
+        "llm_user_prompt_template": "Synthetic evidence:\n{attr_val_pairs}\n",
+        "insdc_country_map": {"United States": "USA"},
+        "geo_loc_list_path": fixture_policy.geo_loc_list_path.as_posix(),
+        "cache_db_path": (tmp_path / "location-cache.db").as_posix(),
+    }
+    config.update(overrides or {})
+    policy_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    return LocationPolicy.load(policy_path)
+
+
+def _location_client(calls: list[dict], *, country: str = "Germany") -> SimpleNamespace:
     def create(**kwargs):
         calls.append(kwargs)
         return SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content='{"country": "Germany"}'))]
+            choices=[
+                SimpleNamespace(message=SimpleNamespace(content=f'{{"country": "{country}"}}'))
+            ]
         )
 
     return SimpleNamespace(
@@ -51,14 +63,15 @@ def _location_client(calls: list[dict]) -> SimpleNamespace:
 
 
 def _standardize_model_location(
-    config_path: Path,
+    policy: LocationPolicy,
     calls: list[dict],
     *,
     model: str = "test-model",
+    country: str = "Germany",
 ) -> LocationOutcome | LocationRejection:
     standardizer = LocationStandardizer(
-        config_path,
-        client=_location_client(calls),
+        policy,
+        client=_location_client(calls, country=country),
         llm_settings=LLMSettings(None, None, model),
     )
     try:
@@ -73,63 +86,77 @@ def _standardize_model_location(
         standardizer.close()
 
 
-@pytest.fixture(scope="session")
-def standardizer() -> LocationStandardizer:
-    return LocationStandardizer(CONFIG_PATH)
+@pytest.fixture
+def standardizer(fixture_location_policy: LocationPolicy):
+    policy = replace(
+        fixture_location_policy,
+        coordinate_attributes=("lat_lon",),
+        insdc_country_map={"United States": "USA", "Vietnam": "Viet Nam"},
+    )
+    instance = LocationStandardizer(policy, client=None)
+    try:
+        yield instance
+    finally:
+        instance.close()
 
 
 # =============================================================================
-# INSDC remapping
+# INSDC normalization
 # =============================================================================
 
 
-def test_na_country_is_left_untouched(standardizer):
-    result = standardizer._to_insdc(LocationMatch("NA", "NA", None))
+@pytest.mark.parametrize(
+    ("submitted", "country", "sublocation"),
+    [
+        pytest.param("United States", "USA", None, id="insdc-remap"),
+        pytest.param("Vietnam", "Viet Nam", None, id="country-alias"),
+        pytest.param("Germany", "Germany", None, id="already-insdc"),
+        pytest.param("United States: Boston", "USA", "Boston", id="sublocation"),
+    ],
+)
+def test_record_standardization_normalizes_countries_to_insdc(
+    standardizer, submitted, country, sublocation
+):
+    outcome = standardizer.standardize(
+        {
+            "accession": "INSDC_NORMALIZATION",
+            "loc_attr_orig": "geo_loc_name",
+            "loc_val_orig": submitted,
+        }
+    )
 
-    assert result.country == "NA"
-
-
-def test_non_insdc_country_is_dropped_to_na(standardizer):
-    result = standardizer._to_insdc(LocationMatch("Vatican", "Europe", None))
-
-    assert result.country == "NA"
-    assert result.continent == "NA"
-
-
-def test_coco_false_positive_is_dropped_to_na(standardizer):
-    result = standardizer._to_insdc(LocationMatch("water", "NA", None))
-
-    assert result.country == "NA"
-
-
-# =============================================================================
-# find_best_location
-# =============================================================================
-
-
-def test_united_states_resolves_to_insdc_usa(standardizer):
-    match = standardizer.find_best_location("TEST", "geo_loc_name", "United States")
-
-    assert match.country == "USA"
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.country == country
+    assert outcome.sublocation == sublocation
+    assert outcome.direct_matches == 1
+    assert outcome.diagnostics == (LocationDiagnostic.DIRECT_RESOLUTION,)
 
 
-def test_vietnam_resolves_to_insdc_viet_nam(standardizer):
-    match = standardizer.find_best_location("TEST", "geo_loc_name", "Vietnam")
+def test_record_standardization_rejects_non_insdc_country(standardizer):
+    outcome = standardizer.standardize(
+        {
+            "accession": "INSDC_REJECTION",
+            "loc_attr_orig": "geo_loc_name",
+            "loc_val_orig": "Vatican",
+        }
+    )
 
-    assert match.country == "Viet Nam"
+    assert isinstance(outcome, LocationRejection)
+    assert outcome.direct_matches == 1
+    assert outcome.diagnostics == (LocationDiagnostic.UNMAPPABLE_RESULT,)
 
 
-def test_conformant_country_unchanged_end_to_end(standardizer):
-    match = standardizer.find_best_location("TEST", "geo_loc_name", "Germany")
+def test_record_standardization_rejects_known_false_positive_model_country(
+    tmp_path, fixture_location_policy
+):
+    calls: list[dict] = []
+    policy = _location_policy(tmp_path, fixture_location_policy)
 
-    assert match.country == "Germany"
+    outcome = _standardize_model_location(policy, calls, country="water")
 
-
-def test_country_colon_city_keeps_sublocation_after_remap(standardizer):
-    match = standardizer.find_best_location("TEST", "geo_loc_name", "United States: Boston")
-
-    assert match.country == "USA"
-    assert match.sublocation == "Boston"
+    assert isinstance(outcome, LocationRejection)
+    assert outcome.llm_calls == 1
+    assert outcome.diagnostics == (LocationDiagnostic.UNMAPPABLE_RESULT,)
 
 
 # =============================================================================
@@ -137,7 +164,9 @@ def test_country_colon_city_keeps_sublocation_after_remap(standardizer):
 # =============================================================================
 
 
-def test_record_standardization_returns_typed_location_with_origins_and_diagnostics(standardizer):
+def test_record_standardization_returns_typed_location_with_supporting_pairs_and_diagnostics(
+    standardizer,
+):
     outcome = standardizer.standardize(
         {
             "accession": "TEST",
@@ -147,11 +176,10 @@ def test_record_standardization_returns_typed_location_with_origins_and_diagnost
     )
 
     assert outcome == LocationOutcome(
-        continent="Europe",
         un_region="Western Europe",
         country="Germany",
         sublocation="Berlin",
-        origins=(LocationOrigin("geo_loc_name", "Germany: Berlin"),),
+        supporting_pairs=(SupportingAttributeValuePair("geo_loc_name", "Germany: Berlin"),),
         direct_matches=1,
         diagnostics=(LocationDiagnostic.DIRECT_RESOLUTION,),
     )
@@ -253,14 +281,14 @@ def test_record_standardization_retains_later_coordinate_failure_after_unresolve
 
 
 # =============================================================================
-# Absent, unresolved, and disabled candidates
+# Absent, unresolved, and disabled values
 # =============================================================================
 
 
-def test_record_standardization_distinguishes_absent_unresolved_and_disabled_candidates(
-    monkeypatch,
+def test_record_standardization_distinguishes_absent_unresolved_and_disabled_values(
+    monkeypatch, fixture_location_policy
 ):
-    standardizer = LocationStandardizer(CONFIG_PATH, client=None)
+    standardizer = LocationStandardizer(fixture_location_policy, client=None)
     monkeypatch.setattr(standardizer.cache, "get", lambda _context: None)
     monkeypatch.setattr(standardizer.cache, "set", lambda *_args: None)
     try:
@@ -285,7 +313,7 @@ def test_record_standardization_distinguishes_absent_unresolved_and_disabled_can
         standardizer.close()
 
     assert isinstance(absent, LocationRejection)
-    assert absent.diagnostics == (LocationDiagnostic.ABSENT_CANDIDATES,)
+    assert absent.diagnostics == (LocationDiagnostic.ABSENT_VALUES,)
     assert isinstance(disabled, LocationRejection)
     assert disabled.diagnostics == (LocationDiagnostic.LLM_DISABLED,)
     assert disabled.llm_calls == 0
@@ -293,8 +321,10 @@ def test_record_standardization_distinguishes_absent_unresolved_and_disabled_can
     assert unresolved.diagnostics == (LocationDiagnostic.UNRESOLVED_PLACE,)
 
 
-def test_record_standardization_counts_unmappable_direct_result_without_logging(caplog):
-    standardizer = LocationStandardizer(CONFIG_PATH, client=None)
+def test_record_standardization_counts_unmappable_direct_result_without_logging(
+    fixture_location_policy, caplog
+):
+    standardizer = LocationStandardizer(fixture_location_policy, client=None)
     try:
         outcome = standardizer.standardize(
             {
@@ -325,21 +355,17 @@ def test_record_standardization_counts_unmappable_direct_result_without_logging(
             True,
         ),
         ("not json", LocationDiagnostic.INVALID_LLM_RESPONSE, False),
-        ('result: {"country": "Germany"}', LocationDiagnostic.INVALID_LLM_RESPONSE, False),
         ("{}", LocationDiagnostic.INVALID_LLM_RESPONSE, False),
-        (
-            '{"country": "Germany", "continent": "Europe"}',
-            LocationDiagnostic.INVALID_LLM_RESPONSE,
-            False,
-        ),
         ('{"country": ["Germany"]}', LocationDiagnostic.INVALID_LLM_RESPONSE, False),
-        ('{"country": {"name": "Germany"}}', LocationDiagnostic.INVALID_LLM_RESPONSE, False),
-        ('{"country": 123}', LocationDiagnostic.INVALID_LLM_RESPONSE, False),
-        ('{"country": "  "}', LocationDiagnostic.INVALID_LLM_RESPONSE, False),
     ],
 )
 def test_record_standardization_distinguishes_model_resolution_and_invalid_response(
-    monkeypatch, content, expected, writes_cache, caplog
+    monkeypatch,
+    fixture_location_policy,
+    content,
+    expected,
+    writes_cache,
+    caplog,
 ):
     response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
     client = SimpleNamespace(
@@ -349,7 +375,9 @@ def test_record_standardization_distinguishes_model_resolution_and_invalid_respo
         close=lambda: None,
     )
     standardizer = LocationStandardizer(
-        CONFIG_PATH, client=client, llm_settings=LLMSettings(None, None, "test-model")
+        fixture_location_policy,
+        client=client,
+        llm_settings=LLMSettings(None, None, "test-model"),
     )
     monkeypatch.setattr(standardizer.cache, "get", lambda _context: None)
     cache_writes = []
@@ -369,15 +397,17 @@ def test_record_standardization_distinguishes_model_resolution_and_invalid_respo
     assert outcome.llm_calls == 1
     assert bool(cache_writes) is writes_cache
     if writes_cache:
-        fingerprint, country, continent = cache_writes[0]
+        fingerprint, country = cache_writes[0]
         assert len(fingerprint) == 64
-        assert (country, continent) == ("Germany", "Europe")
+        assert country == "Germany"
     assert caplog.messages == []
 
 
-def test_record_standardization_distinguishes_cache_resolution(monkeypatch):
-    standardizer = LocationStandardizer(CONFIG_PATH, client=None)
-    monkeypatch.setattr(standardizer.cache, "get", lambda _context: ("Germany", "Europe"))
+def test_record_standardization_distinguishes_cache_resolution(
+    monkeypatch, fixture_location_policy
+):
+    standardizer = LocationStandardizer(fixture_location_policy, client=None)
+    monkeypatch.setattr(standardizer.cache, "get", lambda _context: "Germany")
     try:
         outcome = standardizer.standardize(
             {
@@ -392,33 +422,126 @@ def test_record_standardization_distinguishes_cache_resolution(monkeypatch):
     assert outcome.diagnostics == (LocationDiagnostic.CACHE_RESOLUTION,)
 
 
-def test_location_cache_reuses_identical_request_when_only_prompt_metadata_changes(tmp_path):
+def test_mapped_model_country_is_identical_on_first_call_and_on_cache_hit(
+    tmp_path, fixture_location_policy
+):
+    """A standardized country must not depend on whether the model answer was cached."""
     calls: list[dict] = []
-    first_config = _location_config(tmp_path, suffix="prompt_version: first\n")
-    second_config = _location_config(tmp_path, suffix="prompt_version: second\n")
+    policy = _location_policy(tmp_path, fixture_location_policy)
 
-    first = _standardize_model_location(first_config, calls)
-    second = _standardize_model_location(second_config, calls)
+    first = _standardize_model_location(policy, calls, country="United States")
+    second = _standardize_model_location(policy, calls, country="United States")
+
+    assert len(calls) == 1
+    assert second.diagnostics == (LocationDiagnostic.CACHE_RESOLUTION,)
+    assert first.country == "USA"
+    assert (second.country, second.un_region) == (
+        first.country,
+        first.un_region,
+    )
+
+
+def test_cached_country_outside_insdc_vocabulary_is_rejected(
+    monkeypatch, tmp_path, fixture_location_policy
+):
+    """The INSDC vocabulary bounds cached model answers as well as fresh ones."""
+    standardizer = LocationStandardizer(
+        _location_policy(tmp_path, fixture_location_policy), client=None
+    )
+    monkeypatch.setattr(standardizer.cache, "get", lambda _fingerprint: "Vatican")
+    try:
+        outcome = standardizer.standardize(
+            {
+                "accession": "CACHE_NON_INSDC",
+                "loc_attr_orig": "geo_loc_name",
+                "loc_val_orig": "cached place 445566",
+            }
+        )
+    finally:
+        standardizer.close()
+
+    assert isinstance(outcome, LocationRejection)
+    assert outcome.diagnostics == (LocationDiagnostic.UNMAPPABLE_RESULT,)
+    assert outcome.cache_hits == 1
+
+
+def test_location_cache_reuses_identical_request_when_only_prompt_metadata_changes(
+    tmp_path, fixture_location_policy
+):
+    calls: list[dict] = []
+    first_policy = _location_policy(
+        tmp_path, fixture_location_policy, overrides={"prompt_version": "first"}
+    )
+    second_policy = _location_policy(
+        tmp_path, fixture_location_policy, overrides={"prompt_version": "second"}
+    )
+
+    first = _standardize_model_location(first_policy, calls)
+    second = _standardize_model_location(second_policy, calls)
 
     assert first.diagnostics == (LocationDiagnostic.LLM_RESOLUTION,)
     assert second.diagnostics == (LocationDiagnostic.CACHE_RESOLUTION,)
     assert len(calls) == 1
 
 
+def test_location_request_uses_rendered_synthetic_prompts(
+    tmp_path: Path, fixture_location_policy: LocationPolicy
+) -> None:
+    policy = _location_policy(tmp_path, fixture_location_policy)
+    calls: list[dict] = []
+    standardizer = LocationStandardizer(
+        policy,
+        client=_location_client(calls),
+        llm_settings=LLMSettings(None, None, "test-model"),
+    )
+    try:
+        direct = standardizer.standardize(
+            {
+                "accession": "DIRECT",
+                "loc_attr_orig": "geo_loc_name",
+                "loc_val_orig": "Germany: Berlin",
+            }
+        )
+        assert calls == []
+        modelled = standardizer.standardize(
+            {
+                "accession": "REQUEST_FINGERPRINT",
+                "loc_attr_orig": "geo_loc_name",
+                "loc_val_orig": "model-only place 739105",
+            }
+        )
+    finally:
+        standardizer.close()
+
+    assert isinstance(direct, LocationOutcome)
+    assert isinstance(modelled, LocationOutcome)
+    assert calls[0]["messages"] == [
+        {"role": "system", "content": "Resolve one standardized country."},
+        {
+            "role": "user",
+            "content": "Synthetic evidence:\ngeo_loc_name=model-only place 739105\n",
+        },
+    ]
+    assert calls[0]["model"] == "test-model"
+    assert calls[0]["temperature"] == 0
+    assert calls[0]["seed"] == 100
+
+
 @pytest.mark.parametrize("changed_component", ["message", "model", "parameter", "schema"])
 def test_location_cache_misses_when_canonical_request_changes(
-    tmp_path, monkeypatch, changed_component
+    tmp_path, monkeypatch, fixture_location_policy, changed_component
 ):
     calls: list[dict] = []
-    first_config = _location_config(tmp_path)
-    _standardize_model_location(first_config, calls)
+    first_policy = _location_policy(tmp_path, fixture_location_policy)
+    _standardize_model_location(first_policy, calls)
 
-    second_config = _location_config(tmp_path)
+    second_policy = _location_policy(tmp_path, fixture_location_policy)
     second_model = "test-model"
     if changed_component == "message":
-        second_config = _location_config(
+        second_policy = _location_policy(
             tmp_path,
-            suffix="llm_system_prompt: A changed fully rendered system prompt.\n",
+            fixture_location_policy,
+            overrides={"llm_system_prompt": "A changed fully rendered system prompt."},
         )
     elif changed_component == "model":
         second_model = "changed-model"
@@ -435,40 +558,10 @@ def test_location_cache_misses_when_canonical_request_changes(
             "baccurate.location.country.changed",
         )
 
-    second = _standardize_model_location(second_config, calls, model=second_model)
+    second = _standardize_model_location(second_policy, calls, model=second_model)
 
     assert second.diagnostics == (LocationDiagnostic.LLM_RESOLUTION,)
     assert len(calls) == 2
-
-
-def test_record_standardization_counts_recoverable_model_failure_once_per_record(
-    monkeypatch, caplog
-):
-    def timeout(**_kwargs):
-        raise openai.APITimeoutError(request=httpx.Request("POST", "https://example.test"))
-
-    client = SimpleNamespace(
-        chat=SimpleNamespace(completions=SimpleNamespace(create=timeout)),
-        close=lambda: None,
-    )
-    standardizer = LocationStandardizer(
-        CONFIG_PATH, client=client, llm_settings=LLMSettings(None, None, "test-model")
-    )
-    monkeypatch.setattr(standardizer.cache, "get", lambda _context: None)
-    monkeypatch.setattr(standardizer.cache, "set", lambda *_args: None)
-    try:
-        outcome = standardizer.standardize(
-            {
-                "accession": "TIMEOUT",
-                "loc_attr_orig": "geo_loc_name",
-                "loc_val_orig": "timeout place 564738",
-            }
-        )
-    finally:
-        standardizer.close()
-
-    assert outcome.diagnostics == (LocationDiagnostic.RECOVERABLE_LLM_FAILURE,)
-    assert caplog.messages == []
 
 
 @pytest.mark.parametrize(
@@ -488,7 +581,7 @@ def test_record_standardization_counts_recoverable_model_failure_once_per_record
         ),
     ],
 )
-def test_recoverable_model_failure_can_be_retried(monkeypatch, failure):
+def test_recoverable_model_failure_can_be_retried(monkeypatch, fixture_location_policy, failure):
     successful_response = SimpleNamespace(
         choices=[SimpleNamespace(message=SimpleNamespace(content='{"country": "Germany"}'))]
     )
@@ -513,7 +606,9 @@ def test_recoverable_model_failure_can_be_retried(monkeypatch, failure):
         close=lambda: None,
     )
     standardizer = LocationStandardizer(
-        CONFIG_PATH, client=client, llm_settings=LLMSettings(None, None, "test-model")
+        fixture_location_policy,
+        client=client,
+        llm_settings=LLMSettings(None, None, "test-model"),
     )
     monkeypatch.setattr(standardizer.cache, "get", lambda _context: None)
     cached_results = []
@@ -535,6 +630,6 @@ def test_recoverable_model_failure_can_be_retried(monkeypatch, failure):
     assert second.llm_calls == 1
     assert calls == 2
     assert len(cached_results) == 1
-    fingerprint, country, continent = cached_results[0]
+    fingerprint, country = cached_results[0]
     assert len(fingerprint) == 64
-    assert (country, continent) == ("Germany", "Europe")
+    assert country == "Germany"
