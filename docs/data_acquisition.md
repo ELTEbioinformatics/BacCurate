@@ -7,11 +7,11 @@ release of AllTheBacteria was used.
 
 BioSample records were chosen if they met either of two criteria:
 
-1. `Organism` taxid fell within a target taxon's subtree
-2. `accession` matched with a sylph/GTDB species profiling (from AllTheBacteria metadata).
+1. The `Organism` taxid fell within a target taxon's subtree.
+2. The `accession` matched a sylph/GTDB species profile from AllTheBacteria metadata.
 
-The final dataset is the union of BioSample records identified by either criterion, with the sylph
-profiling taking precedence of the taxon identification.
+The prepared BioSample input set is the union of BioSample records identified by either criterion.
+The sylph profile takes precedence over the taxon identification.
 
 ## Included taxa
 
@@ -39,12 +39,12 @@ Defined per Lam et al. (2021) as:
 
 ### Inclusion of _Shigella_ under _Escherichia coli_
 
-To align our dataset with the GTDB-adopted genomic species definition, the union of taxids 562 and
-620 were reported both as _Escherichia coli_.
+To align our dataset with the GTDB-adopted genomic species definition, we reported records under
+taxids 562 and 620 as _Escherichia coli_.
 
-The reasoning behind is that _Shigella_ species are typically distinguished from other _E. coli_
-lineages by an acquired virulence plasmid rather than by genome-level divergence, and the genus name
-persists mostly through nomenclatural convention (Pupo et al., 2000).
+_Shigella_ species are typically distinguished from other _E. coli_ lineages by an acquired
+virulence plasmid rather than by genome-level divergence. The genus name persists mostly through
+nomenclatural convention (Pupo et al., 2000).
 
 ### _Enterococcus_
 
@@ -67,4 +67,4 @@ genus.
   Genome Taxonomy Database.** openRxiv. https://doi.org/10.1101/2021.09.22.461432
 - Pupo, G. M., Lan, R., & Reeves, P. R. (2000). **Multiple independent origins of Shigella clones of
   Escherichia coli and convergent evolution of many of their characteristics.** Proceedings of the
-  National Academy of Sciences, 97(19), 10567–10572. https://doi.org/10.1073/pnas.180094797
+  National Academy of Sciences, 97(19), 10567-10572. https://doi.org/10.1073/pnas.180094797

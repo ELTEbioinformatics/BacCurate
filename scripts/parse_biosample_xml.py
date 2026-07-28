@@ -19,10 +19,14 @@ from lxml import etree
 
 # make the package importable when run as a plain script
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from baccurate.atb import NA, build_keyword_maps, sylph_to_keyword
-from baccurate.pathogens import load_pathogens
+from baccurate.adapters.compressed_io import open_binary, open_text
+from baccurate.pathogen_registry.registry import PathogenRegistry, load_pathogen_registry
+from baccurate.pathogen_registry.species_label_matching import (
+    NA,
+    build_keyword_maps,
+    sylph_to_keyword,
+)
 from baccurate.paths import DEFAULT_NODES_DMP, DEFAULT_XML_INPUT, RAW_DIR
-from baccurate.utils.compressed_io import open_binary, open_text
 
 log = logging.getLogger("parse_biosample_xml")
 
@@ -41,12 +45,14 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def target_seeds() -> tuple[dict[int, str], list[str], dict[str, str]]:
+def target_seeds(
+    pathogen_registry: PathogenRegistry,
+) -> tuple[dict[int, str], list[str], dict[str, str]]:
     """Return (seed_taxid -> pathogen_key), the pathogen-key order, and pathogen_key -> space-joined taxids."""
     seeds: dict[int, str] = {}
     pathogen_keys: list[str] = []
     taxids_of: dict[str, str] = {}
-    for p in load_pathogens().values():
+    for p in pathogen_registry.target_pathogens.values():
         pathogen_keys.append(p.key)
         taxids_of[p.key] = " ".join(str(t) for t in p.taxids)
         for t in p.taxids:
@@ -116,10 +122,10 @@ def build_closure(nodes_dmp: Path, merged_dmp: Path, seeds: dict[int, str]) -> d
     return closure
 
 
-def load_atb_scope(atb_path: Path) -> set[str]:
+def load_atb_scope(atb_path: Path, pathogen_registry: PathogenRegistry) -> set[str]:
     """Accessions whose sylph_species maps to a target pathogen key."""
     log.info("loading ATB scope from %s", atb_path)
-    genus_map, species_map = build_keyword_maps()
+    genus_map, species_map = build_keyword_maps(pathogen_registry)
     keyword_cache: dict[str, str] = {}
     scope: set[str] = set()
     with atb_path.open("r", encoding="utf-8", newline="") as f:
@@ -269,7 +275,8 @@ def main() -> int:
             return 1
 
     log.info("dump: %s (%d bytes)", args.dump, args.dump.stat().st_size)
-    seeds, pathogen_keys, taxids_of = target_seeds()
+    pathogen_registry = load_pathogen_registry()
+    seeds, pathogen_keys, taxids_of = target_seeds(pathogen_registry)
     closure = build_closure(args.nodes_dmp, args.merged_dmp, seeds)
 
     subset_path = None if args.no_subset else args.subset
@@ -278,7 +285,7 @@ def main() -> int:
         if not args.atb.exists():
             log.error("ATB metadata not found: %s (pass --no-subset to skip)", args.atb)
             return 1
-        atb_scope = load_atb_scope(args.atb)
+        atb_scope = load_atb_scope(args.atb, pathogen_registry)
 
     counts = stream(args.dump, closure, atb_scope, pathogen_keys, args.id_lists_dir, subset_path)
     write_manifest(args.id_lists_dir, counts, taxids_of, args.dump)

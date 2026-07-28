@@ -39,7 +39,7 @@ Repository = "https://github.com/ELTEbioinformatics/BacCurate.git"
 Issues = "https://github.com/ELTEbioinformatics/BacCurate/issues"
 
 [project.scripts]
-baccurate = "baccurate.main:main"
+baccurate = "baccurate.run.main:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -48,7 +48,7 @@ include = ["baccurate*"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
-addopts = ["-ra", "--strict-markers"]
+addopts = ["-ra", "--strict-markers", "--import-mode=importlib"]
 minversion = "8.0"
 
 [tool.ruff]
@@ -65,9 +65,26 @@ select = [
     "B",      # bugbear (common bug patterns)
     "SIM",    # simplify (code simplification suggestions)
     "RUF",    # ruff-specific rules
+    "TID",    # tidy imports (package boundaries)
 ]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"baccurate.extraction.bioproject".msg = "import from baccurate.extraction, not its submodules"
+"baccurate.extraction.cli".msg = "import from baccurate.extraction, not its submodules"
+"baccurate.extraction.curation".msg = "import from baccurate.extraction, not its submodules"
+"baccurate.extraction.io".msg = "import from baccurate.extraction, not its submodules"
+"baccurate.extraction.manual_review".msg = "import from baccurate.extraction, not its submodules"
+"baccurate.extraction.metadata_types".msg = "import from baccurate.extraction, not its submodules"
+"baccurate.extraction.tables".msg = "import from baccurate.extraction, not its submodules"
+"baccurate.extraction.xml".msg = "import from baccurate.extraction, not its submodules"
+"baccurate.standardization._attribute_value_text".msg = "package-private"
+"baccurate.standardization._cache".msg = "package-private"
+"baccurate.standardization._collection_date_interpreter".msg = "package-private"
+"baccurate.standardization._isolation_source_ontology_renderer".msg = "package-private"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["E501"]
 "scripts/*" = ["E501", "E702", "B905", "B023"]
-
+"src/baccurate/extraction/*" = ["TID251"]
+"src/baccurate/standardization/*" = ["TID251"]
+"tests/standardization/*" = ["TID251"]

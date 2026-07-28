@@ -11,6 +11,8 @@
 #
 # Optional `also_taxids` adds extra NCBI taxid subtrees when parsing the BioSample XML dump
 
+schema_version: 1
+
 abaumannii:
   scientific_name: Acinetobacter baumannii
   ncbi_taxid: 470

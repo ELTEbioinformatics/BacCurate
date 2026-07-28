@@ -1,10 +1,10 @@
 # BioSample curation schema used during extraction, before standardization.
-# Reviewed raw metadata "candidates" are selected based on on the listed
+# Reviewed BioSample attribute-value pairs are selected based on the listed
 # attribute names and values.
 schema_version: 3
 
 # General attribute-value pairs where the values indicate
-# missing information are pre-filtered based on these.
+# missing information are automatically rejected based on these.
 universal_missing:
   exact:
     - "-"
@@ -72,7 +72,7 @@ targets:
       host_fields:
         tokens: [host]
         phrases: [source organism]
-    accepted_attributes:
+    selected_attributes:
       identity:
         - host
         - host_taxid
@@ -150,7 +150,7 @@ targets:
           - host body product
       environmental_origin:
         tokens: [environment, environmental, food]
-    accepted_attributes:
+    selected_attributes:
       physical_origin:
         - isolation_source
         - lab_host
@@ -222,7 +222,7 @@ targets:
       geographic_origin:
         tokens: [geo, loc, location, country, region, lat, lon, latitude, longitude]
         phrases: [collection site]
-    accepted_attributes:
+    selected_attributes:
       place:
         - geo_loc_name
       coordinates:
@@ -252,10 +252,10 @@ targets:
         phrases:
           - first public
           - last update
-    accepted_attributes:
-      sampling:
+    selected_attributes:
+      collection:
         - collection_date
-      fallback: # Non-sampling dates share one lower-confidence fallback output.
+      fallback: # Non-collection event dates share one lower-confidence fallback output.
         - submission_date
         - last_update
         - publication_date

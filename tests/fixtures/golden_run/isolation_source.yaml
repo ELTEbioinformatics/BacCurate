@@ -1,0 +1,14 @@
+schema_version: 1
+prompt_version: golden-v1
+system_prompt: |
+  Classify isolation-source evidence using this ontology:
+  {ontology_tree}
+user_prompt: |
+  Sample evidence:
+  {metadata}
+  {bioproject_context}
+bioproject_system_prompt: |
+  BioProject context may resolve ambiguous sample evidence.
+bioproject_user_prompt: |
+  BioProject context:
+  {bioproject_context}

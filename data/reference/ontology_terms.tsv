@@ -1,4 +1,4 @@
-term	display_term	ontology_link	crosslink_term	synonyms	comment	examples
+term_path	display_term	external_ontology_identifier	crosslink_targets	synonyms	comment	examples
 unspecified	unspecified			other	Select if no meaningful isolation describing keywords (='NA'), or when the only valid description is a complete homonym (e.g. 'swab').
 laboratory	laboratory				In vitro/experimentally derived isolates (lab strains, lab-evolved, synthetic) rather than real-world isolates.
 environmental	environmental

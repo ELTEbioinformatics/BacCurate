@@ -2,7 +2,7 @@
 
 External or curated reference data. Updated by hand or by ad-hoc scripts in `/scripts/`.
 
-- `ontology_terms.tsv` - curated isolation-source ontology used by the iso standardizer.
+- `ontology_terms.tsv` - curated isolation-source ontology used by the isolation-source standardizer.
 - `taxonomy/`
   - `taxids_ncbi.tsv` - NCBI host taxonomy lookup table. Curated host matching 
   - policy lives in `config/host.yaml`.

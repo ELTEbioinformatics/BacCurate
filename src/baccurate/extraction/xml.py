@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING
 
 from lxml import etree
 
+from baccurate.adapters.compressed_io import open_binary
 from baccurate.extraction.bioproject import require_numeric_bioproject_id
-from baccurate.utils.compressed_io import open_binary
 
 if TYPE_CHECKING:
     from baccurate.extraction.curation import CurationDecision
@@ -23,16 +23,19 @@ ROOT_DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
 
 
 @dataclass(slots=True)
-class CandidateCounters:
-    """Count each source attribute and value once,
-    even when it affects several standardizers."""
+class CurationCounters:
+    """Count each BioSample attribute-value pair once.
+
+    A pair may inform several standardization targets. The counters preserve
+    the invariant ``inspected == selected + unselected``.
+    """
 
     inspected: int = 0
     identified: int = 0
-    rejected: int = 0
+    automatically_rejected: int = 0
     unreviewed: int = 0
-    found: int = 0
-    filtered: int = 0
+    selected: int = 0
+    unselected: int = 0
     multiply_matched: int = 0
 
     def record(self, decision: CurationDecision) -> None:
@@ -41,37 +44,37 @@ class CandidateCounters:
         if decision.matches or "rejected_value" in event_kinds:
             self.identified += 1
         if "rejected_value" in event_kinds:
-            self.rejected += 1
+            self.automatically_rejected += 1
         if "unreviewed_attribute" in event_kinds:
             self.unreviewed += 1
         if decision.matches:
-            self.found += 1
+            self.selected += 1
         else:
-            self.filtered += 1
+            self.unselected += 1
         if len(decision.matches) > 1:
             self.multiply_matched += 1
 
     def summary(self) -> str:
         return (
             f"inspected={self.inspected}, identified={self.identified}, "
-            f"found={self.found}, rejected={self.rejected}, "
-            f"unreviewed={self.unreviewed}, filtered={self.filtered}, "
+            f"selected={self.selected}, automatically_rejected={self.automatically_rejected}, "
+            f"unreviewed={self.unreviewed}, unselected={self.unselected}, "
             f"multiply_matched={self.multiply_matched}"
         )
 
 
-def _iter_biosample_candidates_with_source(
-    record: etree._Element,
+def _iter_biosample_pairs_with_xml_element(
+    biosample_record: etree._Element,
     *,
     include_root_dates: bool = False,
 ) -> Iterator[tuple[str, str, str]]:
-    """Yield raw candidates while retaining their XML structural source."""
+    """Yield BioSample attribute-value pairs with their XML structural origin."""
     if include_root_dates:
-        for attr_name, value in record.attrib.items():
+        for attr_name, value in biosample_record.attrib.items():
             if value and ROOT_DATE_PATTERN.match(str(value)):
                 yield attr_name, str(value), "biosample_root"
 
-    attributes_container = record.find("Attributes")
+    attributes_container = biosample_record.find("Attributes")
     if attributes_container is None:
         return
 
@@ -85,12 +88,12 @@ def _iter_biosample_candidates_with_source(
             yield attr_name, value, "attribute"
 
 
-def _clear_record(record: etree._Element) -> None:
-    """Release a streamed record and siblings already processed by libxml2."""
-    record.clear()
-    parent = record.getparent()
+def _clear_biosample_record(biosample_record: etree._Element) -> None:
+    """Release a streamed BioSample record and previously processed siblings."""
+    biosample_record.clear()
+    parent = biosample_record.getparent()
     if parent is not None:
-        while record.getprevious() is not None:
+        while biosample_record.getprevious() is not None:
             del parent[0]
 
 
@@ -108,36 +111,36 @@ def iter_biosample_records(input_file: str | Path) -> Iterator[etree._Element]:
             collect_ids=False,
         )
         try:
-            for _event, record in context:
+            for _event, biosample_record in context:
                 try:
-                    yield record
+                    yield biosample_record
                 finally:
-                    _clear_record(record)
+                    _clear_biosample_record(biosample_record)
         finally:
             del context
 
 
 def parse_xml(
-    record: etree._Element,
+    biosample_record: etree._Element,
     evaluate_function: Callable[..., CurationDecision],
     check_root_attributes: bool = False,
-    counters: CandidateCounters | None = None,
+    counters: CurationCounters | None = None,
 ) -> list[CurationDecision]:
-    candidates = []
+    decisions = []
 
-    for attr_name, value, xml_source in _iter_biosample_candidates_with_source(
-        record,
+    for attr_name, value, xml_element in _iter_biosample_pairs_with_xml_element(
+        biosample_record,
         include_root_dates=check_root_attributes,
     ):
         decision = replace(
             evaluate_function(attribute=attr_name, value=value),
-            xml_source=xml_source,
+            xml_element=xml_element,
         )
         if counters is not None:
             counters.record(decision)
-        candidates.append(decision)
+        decisions.append(decision)
 
-    return candidates
+    return decisions
 
 
 def _extract_bioprojects(elem: etree._Element) -> tuple[str, ...]:
@@ -155,18 +158,18 @@ def _extract_bioprojects(elem: etree._Element) -> tuple[str, ...]:
 def process_biosample_xml(
     input_file: str | Path,
     evaluate_function: Callable[..., CurationDecision],
-    counters: CandidateCounters | None = None,
+    counters: CurationCounters | None = None,
 ) -> Iterator[tuple[str, list[CurationDecision], tuple[str, ...]]]:
-    """Stream XML, yielding accession, candidate decisions, and linked BioProjects."""
+    """Stream XML, yielding accession, curation decisions, and linked BioProjects."""
     for elem in iter_biosample_records(input_file):
         accession = elem.get("accession", "unknown")
 
         bioprojects = _extract_bioprojects(elem)
 
-        candidates = parse_xml(
+        decisions = parse_xml(
             elem,
             evaluate_function,
             check_root_attributes=True,
             counters=counters,
         )
-        yield accession, candidates, bioprojects
+        yield accession, decisions, bioprojects

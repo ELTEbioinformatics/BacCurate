@@ -18,11 +18,11 @@ This repository contains the source code that extracts and harmonizes the metada
 - _Enterobacter_ spp.
 - _Escherichia coli_
 
-### Standardized attributes
+### Standardization targets
 
 - Collection date
 - Host organism
-- Geographical location
+- Geographic location
 - Isolation source
 
 ## Installation
@@ -95,7 +95,7 @@ See [docs/data_acquisition.md](docs/data_acquisition.md) for more information.
 
 ## Usage
 
-To process all available attributes (host, date, loc, iso) for one or more pathogens:
+To process all standardization targets (`host`, `date`, `loc`, `iso`) for one or more pathogens:
 
 ```bash
 uv run baccurate abaumannii ecoli
@@ -106,17 +106,18 @@ Example: `ecoli`
 
 ### Running specific pipelines only
 
-Available options are: `host`, `date`, `loc`, `iso`.
+The `--standardize` option accepts `host`, `date`, `loc`, and `iso`.
 
 ```bash
 # Run date and location standardization
-uv run baccurate abaumannii --attribute date loc
+uv run baccurate abaumannii --standardize date loc
 ```
 
 ### Re-extracting metadata
 
-By default, the pipeline skips extraction (searching for valid attributes) if
-`extracted_metadata.tsv` already exists. To force re-extraction, use the --extracted-metadata flag:
+By default, the pipeline skips extraction and curation (selecting BioSample attribute-value pairs)
+if `extracted_metadata.tsv` already exists. To force re-extraction, use the --extracted-metadata
+argument:
 
 ```bash
 uv run baccurate abaumannii --extracted-metadata extracted_metadata_new.tsv

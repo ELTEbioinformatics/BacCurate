@@ -3,15 +3,12 @@
 from dataclasses import dataclass
 
 # This order fixes the extracted TSV column layout in tables.py
-ATTRIBUTES = ("date", "iso", "host", "loc")
-
-DATE_SAMPLING = "s"
-DATE_OTHER = "o"
+EXTRACTION_TARGET_ORDER = ("date", "iso", "host", "loc")
 
 
 @dataclass(frozen=True, slots=True)
-class AttributeMatch:
-    """One candidate identification. Category is used only for date matches."""
+class TargetMatch:
+    """One standardization target this raw pair supplies. Category is used only for date matches."""
 
     target: str
     category: str = ""

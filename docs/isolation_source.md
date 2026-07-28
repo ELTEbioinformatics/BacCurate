@@ -1,9 +1,9 @@
 # Isolation source standardization
 
-Map isolation source annotations from sample metadata to curated ontology terms with Large Language
-Models.
+Isolation source standardization maps isolation source annotations from BioSample metadata to
+curated ontology terms, with a large language model (LLM) as a fallback.
 
-[Source](https://github.com/kadan02/BacCurate/blob/main/src/baccurate/standardizers/isolation.py)
+[Implementation](../src/baccurate/standardization/isolation_source.py)
 
 ## Contents
 
@@ -23,10 +23,10 @@ Models.
 
 ## Usage
 
-Run the isolation-source pipeline for one or more pathogens with the `iso` attribute:
+Select isolation-source standardization for one or more pathogens with the `iso` value:
 
 ```bash
-uv run baccurate <pathogen> --attribute iso
+uv run baccurate <pathogen> --standardize iso
 ```
 
 See the [main README](../README.md#usage) for installation and the full set of options.
@@ -46,31 +46,42 @@ LLM connection details are read from environment variables (`.env` at the root):
 
 ## Inputs
 
-| Column          | Description                                                      |
-| --------------- | ---------------------------------------------------------------- |
-| `accession`     | Record ID                                                        |
-| `iso_attr_orig` | `\|\|`-separated attribute names                                 |
-| `iso_val_orig`  | `\|\|`-separated values, paired by position with `iso_attr_orig` |
-| `host_val_orig` | Standardized host (used as additional context for the LLM)       |
-| `package`       | NCBI BioSample package name                                      |
+| Column                 | Description                                                      |
+| ---------------------- | ---------------------------------------------------------------- |
+| `accession`            | BioSample accession                                              |
+| `iso_attr_orig`        | `\|\|`-separated attribute names                                 |
+| `iso_val_orig`         | `\|\|`-separated values, paired by position with `iso_attr_orig` |
+| `bioproject_id`        | `\|\|`-separated linked BioProject IDs                           |
+| `bioproject_accession` | `\|\|`-separated resolved BioProject accessions                  |
+
+The coordinated host/isolation-source standardizer also supplies host context, host overflow, and
+resolved BioProject context. BioProject context is provided as secondary evidence for isolation
+source.
 
 ## Outputs
 
-| Column             | Description                                                       |
-| ------------------ | ----------------------------------------------------------------- |
-| `accession`        | Record ID                                                         |
-| `iso_attr_orig`    | Unstandardized input attribute(s)                                 |
-| `iso_val_orig`     | Unstandardized input value(s)                                     |
-| `iso_terms`        | `\|\|`-joined, `:`-separated ontology paths of all selected nodes |
-| `iso_display_term` | `\|\|`-joined human readable terms of all selected nodes          |
-| `iso_ontology_id`  | `\|\|`-joined ontology IDs, `NA` for nodes without one            |
+When isolation source standardization is requested but produces a rejection, all five
+isolation-source columns below are empty. An explicit unspecified isolation source is an outcome,
+not a rejection: both `iso_term_paths` and `iso_display_terms` contain `unspecified`, while
+`iso_external_ontology_identifiers` contains `NA`. When the target is not requested, its columns are
+omitted from the standardized dataset.
 
-`isolation_reasoning.jsonl` stores one JSON record per accession with the host context used for
-classification and the classifier's reasoning trace: which node-resolution stages fired
-(`direct_match`, `classifier`, `crosslink`) and what selections were made at each.
+| Column                              | Description                                                       | Absence form                                                          |
+| ----------------------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `accession`                         | BioSample accession                                               | Never absent from a written record                                    |
+| `pathogen_scientific_name`          | Target pathogen's registry scientific name                        | Never absent from a written record                                    |
+| `iso_attr_orig`                     | Unstandardized input attribute(s)                                 | Empty when no supporting sample attribute is available                |
+| `iso_val_orig`                      | Unstandardized input value(s)                                     | Empty when no supporting sample value is available                    |
+| `iso_term_paths`                    | `\|\|`-joined, `:`-separated ontology paths of all selected nodes | Empty on rejection; `unspecified` for the explicit unspecified node   |
+| `iso_display_terms`                 | `\|\|`-joined human readable terms of all selected nodes          | Empty on rejection; `unspecified` for the explicit unspecified node   |
+| `iso_external_ontology_identifiers` | `\|\|`-joined external ontology identifiers                       | Empty on rejection; `NA` for each selected node without an identifier |
 
-Host values forwarded by the host pass (`host_overflow.tsv`, see [host.md](host.md)) are also
-classified here.
+`isolation_source_reasoning.jsonl` stores one JSON object per BioSample accession with the host
+context used for classification and the classifier's reasoning trace: which node-resolution stages
+fired (`direct_match`, `classifier`, `crosslink`) and what selections were made at each.
+
+Host overflow from the initial host pass is also classified here. When the resulting ontology term
+indicates a host organism, the selected isolation-source values can support a host recovery pass.
 
 ## Data usage recommendations
 
@@ -148,11 +159,10 @@ Each `||`-separated value is matched against two deterministic indexes before an
 
 ### LLM classification
 
-When direct match doesn't resolve the input, one API call is made:
+When direct matching does not resolve the input, BacCurate makes one API call:
 
-1. The cached system prompt and a short user message containing the metadata is sent through the
-   API.
-2. A `reasoning` string and a list of display terms is returned.
-3. Output is validated by a Pydantic `field_validator` built from the set of valid display terms. On
-   validation failure the call is retried maximum 3 times.
-4. Display terms are mapped back to canonical term paths.
+1. BacCurate sends the cached system prompt and a short user message containing the metadata.
+2. The model returns a `reasoning` string and a list of display terms.
+3. A Pydantic `field_validator`, built from the valid display terms, validates the output. BacCurate
+   retries the call up to three times after validation failures.
+4. BacCurate maps the display terms back to canonical term paths.

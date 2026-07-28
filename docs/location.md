@@ -1,8 +1,9 @@
 # Geographic location standardization
 
-Map location annotations from sample metadata to standardized country and continent names.
+Geographic location standardization maps geographic location annotations from BioSample metadata to
+a standardized country, UN region, and sublocation.
 
-[Source](https://github.com/kadan02/BacCurate/blob/main/src/baccurate/standardizers/location.py)
+[Implementation](../src/baccurate/standardization/location.py)
 
 ## Contents
 
@@ -23,10 +24,11 @@ Map location annotations from sample metadata to standardized country and contin
 
 ## Usage
 
-Run the location pipeline for one or more pathogens with the `loc` attribute:
+Select geographic-location standardization for one or more pathogens with the `loc` compatibility
+value:
 
 ```bash
-uv run baccurate <pathogen> --attribute loc
+uv run baccurate <pathogen> --standardize loc
 ```
 
 See the [main README](../README.md#usage) for installation and the full set of options.
@@ -35,7 +37,7 @@ See the [main README](../README.md#usage) for installation and the full set of o
 
 [`config/location.yaml`](../config/location.yaml) contains:
 
-- `coordinate_attributes`: Parsing hints for values already identified as location candidates.
+- `coordinate_attributes`: Parsing hints for selected geographic-location values.
 - `insdc_country_map`: Remaps `country_converter` names to their INSDC spelling (see below).
 - `llm_system_prompt`: System prompt for the LLM fallback.
 - `llm_user_prompt_template`: User-prompt template
@@ -48,34 +50,37 @@ LLM connection details are read from environment variables (`.env` at the root):
 | `SERVER`    | OpenAI-compatible base URL  |
 | `LLM_MODEL` | Model identifier            |
 
-If any of these are not set the LLM fallback is disabled and unresolved values return `NA`.
+If any of these are not set, the LLM fallback is disabled and unresolved values produce a
+standardization rejection. A requested location target then has five empty standardized dataset
+columns. `NA` is reserved for the column-specific cases documented below.
 
 ## Inputs
 
 | Column          | Description                                                      |
 | --------------- | ---------------------------------------------------------------- |
-| `accession`     | Record ID                                                        |
+| `accession`     | BioSample accession                                              |
 | `loc_attr_orig` | `\|\|`-separated attribute names                                 |
 | `loc_val_orig`  | `\|\|`-separated values, paired by position with `loc_attr_orig` |
 
 ## Outputs
 
-| Column          | Description                                        |
-| --------------- | -------------------------------------------------- |
-| `accession`     | Record ID                                          |
-| `loc_attr_orig` | Unstandardized input attribute(s)                  |
-| `loc_val_orig`  | Unstandardized input value(s)                      |
-| `loc_UNregion`  | UN geoscheme region of the resolved country        |
-| `loc_country`   | Standardized country name                          |
-| `loc_other`     | City or sub-country region if available, else `NA` |
+| Column                     | Description                                 | Absence form                                                        |
+| -------------------------- | ------------------------------------------- | ------------------------------------------------------------------- |
+| `accession`                | BioSample accession                         | Never absent from a written record                                  |
+| `pathogen_scientific_name` | Target pathogen's registry scientific name  | Never absent from a written record                                  |
+| `loc_attr_orig`            | Unstandardized input attribute(s)           | Empty when no location outcome is produced                          |
+| `loc_val_orig`             | Unstandardized input value(s)               | Empty when no location outcome is produced                          |
+| `loc_UNregion`             | UN geoscheme region of the resolved country | Empty on rejection; `NA` when the resolved country has no UN region |
+| `loc_country`              | Standardized country name                   | Empty on rejection; never `NA`                                      |
+| `loc_sublocation`          | Sublocation if available                    | Empty on rejection; `NA` when an outcome has no sublocation         |
 
 ## Data usage recommendations
 
 `loc_country` is always drawn from the INSDC Geographical Location List, so the country field is
 safe to join against other INSDC-aligned data.
 
-`loc_other` is not standardized against a controlled vocabulary and should be treated as a free-text
-hint.
+`loc_sublocation` contains a free-text sublocation. It is not standardized against a controlled
+vocabulary.
 
 ## Methods
 
@@ -86,14 +91,14 @@ TODO: add charts/location.png flowchart
 Each `||`-separated value is tried in order. A value is decoded as coordinates if it looks like one
 or its attribute is configured as a coordinate field, otherwise it is resolved by name lookup.
 Values that name lookup cannot resolve are pooled and sent to the LLM in a single call. If the
-record has multiple values and one produced a deterministic match, it is not included in the LLM
-call. Matches carrying a sublocation syntax are preferred over those without.
+BioSample record has multiple values and one produced a deterministic match, it is not included in
+the LLM call. Matches carrying a sublocation syntax are preferred over those without.
 
 ### Reference vocabularies
 
-Country and continent name lookup uses
-[`country_converter`](https://github.com/IndEcol/country_converter). Coordinate decoding uses
-[`reverse_geocode`](https://github.com/richardpenman/reverse_geocode).
+Country-name lookup uses [`country_converter`](https://github.com/IndEcol/country_converter).
+`loc_UNregion` carries a UN geoscheme region derived from the standardized country. Coordinate
+decoding uses [`reverse_geocode`](https://github.com/richardpenman/reverse_geocode).
 
 Final country names are limited to the INSDC Geographical Location List, found in
 `data/reference/geo_loc_list.txt`.
@@ -122,20 +127,13 @@ other name, while the city becomes the value in the `sublocation` column.
 
 The value is split on `:`, `;`, and `,`, and each part is tried in order against `country_converter`
 (so `"France: Paris"` and `"USA, California"` resolve on their first token). The continent is
-derived from the resolved country.
+derived from the standardized country.
 
 ### INSDC normalization
 
 `country_converter` short names are remapped to their INSDC spelling via `insdc_country_map` (e.g.
 `United States` → `USA`, `Vietnam` → `Viet Nam`). A country that is absent from the INSDC vocabulary
 after remapping is dropped from the output.
-
-### Cache
-
-LLM-resolved values are cached in SQLite, keyed by the SHA-256 of the prompt's attribute/value
-context, storing the resolved country and continent. To force reprocessing, delete
-`data/cache/llm_loc_cache.db`. Deterministic matches (coordinates, name lookup) are not cached, as
-they are fast to compute.
 
 ### LLM fallback
 

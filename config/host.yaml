@@ -1,4 +1,4 @@
-schema_version: 2
+schema_version: 3
 normalization:
   ignored_substrings:
     - (organism)
@@ -1346,24 +1346,24 @@ value_rejections:
     - Lama glama and Vicugna pacos
     - Non-Animal
     - Escherichia
-    - Escherichia coli
+    - pathogen_key: ecoli
     - E. coli
     - E coli
     - Model bacteria E. coli C60
     - Proteus mirabilis
     - Enterococcus
-    - Enterococcus faecium
-    - Enterococcus faecalis
+    - pathogen_key: efaecium
+    - pathogen_key: efaecalis
     - Staphylococcus
-    - Staphylococcus aureus
+    - pathogen_key: saureus
     - Klebsiella
-    - Klebsiella pneumoniae
+    - pathogen_key: kpneumoniae
     - Acinetobacter
-    - Acinetobacter baumannii
+    - pathogen_key: abaumannii
     - Pseudomonas
-    - Pseudomonas aeruginosa
+    - pathogen_key: paeruginosa
     - Pseudomonas aeruginosa PAO
-    - Enterobacter
+    - pathogen_key: enterobacter
     - Gallionellaceae
     - Mycobacterium tuberculosis
     - Proteus mirabilis

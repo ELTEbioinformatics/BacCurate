@@ -1,0 +1,9 @@
+taxid	rank	scientific_name	synonym	genbank_common_name	common_name	comments
+9615	subspecies	Canis lupus familiaris	Canis domesticus	dog	dogs
+208526	subspecies	Gallus gallus gallus	Phasianus gallus gallus
+7165	species	Anopheles gambiae		African malaria mosquito
+9031	species	Gallus gallus	Gallus gallus domesticus	chicken	bantam;chickens
+9606	species	Homo sapiens		human
+9823	species	Sus scrofa		pig	pigs;swine;wild boar
+9913	species	Bos taurus	Bos bovis	domestic cattle	bovine;cow;dairy cow;domestic cow;ox
+9520	genus	Saimiri		squirrel monkeys

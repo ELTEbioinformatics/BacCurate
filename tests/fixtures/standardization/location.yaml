@@ -1,0 +1,8 @@
+schema_version: 1
+prompt_version: fixture-v1
+coordinate_attributes: []
+llm_system_prompt: |
+  Resolve the submitted geographic location to one country.
+llm_user_prompt_template: |
+  {attr_val_pairs}
+insdc_country_map: {}
