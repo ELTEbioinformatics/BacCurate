@@ -44,7 +44,7 @@ from baccurate.standardization.location import (
     LocationPolicy,
     LocationStandardizer,
 )
-from baccurate.standardization_target.specifications import StandardizationTarget
+from baccurate.standardization_target.specifications import TARGET_SPECS, StandardizationTarget
 
 ROOT = Path(__file__).parents[2]
 CURATION_SCHEMA_PATH = ROOT / "config" / "curation_schema.yaml"
@@ -389,22 +389,28 @@ def test_requested_target_without_outcome_serializes_exact_empty_columns_without
     )
 
     cases = (
-        (date_without_outcome, DATE_COLUMNS, "loc_country", "Germany"),
-        (location_without_outcome, LOCATION_COLUMNS, "date_start", "2020-01-02"),
-        (host_without_outcome, HOST_COLUMNS, "date_start", "2020-01-02"),
+        (date_without_outcome, StandardizationTarget.DATE, "loc_country", "Germany"),
+        (
+            location_without_outcome,
+            StandardizationTarget.LOCATION,
+            "date_start",
+            "2020-01-02",
+        ),
+        (host_without_outcome, StandardizationTarget.HOST, "date_start", "2020-01-02"),
         (
             isolation_source_without_outcome,
-            ISOLATION_SOURCE_COLUMNS,
+            StandardizationTarget.ISOLATION_SOURCE,
             "date_start",
             "2020-01-02",
         ),
     )
-    for built, absent_columns, preserved_column, preserved_value in cases:
+    for built, target, preserved_column, preserved_value in cases:
         assert len(built.records) == 1
         record = built.records[0]
+        absent_columns = TARGET_SPECS[target].output_columns
+        assert None not in record
         assert tuple(record[column] for column in absent_columns) == ("",) * len(absent_columns)
         assert record[preserved_column] == preserved_value
-
 
 def test_failed_isolation_source_classification_skips_record_and_continues(
     tmp_path: Path,

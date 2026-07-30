@@ -61,10 +61,10 @@ from baccurate.standardization.location import (
     LocationRejection,
     LocationStandardizer,
 )
+from baccurate.standardization_target import specifications as target_specifications
 from baccurate.standardization_target.policy_slot import PolicySlot
 from baccurate.standardization_target.specifications import (
     DATASET_COLUMN_ORDER,
-    TARGET_SPECS,
     StandardizationTarget,
     required_policy_slots,
 )
@@ -183,7 +183,7 @@ class _FinalRowAssembler:
         self.columns = self.base_columns
         for target in DATASET_COLUMN_ORDER:
             if target in selected:
-                self.columns += TARGET_SPECS[target].output_columns
+                self.columns += target_specifications.TARGET_SPECS[target].output_columns
 
     def assemble(
         self,
@@ -245,7 +245,11 @@ class _FinalRowAssembler:
                 )
         if StandardizationTarget.ISOLATION_SOURCE in self._selected_targets:
             if final_row.isolation_source is None:
-                values += ("", "", "", "", "")
+                values += ("",) * len(
+                    target_specifications.TARGET_SPECS[
+                        StandardizationTarget.ISOLATION_SOURCE
+                    ].output_columns
+                )
             else:
                 values += (
                     "||".join(
@@ -985,7 +989,7 @@ def _require_columns(
         "bioproject_accession",
     }
     for target in targets:
-        required.update(TARGET_SPECS[target].input_columns)
+        required.update(target_specifications.TARGET_SPECS[target].input_columns)
     available = set(fieldnames or ())
     missing = sorted(required - available)
     if missing:
