@@ -33,8 +33,8 @@ from baccurate.standardization.isolation_source import (
     IsolationSourceReasoningStep,
     IsolationSourceRejection,
     IsolationSourceStandardizer,
-    ontology_semantics_fingerprint,
 )
+from baccurate.standardization.isolation_source_ontology import ontology_semantics_fingerprint
 
 # None disables the LLM path here.
 _LOAD_LLM_ADAPTER = object()
@@ -183,17 +183,13 @@ class HostIsolationSourceStandardizer:
         if ontology is None:
             # A real IsolationSourceStandardizer always carries an ontology; test doubles need
             # not. Fingerprint the empty graph so identity stays well defined.
-            self._ontology_fingerprint = ontology_semantics_fingerprint({}, {}, {})
+            self._ontology_fingerprint = ontology_semantics_fingerprint(None)
             prompt_contract = {
                 "isolation_configuration": isolation_source_config,
                 "request_parameters": ISOLATION_SOURCE_LLM_PARAMETERS,
             }
         else:
-            self._ontology_fingerprint = ontology_semantics_fingerprint(
-                ontology.node_metadata,
-                ontology.children_map,
-                ontology.crosslink_map,
-            )
+            self._ontology_fingerprint = ontology_semantics_fingerprint(ontology)
             prompts = isolation_source_policy.effective_prompts
             prompt_contract = {
                 "prompt_version": isolation_source_config.get("prompt_version"),

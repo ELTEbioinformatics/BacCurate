@@ -334,7 +334,7 @@ def _parse_isolation_source_prompt_policy(
         bioproject_system=bioproject_system,
         bioproject_user_template=bioproject_user,
     )
-    ontology = IsolationSourceOntology(ontology_path)
+    ontology = _LegacyIsolationSourceOntology(ontology_path)
     return IsolationSourcePromptPolicy(
         schema_version=1,
         prompt_version=prompt_version,
@@ -350,27 +350,6 @@ def _parse_isolation_source_prompt_policy(
         configured_ontology_tsv_path=configured_ontology_value,
         configured_cache_db_path=configured_cache_value,
     )
-
-
-def ontology_semantics_fingerprint(
-    node_metadata: Mapping[str, Mapping[str, object]],
-    children_map: Mapping[str, list[str]],
-    crosslink_map: Mapping[str, list[str]],
-) -> str:
-    """Fingerprint parsed ontology meaning independently of TSV formatting."""
-    nodes = {
-        term_path: {
-            **metadata,
-            "synonyms": sorted(metadata.get("synonyms", [])),
-        }
-        for term_path, metadata in sorted(node_metadata.items())
-    }
-    hierarchy = {parent: sorted(children) for parent, children in sorted(children_map.items())}
-    crosslinks = {
-        source_term_path: sorted(targets)
-        for source_term_path, targets in sorted(crosslink_map.items())
-    }
-    return canonical_json_sha256({"nodes": nodes, "hierarchy": hierarchy, "crosslinks": crosslinks})
 
 
 # --- Data structures ---
@@ -750,7 +729,7 @@ class SQLiteCache(SQLiteKVCache):
 # --- Ontology graph ---
 
 
-class IsolationSourceOntology:
+class _LegacyIsolationSourceOntology:
     """Parse the ontology TSV into a tree with crosslinks and lookup indexes."""
 
     def __init__(self, ontology_tsv_path: Path | str):
@@ -983,7 +962,7 @@ class LLMClassifier:
     def __init__(
         self,
         policy: IsolationSourcePromptPolicy,
-        ontology: IsolationSourceOntology,
+        ontology: _LegacyIsolationSourceOntology,
         cache_manager: SQLiteCache,
         result_logger: logging.Logger | None = None,
         client: object = _LOAD_CONFIGURED_CLIENT,
@@ -1313,7 +1292,7 @@ class IsolationSourceStandardizer:
 
         self.cache = SQLiteCache(policy.cache_db_path)
         try:
-            self.ontology = IsolationSourceOntology(policy.ontology_tsv_path)
+            self.ontology = _LegacyIsolationSourceOntology(policy.ontology_tsv_path)
             self.pipeline = LLMClassifier(
                 policy,
                 self.ontology,
