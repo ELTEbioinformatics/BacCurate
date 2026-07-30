@@ -65,6 +65,14 @@ def _attr_priority(attribute: str) -> int:
 
 _PUNCT_TABLE = str.maketrans("", "", string.punctuation)
 _WHITESPACE_RE = re.compile(r"\s+")
+_PREFIXED_TAXID_PATTERN = r"NCBITaxon:(\d+)"
+_PREFIXED_TAXID_RE = re.compile(_PREFIXED_TAXID_PATTERN, re.IGNORECASE)
+_LABELED_TAXID_PATTERNS = (
+    re.compile(rf"(.+?)\s*\[\s*{_PREFIXED_TAXID_PATTERN}\s*\]", re.IGNORECASE),
+    re.compile(rf"(.+?)\s*\(\s*{_PREFIXED_TAXID_PATTERN}\s*\)", re.IGNORECASE),
+    re.compile(rf"(.+?)\s+{_PREFIXED_TAXID_PATTERN}", re.IGNORECASE),
+)
+_LEADING_TAXID_RE = re.compile(rf"{_PREFIXED_TAXID_PATTERN}\s+(.+)", re.IGNORECASE)
 
 
 def _normalize_text(text: str) -> str:
@@ -73,6 +81,28 @@ def _normalize_text(text: str) -> str:
     text = text.lower().replace("_", " ").replace("-", " ")
     text = text.translate(_PUNCT_TABLE)
     return _WHITESPACE_RE.sub(" ", text).strip()
+
+
+def _parse_prefixed_taxid(value: str) -> tuple[str, str] | None:
+    """Return a whole-value label and taxid from an accepted prefixed form."""
+    stripped = value.strip()
+    identifier_only = _PREFIXED_TAXID_RE.fullmatch(stripped)
+    if identifier_only is not None:
+        return "", identifier_only.group(1)
+
+    for pattern in _LABELED_TAXID_PATTERNS:
+        labeled_identifier = pattern.fullmatch(stripped)
+        if labeled_identifier is not None:
+            label, taxid = labeled_identifier.groups()
+            if _PREFIXED_TAXID_RE.search(label) is None:
+                return label.strip(), taxid
+
+    leading_identifier = _LEADING_TAXID_RE.fullmatch(stripped)
+    if leading_identifier is not None:
+        taxid, label = leading_identifier.groups()
+        if _PREFIXED_TAXID_RE.search(label) is None:
+            return label.strip(), taxid
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -370,7 +400,7 @@ class TaxonInfo:
 
 @dataclass(frozen=True, slots=True)
 class ValueMatch:
-    """Result of matching one normalized value against the lookup tables."""
+    """Taxon selected for one submitted host value before record-level ranking."""
 
     info: TaxonInfo
     match_quality_score: float
@@ -379,6 +409,8 @@ class ValueMatch:
     # Populated when subset matching found multiple distinct taxa. Empty
     # for unambiguous matches.
     tier_taxon_names: tuple[str, ...] = ()
+    # True when a paired label resolves to a different taxon than its identifier.
+    identifier_disagreement: bool = False
 
 
 class HostDiagnostic(StrEnum):
@@ -406,7 +438,8 @@ class HostMatch:
     match_tier: str
     tier_taxon_names: tuple[str, ...]
     # True when worth reviewing:
-    # any subset match, ambiguous subset, or cross-attribute disagreement.
+    # any subset match, ambiguous subset, identifier disagreement, or
+    # cross-attribute disagreement.
     needs_review: bool = False
     diagnostics: tuple[HostDiagnostic, ...] = ()
 
@@ -787,12 +820,28 @@ class HostStandardizer:
 
     def _match_value(self, value: str, attribute: str) -> ValueMatch | None:
         """Dispatch a single (attribute, value) pair to the right matcher."""
+        prefixed_taxid = _parse_prefixed_taxid(value)
+        if prefixed_taxid is not None:
+            label, taxid = prefixed_taxid
+            identifier_match = self._match_numeric_value(taxid)
+            if identifier_match is None or not label:
+                return identifier_match
+            label_match = self._match_text_value(_normalize_text(label))
+            return ValueMatch(
+                identifier_match.info,
+                identifier_match.match_quality_score,
+                identifier_disagreement=(
+                    label_match is not None
+                    and label_match.info.taxid != identifier_match.info.taxid
+                ),
+            )
+
         normalized = _normalize_text(self._strip_ignored_substrings(value.strip()))
         if not normalized:
             return None
         if normalized.isdigit():
             if attribute.lower() != "host_taxid":
-                return None
+                return self._match_text_value(normalized)
             return self._match_numeric_value(normalized)
         return self._match_text_value(normalized)
 
@@ -1017,6 +1066,7 @@ class HostStandardizer:
                     value=val,
                     match_tier=match.match_tier,
                     tier_taxon_names=match.tier_taxon_names,
+                    needs_review=match.identifier_disagreement,
                 )
             )
 
@@ -1042,7 +1092,13 @@ class HostStandardizer:
         has_multiple_taxa = len(distinct_taxa) > 1
         has_ambiguous_subset = bool(best.tier_taxon_names)
         is_subset_match = best.match_tier != ""
-        needs_review = is_subset_match or has_ambiguous_subset or has_multiple_taxa
+        has_identifier_disagreement = best.needs_review
+        needs_review = (
+            is_subset_match
+            or has_ambiguous_subset
+            or has_identifier_disagreement
+            or has_multiple_taxa
+        )
         diagnostics = tuple(
             diagnostic
             for applies, diagnostic in (

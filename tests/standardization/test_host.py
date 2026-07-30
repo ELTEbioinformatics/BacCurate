@@ -203,6 +203,81 @@ def test_numeric_values_are_gated_by_host_taxid_attribute(
     assert taxid_match.match_quality_score == 1.0
 
 
+def test_numeric_general_host_value_falls_through_to_text_matching(
+    fixture_host_policy,
+    standardization_fixture_resources,
+    tmp_path,
+) -> None:
+    taxonomy_path = tmp_path / "taxonomy.tsv"
+    taxonomy_path.write_text(
+        standardization_fixture_resources.ncbi_taxonomy_reference_table.read_text(encoding="utf-8")
+        + "111\tspecies\t9606\t\t\t\t\n",
+        encoding="utf-8",
+    )
+    numeric_name_standardizer = HostStandardizer(
+        fixture_host_policy,
+        ncbi_table_path=taxonomy_path,
+    )
+
+    text_match = classify(numeric_name_standardizer, "9606", attribute="host")
+    taxid_match = classify(numeric_name_standardizer, "9606", attribute="host_taxid")
+
+    assert text_match.info.taxid == 111
+    assert taxid_match.info.taxid == 9606
+
+
+def test_prefixed_taxonomy_identifier_resolves_under_any_host_attribute(
+    standardizer: HostStandardizer,
+) -> None:
+    for attribute in ("host_taxid", "host"):
+        match = classify(standardizer, "NCBITaxon:9031", attribute=attribute)
+
+        assert match.info.taxid == 9031
+        assert match.match_quality_score == 1.0
+        assert match.needs_review is False
+
+
+def test_taxonomy_identifier_resolves_in_each_label_pairing_convention(
+    standardizer: HostStandardizer,
+) -> None:
+    for submitted_value in (
+        "Chicken [NCBITaxon:9031]",
+        "Chicken (NCBITaxon:9031)",
+        "Chicken NCBITaxon:9031",
+        "NCBITaxon:9031 Chicken",
+        "Chicken [ncbitaxon:9031]",
+    ):
+        match = classify(standardizer, submitted_value)
+
+        assert match.info.taxid == 9031
+        assert match.match_quality_score == 1.0
+        assert match.needs_review is False
+
+
+def test_taxonomy_identifier_wins_a_disagreeing_label_with_review_flag(
+    standardizer: HostStandardizer,
+) -> None:
+    match = classify(standardizer, "Human [NCBITaxon:9031]")
+
+    assert match.info.taxid == 9031
+    assert match.match_quality_score == 1.0
+    assert match.needs_review is True
+    assert match.diagnostics == ()
+
+
+def test_prefixed_taxonomy_identifier_requires_a_recognized_whole_value_shape(
+    standardizer: HostStandardizer,
+) -> None:
+    buried_identifier = classify(
+        standardizer,
+        "sample NCBITaxon:9031 collected from human",
+    )
+
+    assert buried_identifier.info.taxid == 9606
+    assert buried_identifier.match_quality_score == 0.5
+    assert classify(standardizer, "Chicken [NCBITaxon:999999]") is None
+
+
 def test_isolation_source_routing_uses_whole_keywords_and_recovery_bypasses_preemption(
     standardizer: HostStandardizer,
 ) -> None:
