@@ -1,0 +1,140 @@
+subject_id	subject_label	predicate_id	object_id	mapping_justification	object_source	object_source_version	comment
+BACC:0000004	environmental	skos:exactMatch	ENVO:01000254	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000004	environmental	skos:narrowMatch	ENVO:00000021	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	Freshwater lakes are environmental features rather than fresh-water material.
+BACC:0000004	environmental	skos:narrowMatch	ENVO:00000022	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	Rivers are environmental features rather than water material.
+BACC:0000004	environmental	skos:narrowMatch	ENVO:00000077	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	An agricultural ecosystem is a type of environmental system.
+BACC:0000004	environmental	skos:narrowMatch	ENVO:00000428	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	A biome is a type of environmental system.
+BACC:0000004	environmental	skos:narrowMatch	ENVO:00000446	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	A terrestrial biome is a type of environmental system.
+BACC:0000004	environmental	skos:narrowMatch	ENVO:00000486	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	A shoreline is a type of environmental boundary.
+BACC:0000004	environmental	skos:narrowMatch	ENVO:00000873	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	A freshwater biome is an environmental system rather than fresh-water material.
+BACC:0000004	environmental	skos:narrowMatch	ENVO:00010483	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	Environmental material identifies an environmental source but does not imply a narrower material class.
+BACC:0000004	environmental	skos:narrowMatch	ENVO:01000219	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	An anthropogenic terrestrial biome is a type of environmental system.
+BACC:0000004	environmental	skos:narrowMatch	ENVO:01000249	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	An urban biome is a type of environmental system.
+BACC:0000004	environmental	skos:narrowMatch	ENVO:01000297	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	A freshwater river is an environmental feature rather than fresh-water material.
+BACC:0000004	environmental	skos:narrowMatch	ENVO:01000389	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	A temperate mixed broadleaf forest is a type of environmental system.
+BACC:0000004	environmental	skos:narrowMatch	ENVO:01001200	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	An anthropised terrestrial environmental zone is a type of environmental source.
+BACC:0000004	environmental	skos:narrowMatch	ENVO:01001787	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	An aquatic ecosystem is a type of environmental system.
+BACC:0000004	environmental	skos:narrowMatch	ENVO:01001829	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	A human settlement is an anthropised ecosystem.
+BACC:0000005	built environment	skos:narrowMatch	ENVO:00002272	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	A waste treatment plant is a constructed environment, but the class is broader than BacCurate's wastewater treatment plant term.
+BACC:0000005	built environment	skos:narrowMatch	ENVO:01000984	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	A grocery store is a type of constructed environment.
+BACC:0000005	built environment	skos:broadMatch	ENVO:01000313	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	ENVO's anthropogenic environment includes all systems produced by human activity; built environments are narrower.
+BACC:0000006	natural environment	skos:exactMatch	ENVO:01000951	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000007	food or feed	skos:exactMatch	FOODON:00002403	semapv:ManualMappingCuration	obo:foodon.owl	2025-07-31	""
+BACC:0000008	laboratory	skos:narrowMatch	ENVO:02000008	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	Cell culture is in vitro growth in an artificial medium and is therefore a laboratory source.
+BACC:0000009	body fluid	skos:exactMatch	UBERON:0006314	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000009	body fluid	skos:narrowMatch	ENVO:02000040	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	Mucus material is a type of bodily-fluid material and does not denote anatomy.
+BACC:0000009	body fluid	skos:narrowMatch	UBERON:0001977	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	Blood serum is both an organism substance and a type of body fluid.
+BACC:0000009	body fluid	skos:closeMatch	ENVO:02000019	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	Bodily fluid material consists mainly of bodily fluid or secretion, but it may not be the native fluid.
+BACC:0000010	blood	skos:exactMatch	ENVO:02000020	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000010	blood	skos:exactMatch	UBERON:0000178	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000011	milk	skos:exactMatch	UBERON:0001913	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000012	synovial fluid	skos:exactMatch	UBERON:0001090	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000013	cerebrospinal fluid	skos:exactMatch	UBERON:0001359	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000014	urine	skos:exactMatch	ENVO:00002047	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000014	urine	skos:exactMatch	UBERON:0001088	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000014	urine	skos:broadMatch	ENVO:02000022	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	Because excreta includes urine and feces, it is broader than BacCurate's urine term and cannot resolve to it.
+BACC:0000015	peritoneal fluid	skos:exactMatch	UBERON:0001268	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000016	bile	skos:exactMatch	UBERON:0001970	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000017	pus	skos:exactMatch	UBERON:0000177	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000018	respiratory secretion	skos:closeMatch	UBERON:0006538	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	UBERON defines respiratory system fluid/secretion as an organism substance secreted by the respiratory system. However, secretion is only a related synonym.
+BACC:0000019	sputum	skos:exactMatch	UBERON:0007311	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000020	tracheal aspirate	skos:broadMatch	UBERON:0006538	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	A tracheal aspirate is a narrower type of collected respiratory secretion. UBERON has no organism-substance class specific to aspirates.
+BACC:0000025	feces	skos:exactMatch	ENVO:00002003	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000025	feces	skos:exactMatch	UBERON:0001988	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000025	feces	skos:broadMatch	ENVO:02000022	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	Because excreta includes urine and feces, it is broader than BacCurate's feces term and cannot resolve to it.
+BACC:0000025	feces	skos:closeMatch	ENVO:01001029	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	A fecal environment is an environmental system determined by feces rather than the sampled feces substance.
+BACC:0000026	respiratory system	skos:exactMatch	UBERON:0001004	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000027	pleura	skos:exactMatch	UBERON:0000977	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000028	upper respiratory tract	skos:exactMatch	UBERON:0001557	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000029	nasal cavity	skos:exactMatch	UBERON:0001707	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000030	pharynx	skos:narrowMatch	UBERON:0001042	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	The chordate pharynx has the intended respiratory-and-digestive hierarchy but applies to a narrower taxonomic group than BacCurate's unqualified pharynx term.
+BACC:0000031	lower respiratory tract	skos:exactMatch	UBERON:0001558	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000032	trachea	skos:exactMatch	UBERON:0003126	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000033	bronchus	skos:exactMatch	UBERON:0002185	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000034	lung	skos:exactMatch	UBERON:0002048	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000035	digestive tract	skos:exactMatch	UBERON:0001555	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000035	digestive tract	skos:closeMatch	ENVO:01001033	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	A digestive tract environment is an environmental system determined by the anatomical digestive tract rather than the anatomical site itself.
+BACC:0000036	mouth	skos:exactMatch	UBERON:0000165	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000037	stomach	skos:exactMatch	UBERON:0000945	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000038	rumen	skos:exactMatch	UBERON:0007365	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000039	intestine	skos:exactMatch	UBERON:0000160	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000039	intestine	skos:closeMatch	ENVO:2100002	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	An intestine environment is an environmental system determined by the anatomical intestine rather than the anatomical site itself.
+BACC:0000040	caecum	skos:exactMatch	UBERON:0001153	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000041	rectum	skos:exactMatch	UBERON:0001052	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000042	cloaca	skos:exactMatch	UBERON:0000162	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000043	genitourinary system	skos:exactMatch	UBERON:0004122	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000044	upper urinary tract	skos:exactMatch	UBERON:0011143	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000045	kidney	skos:exactMatch	UBERON:0002113	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000046	lower urinary tract	skos:exactMatch	UBERON:0001556	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000047	reproductive tract	skos:broadMatch	UBERON:0000990	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	UBERON's reproductive system is broader because it includes the gonads. UBERON marks reproductive tract as related rather than exact.
+BACC:0000048	vagina	skos:exactMatch	UBERON:0000996	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000049	uterus	skos:exactMatch	UBERON:0000995	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000050	circulatory system	skos:exactMatch	UBERON:0001009	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000051	blood vessel	skos:exactMatch	UBERON:0001981	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000052	nervous system	skos:exactMatch	UBERON:0001016	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000053	sense organ	skos:exactMatch	UBERON:0000020	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000054	eye	skos:exactMatch	UBERON:0000970	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000055	cornea	skos:exactMatch	UBERON:0000964	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000056	ear	skos:exactMatch	UBERON:0001690	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000057	liver	skos:exactMatch	UBERON:0002107	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000058	bone	skos:closeMatch	UBERON:0001474	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	For a body site, bone element is the better semantic fit. UBERON marks bone as related because it can also mean bone tissue.
+BACC:0000059	synovial joint	skos:exactMatch	UBERON:0002217	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000060	skin	skos:exactMatch	UBERON:0000014	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000061	wound	skos:broadMatch	MONDO:0021178	semapv:ManualMappingCuration	obo:mondo.owl	2026-07-06	MONDO's injury class covers damage with or without structural disruption, so it is broader than a sampled wound lesion.
+BACC:0000062	ulcer	skos:closeMatch	MONDO:0043839	semapv:ManualMappingCuration	obo:mondo.owl	2026-07-06	MONDO describes the same surface lesion but classifies it as ulcer disease rather than the sampled structure.
+BACC:0000063	abscess	skos:closeMatch	MONDO:0005227	semapv:ManualMappingCuration	obo:mondo.owl	2026-07-06	MONDO classifies an abscess as an infectious disease or inflammatory process characterized by a pus-filled cavity rather than the sampled structure.
+BACC:0000064	soil	skos:exactMatch	ENVO:00001998	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000064	soil	skos:narrowMatch	ENVO:00005767	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	Manured soil is a subtype of soil.
+BACC:0000065	rhizosphere soil	skos:closeMatch	ENVO:00005801	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	ENVO defines the root-influenced soil region but classifies it as an ecosystem and part of an astronomical body rather than as soil material.
+BACC:0000066	water	skos:exactMatch	ENVO:00002006	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000066	water	skos:narrowMatch	ENVO:00002042	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	Surface water is a subtype of liquid water.
+BACC:0000066	water	skos:narrowMatch	ENVO:01000599	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	River water is a subtype of stream water and liquid water, but it does not require fresh-water salinity.
+BACC:0000066	water	skos:narrowMatch	ENVO:01001018	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	Hypereutrophic water is a subtype of liquid water.
+BACC:0000066	water	skos:narrowMatch	ENVO:01001268	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	Urban stormwater is a subtype of stormwater and liquid water.
+BACC:0000067	fresh water	skos:exactMatch	ENVO:00002011	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000068	groundwater	skos:exactMatch	ENVO:01001004	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000069	sea water	skos:exactMatch	ENVO:00002149	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000070	sediment	skos:exactMatch	ENVO:00002007	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000071	manure	skos:exactMatch	ENVO:03501300	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000072	animal manure	skos:exactMatch	ENVO:00003031	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000072	animal manure	skos:narrowMatch	ENVO:00003884	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	Farmyard manure is a subtype of animal manure.
+BACC:0000072	animal manure	skos:narrowMatch	ENVO:03501252	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	Chicken manure is a subtype of poultry manure and animal manure.
+BACC:0000073	compost	skos:exactMatch	ENVO:00002170	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000074	wastewater	skos:exactMatch	ENVO:00002001	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000075	sewage	skos:exactMatch	ENVO:00002018	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000076	sludge	skos:exactMatch	ENVO:00002044	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000077	activated sludge	skos:exactMatch	ENVO:00002046	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000078	biofilm	skos:exactMatch	ENVO:00002034	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000079	healthcare facility	skos:exactMatch	ENVO:03501134	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000079	healthcare facility	skos:narrowMatch	ENVO:00002173	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	A hospital is a type of healthcare facility.
+BACC:0000079	healthcare facility	skos:narrowMatch	ENVO:03501137	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	A hospital unit is a type of healthcare facility.
+BACC:0000079	healthcare facility	skos:narrowMatch	ENVO:03501158	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	A microbiology hospital unit is a type of healthcare facility.
+BACC:0000079	healthcare facility	skos:narrowMatch	ENVO:03501348	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	A veterinary facility is a type of healthcare facility.
+BACC:0000080	intensive care unit	skos:exactMatch	ENVO:03600008	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000081	laboratory facility	skos:exactMatch	ENVO:01001406	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000082	farm facility	skos:narrowMatch	ENVO:03501258	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	A chicken house is a type of animal house used on farms.
+BACC:0000082	farm facility	skos:closeMatch	ENVO:00000078	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	ENVO farm includes cultivated or grazing land and agricultural constructions; the BacCurate term denotes only a built farm facility.
+BACC:0000083	food production facility	skos:narrowMatch	ENVO:00003862	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	A dairy building is a food-production facility used to harvest or process milk for consumption.
+BACC:0000084	food processing plant	skos:closeMatch	ENVO:00003863	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	ENVO defines a food processing building, but one plant can span more than one building.
+BACC:0000085	abattoir	skos:exactMatch	ENVO:01000925	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000086	wastewater treatment plant	skos:exactMatch	ENVO:00002043	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000086	wastewater treatment plant	skos:broadMatch	ENVO:00002272	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	Because waste treatment plants include non-wastewater facilities, the class is broader than BacCurate's wastewater treatment plant term and cannot resolve to it.
+BACC:0000087	inanimate object	skos:closeMatch	ENVO:00010358	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	ENVO's fomite class requires the capacity to transmit infectious organisms and may also denote a substance. BacCurate's term asserts only an inanimate object.
+BACC:0000088	sink	skos:exactMatch	ENVO:01000990	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000089	drain	skos:exactMatch	ENVO:01000924	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000092	catheter	skos:exactMatch	OBI:0002830	semapv:ManualMappingCuration	obo:obi.owl	2026-05-08	""
+BACC:0000093	surface	skos:closeMatch	ENVO:00010504	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	ENVO defines a material surface layer, while a swabbed surface may refer to a boundary or location instead.
+BACC:0000094	plant food product	skos:exactMatch	FOODON:00001015	semapv:ManualMappingCuration	obo:foodon.owl	2025-07-31	""
+BACC:0000094	plant food product	skos:narrowMatch	FOODON:03309861	semapv:ManualMappingCuration	obo:foodon.owl	2025-07-31	Coconut whole or pieces is a subtype of plant food product.
+BACC:0000095	animal food product	skos:exactMatch	FOODON:00004242	semapv:ManualMappingCuration	obo:foodon.owl	2025-07-31	""
+BACC:0000095	animal food product	skos:narrowMatch	FOODON:03317170	semapv:ManualMappingCuration	obo:foodon.owl	2025-07-31	Meat whole or pieces is a subtype of animal food product. Its definition can include crustaceans, so it is not limited to BacCurate's meat-product branch.
+BACC:0000096	dairy product	skos:exactMatch	FOODON:00001256	semapv:ManualMappingCuration	obo:foodon.owl	2025-07-31	""
+BACC:0000097	meat product	skos:narrowMatch	FOODON:00001006	semapv:ManualMappingCuration	obo:foodon.owl	2025-07-31	Mammalian meat food product is a type of meat product.
+BACC:0000097	meat product	skos:narrowMatch	FOODON:00003363	semapv:ManualMappingCuration	obo:foodon.owl	2025-07-31	Chicken thigh with skin and bone is a type of meat product.
+BACC:0000097	meat product	skos:narrowMatch	FOODON:02020235	semapv:ManualMappingCuration	obo:foodon.owl	2025-07-31	Skinless boneless chicken breast is a type of meat product.
+BACC:0000097	meat product	skos:closeMatch	FOODON:00002671	semapv:ManualMappingCuration	obo:foodon.owl	2025-07-31	FoodOn's animal meat product has a weak hierarchy that does not preserve BacCurate's meat-versus-seafood split.
+BACC:0000098	seafood product	skos:exactMatch	FOODON:00001046	semapv:ManualMappingCuration	obo:foodon.owl	2025-07-31	""
+BACC:0000099	fermented food	skos:exactMatch	FOODON:00001258	semapv:ManualMappingCuration	obo:foodon.owl	2025-07-31	""
+BACC:0000100	animal feed	skos:exactMatch	FOODON:00004325	semapv:ManualMappingCuration	obo:foodon.owl	2025-07-31	""
+BACC:0000101	air	skos:exactMatch	ENVO:00002005	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000102	dust	skos:exactMatch	ENVO:00002008	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
