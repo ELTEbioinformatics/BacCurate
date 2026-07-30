@@ -20,6 +20,7 @@ from typing import Literal
 import instructor
 import openai
 import pandas as pd
+from instructor.core import InstructorRetryException
 from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator
 
 from baccurate.adapters.llm.client import LLMSettings, load_llm_client, load_llm_settings
@@ -444,8 +445,13 @@ class IsolationSourceDiagnostic(StrEnum):
     EXACT_MATCH = "exact_match"
     CACHE_HIT = "cache_hit"
     LLM_CALL = "llm_call"
+    CLASSIFICATION_FAILURE = "classification_failure"
     UNSPECIFIED = "unspecified"
     UNRESOLVED_BIOPROJECT_LINK = "unresolved_bioproject_link"
+
+
+class _IsolationSourceClassificationError(RuntimeError):
+    """A classifier response that remains unusable after validation retries."""
 
 
 def _parse_supporting_pairs(
@@ -1188,6 +1194,7 @@ class LLMClassifier:
                             response_model=response_schema,
                             messages=list(request.messages),
                             **request.parameters,
+                            max_retries=3,
                         )
                     evidence_level = IsolationSourceEvidenceLevel(resp.evidence_level)
                     if evidence_level not in permitted_evidence_levels:
@@ -1205,10 +1212,13 @@ class LLMClassifier:
                         claimed_level=evidence_level,
                     )
                     call.accepted()
+                except InstructorRetryException as e:
+                    call.validation_retries_exhausted()
+                    raise _IsolationSourceClassificationError(
+                        f"Isolation-source LLM failed for accession {accession}"
+                    ) from e
                 except Exception as e:
-                    if isinstance(e, openai.APIError):
-                        call.validation_retries_exhausted()
-                    else:
+                    if not isinstance(e, openai.APIError):
                         call.failed(LLMFailureCategory.INVALID_MODEL_RESPONSE)
                     raise RuntimeError(
                         f"Isolation-source LLM failed for accession {accession}"
@@ -1370,13 +1380,16 @@ class IsolationSourceStandardizer:
             return IsolationSourceRejection(tuple(diagnostics))
 
         before = dict(self.pipeline.stats)
-        standardized = self.pipeline.standardize_record(
-            accession,
-            "||".join(pair.attribute for pair in supporting_pairs),
-            "||".join(pair.value for pair in supporting_pairs),
-            host_context,
-            project_contexts,
-        )
+        try:
+            standardized = self.pipeline.standardize_record(
+                accession,
+                "||".join(pair.attribute for pair in supporting_pairs),
+                "||".join(pair.value for pair in supporting_pairs),
+                host_context,
+                project_contexts,
+            )
+        except _IsolationSourceClassificationError:
+            return IsolationSourceRejection((IsolationSourceDiagnostic.CLASSIFICATION_FAILURE,))
         exact_matches = self.pipeline.stats["exact_matches"] - before["exact_matches"]
         cache_hits = self.pipeline.stats["cache_hits"] - before["cache_hits"]
         llm_calls = self.pipeline.stats["llm_calls"] - before["llm_calls"]

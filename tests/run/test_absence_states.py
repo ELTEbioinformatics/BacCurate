@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 import yaml
+from instructor.core import InstructorRetryException
 
 from baccurate.adapters.llm.client import LLMSettings
 from baccurate.extraction import CurationDecision, CurationEvent, CurationSchema
@@ -34,6 +35,7 @@ from baccurate.run.statistics import DatasetBuildStatistics
 from baccurate.standardization.host import HostPolicy, HostStandardizer
 from baccurate.standardization.host_lineage import HostLineage
 from baccurate.standardization.isolation_source import (
+    IsolationSourceDiagnostic,
     IsolationSourcePromptPolicy,
     IsolationSourceStandardizer,
 )
@@ -402,6 +404,87 @@ def test_requested_target_without_outcome_serializes_exact_empty_columns_without
         record = built.records[0]
         assert tuple(record[column] for column in absent_columns) == ("",) * len(absent_columns)
         assert record[preserved_column] == preserved_value
+
+
+def test_failed_isolation_source_classification_skips_record_and_continues(
+    tmp_path: Path,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def create(**kwargs: object) -> object:
+        calls.append(kwargs)
+        if len(calls) == 1:
+            raise InstructorRetryException(
+                "invalid structured response",
+                n_attempts=4,
+                total_usage=0,
+            )
+        return SimpleNamespace(
+            terms=["identifierless node"],
+            reasoning="The second response is valid.",
+            evidence_level="sample",
+        )
+
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create)),
+        close=lambda: None,
+    )
+    host_policy, taxonomy_path = _minimal_host_components(tmp_path)
+    isolation_source_policy = _isolation_source_policy(tmp_path)
+
+    def isolation_source_factory(
+        policy: IsolationSourcePromptPolicy,
+        bundle_path: Path,
+        logger: object,
+    ) -> IsolationSourceStandardizer:
+        standardizer = IsolationSourceStandardizer(
+            policy,
+            bundle_path,
+            client=None,
+            llm_settings=LLMSettings(None, None, "test-model"),
+            result_logger=logger,
+        )
+        standardizer.pipeline.client = client
+        return standardizer
+
+    built = _build_dataset(
+        tmp_path,
+        [
+            _dated_record(
+                "FAILED_CLASSIFICATION",
+                iso_attr_orig="isolation_source",
+                iso_val_orig="unresolved material",
+            ),
+            _dated_record(
+                "RECOVERED_CLASSIFICATION",
+                iso_attr_orig="isolation_source",
+                iso_val_orig="unresolved material",
+            ),
+        ],
+        (StandardizationTarget.DATE, StandardizationTarget.ISOLATION_SOURCE),
+        host_policy=host_policy,
+        isolation_source_policy=isolation_source_policy,
+        host_standardizer_factory=lambda policy, _logger: HostStandardizer(
+            policy,
+            taxonomy_path,
+        ),
+        isolation_source_standardizer_factory=isolation_source_factory,
+    )
+
+    records = {record["accession"]: record for record in built.records}
+    assert tuple(records) == ("FAILED_CLASSIFICATION", "RECOVERED_CLASSIFICATION")
+    assert tuple(
+        records["FAILED_CLASSIFICATION"][column] for column in ISOLATION_SOURCE_COLUMNS
+    ) == ("",) * len(ISOLATION_SOURCE_COLUMNS)
+    assert records["RECOVERED_CLASSIFICATION"]["iso_term_paths"] == ("environmental:identifierless")
+    assert [call["max_retries"] for call in calls] == [3, 3]
+    assert built.statistics.isolation_source is not None
+    assert built.statistics.isolation_source.aggregate.rejected == 1
+    assert built.statistics.isolation_source.aggregate.standardized == 1
+    assert built.statistics.isolation_source.aggregate.diagnostics == {
+        IsolationSourceDiagnostic.CLASSIFICATION_FAILURE: 1,
+        IsolationSourceDiagnostic.LLM_CALL: 1,
+    }
 
 
 def test_unrequested_targets_omit_columns_instead_of_serializing_empty(
