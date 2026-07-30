@@ -100,9 +100,8 @@ class HostIsolationSourceTiming:
 
 @dataclass(frozen=True, slots=True)
 class HostIsolationSourceFingerprints:
-    """Stable configuration identity and optional canonical model request identity."""
+    """Optional canonical model request identity."""
 
-    configuration: str
     request: str | None
 
 
@@ -205,28 +204,6 @@ class HostIsolationSourceStandardizer:
                 "request_parameters": ISOLATION_SOURCE_LLM_PARAMETERS,
             }
         self._prompt_configuration_fingerprint = canonical_json_sha256(prompt_contract)
-        # These established mapping keys remain stable because they feed request fingerprints.
-        self._configuration_snapshot = {
-            "host": getattr(self._host, "config", {}),
-            "isolation": isolation_source_config,
-            "model_identifier": self._model_identifier,
-            "model_endpoint_sha256": self._model_endpoint_fingerprint,
-            "request_parameters": ISOLATION_SOURCE_LLM_PARAMETERS,
-            "effective_prompts": prompt_contract,
-        }
-        self._configuration_fingerprint = self._fingerprint_configuration()
-
-    def _fingerprint_configuration(self) -> str:
-        return canonical_json_sha256(
-            {
-                "effective_configuration": self._configuration_snapshot,
-                "ontology_fingerprint": self._ontology_fingerprint,
-            }
-        )
-
-    @property
-    def configuration_fingerprint(self) -> str:
-        return self._configuration_fingerprint
 
     @property
     def llm_cache_reads_enabled(self) -> bool:
@@ -247,10 +224,6 @@ class HostIsolationSourceStandardizer:
     @property
     def model_endpoint_fingerprint(self) -> str:
         return self._model_endpoint_fingerprint
-
-    @property
-    def configuration_snapshot(self) -> Mapping[str, object]:
-        return self._configuration_snapshot
 
     def standardize(self, extracted_record: Mapping[str, str]) -> HostIsolationSourceResult:
         """Standardize one extracted metadata record without exposing orchestration steps."""
@@ -334,7 +307,6 @@ class HostIsolationSourceStandardizer:
             ),
             timing=HostIsolationSourceTiming(elapsed_seconds=perf_counter() - started),
             fingerprints=HostIsolationSourceFingerprints(
-                configuration=self._configuration_fingerprint,
                 request=request_fingerprint,
             ),
         )

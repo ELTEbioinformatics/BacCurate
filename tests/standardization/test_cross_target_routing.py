@@ -85,33 +85,31 @@ def coordinators(
         close()
 
 
-def test_run_identity_agrees_across_construction_routes(
+def test_runtime_settings_agree_across_construction_routes(
     coordinators: SimpleNamespace,
 ) -> None:
-    """One configuration must have one identity, whoever assembled the components."""
+    """One runtime setup must report the same settings through either construction route."""
     public = coordinators.public(FIRST_ENDPOINT)
     adapted = coordinators.from_components(FIRST_ENDPOINT)
 
     assert adapted.model_endpoint_fingerprint == public.model_endpoint_fingerprint
-    assert adapted.configuration_snapshot == public.configuration_snapshot
-    assert adapted.configuration_fingerprint == public.configuration_fingerprint
     assert adapted.model_identifier == public.model_identifier == "test-model"
     assert adapted.llm_cache_reads_enabled == public.llm_cache_reads_enabled
 
 
-def test_run_identity_distinguishes_model_endpoints_on_both_routes(
+def test_model_endpoint_fingerprint_distinguishes_endpoints_on_both_routes(
     coordinators: SimpleNamespace,
 ) -> None:
-    """Two endpoints can answer the same request differently, so they are not one run."""
+    """Two model endpoints must have different fingerprints through either route."""
     first = coordinators.from_components(FIRST_ENDPOINT)
     second = coordinators.from_components(SECOND_ENDPOINT)
 
-    assert first.configuration_fingerprint != second.configuration_fingerprint
+    assert first.model_endpoint_fingerprint != second.model_endpoint_fingerprint
     assert (
-        first.configuration_fingerprint
-        == coordinators.public(FIRST_ENDPOINT).configuration_fingerprint
+        first.model_endpoint_fingerprint
+        == coordinators.public(FIRST_ENDPOINT).model_endpoint_fingerprint
     )
     assert (
-        second.configuration_fingerprint
-        == coordinators.public(SECOND_ENDPOINT).configuration_fingerprint
+        second.model_endpoint_fingerprint
+        == coordinators.public(SECOND_ENDPOINT).model_endpoint_fingerprint
     )
