@@ -4,10 +4,7 @@ Render the ontology graph as an indented Markdown block for the LLM.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from baccurate.standardization.isolation import OntologyManager
+from baccurate.standardization.isolation_source_ontology import _LegacyOntologyGraph
 
 TOP_LEVEL_ORDER = (
     "environmental",
@@ -22,13 +19,13 @@ def _format_node_line(*, indent: int, display_term: str) -> str:
 
 
 def _walk_tree(
-    ont: OntologyManager,
+    ont: _LegacyOntologyGraph,
     path: str,
     indent: int,
     out: list[str],
 ) -> None:
     meta = ont.node_metadata.get(path, {})
-    # OntologyManager already falls back to the path tail when display_term
+    # The graph loader already falls back to the path tail when display_term
     # is empty, so this is non-empty for every node.
     display_term = (meta.get("display_term") or path.split(":")[-1]).strip()
     out.append(_format_node_line(indent=indent, display_term=display_term))
@@ -37,7 +34,7 @@ def _walk_tree(
 
 
 def _walk_notes(
-    ont: OntologyManager,
+    ont: _LegacyOntologyGraph,
     path: str,
     out: list[str],
 ) -> None:
@@ -50,7 +47,7 @@ def _walk_notes(
         _walk_notes(ont, child, out)
 
 
-def _ordered_roots(ont: OntologyManager) -> list[str]:
+def _ordered_roots(ont: _LegacyOntologyGraph) -> list[str]:
     """Top-level branches in TOP_LEVEL_ORDER, with any extras appended."""
     roots = list(ont.children_map.get("", []))
     ordered: list[str] = []
@@ -63,7 +60,7 @@ def _ordered_roots(ont: OntologyManager) -> list[str]:
     return ordered
 
 
-def render_ontology(ont: OntologyManager) -> str:
+def render_ontology(ont: _LegacyOntologyGraph) -> str:
     """Return the ontology as two sections: a tree and a notes list."""
     roots = _ordered_roots(ont)
 
@@ -81,7 +78,7 @@ def render_ontology(ont: OntologyManager) -> str:
     return "\n".join(parts)
 
 
-def valid_term_paths(ont: OntologyManager) -> list[str]:
+def valid_term_paths(ont: _LegacyOntologyGraph) -> list[str]:
     """All term paths the LLM is allowed to return, in render order."""
     seen: list[str] = []
 
@@ -95,7 +92,7 @@ def valid_term_paths(ont: OntologyManager) -> list[str]:
     return seen
 
 
-def valid_display_terms(ont: OntologyManager) -> list[str]:
+def valid_display_terms(ont: _LegacyOntologyGraph) -> list[str]:
     """Every display name the LLM may emit, in the same order as the rendered tree."""
     paths = valid_term_paths(ont)
     out: list[str] = []

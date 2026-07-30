@@ -20,6 +20,7 @@ from typing import Literal
 import instructor
 import openai
 import pandas as pd
+from instructor.core import InstructorRetryException
 from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator
 
 from baccurate.adapters.llm.client import LLMSettings, load_llm_client, load_llm_settings
@@ -333,7 +334,7 @@ def _parse_isolation_source_prompt_policy(
         bioproject_system=bioproject_system,
         bioproject_user_template=bioproject_user,
     )
-    ontology = IsolationSourceOntology(ontology_path)
+    ontology = _LegacyIsolationSourceOntology(ontology_path)
     return IsolationSourcePromptPolicy(
         schema_version=1,
         prompt_version=prompt_version,
@@ -349,27 +350,6 @@ def _parse_isolation_source_prompt_policy(
         configured_ontology_tsv_path=configured_ontology_value,
         configured_cache_db_path=configured_cache_value,
     )
-
-
-def ontology_semantics_fingerprint(
-    node_metadata: Mapping[str, Mapping[str, object]],
-    children_map: Mapping[str, list[str]],
-    crosslink_map: Mapping[str, list[str]],
-) -> str:
-    """Fingerprint parsed ontology meaning independently of TSV formatting."""
-    nodes = {
-        term_path: {
-            **metadata,
-            "synonyms": sorted(metadata.get("synonyms", [])),
-        }
-        for term_path, metadata in sorted(node_metadata.items())
-    }
-    hierarchy = {parent: sorted(children) for parent, children in sorted(children_map.items())}
-    crosslinks = {
-        source_term_path: sorted(targets)
-        for source_term_path, targets in sorted(crosslink_map.items())
-    }
-    return canonical_json_sha256({"nodes": nodes, "hierarchy": hierarchy, "crosslinks": crosslinks})
 
 
 # --- Data structures ---
@@ -444,8 +424,13 @@ class IsolationSourceDiagnostic(StrEnum):
     EXACT_MATCH = "exact_match"
     CACHE_HIT = "cache_hit"
     LLM_CALL = "llm_call"
+    CLASSIFICATION_FAILURE = "classification_failure"
     UNSPECIFIED = "unspecified"
     UNRESOLVED_BIOPROJECT_LINK = "unresolved_bioproject_link"
+
+
+class _IsolationSourceClassificationError(RuntimeError):
+    """A classifier response that remains unusable after validation retries."""
 
 
 def _parse_supporting_pairs(
@@ -744,7 +729,7 @@ class SQLiteCache(SQLiteKVCache):
 # --- Ontology graph ---
 
 
-class IsolationSourceOntology:
+class _LegacyIsolationSourceOntology:
     """Parse the ontology TSV into a tree with crosslinks and lookup indexes."""
 
     def __init__(self, ontology_tsv_path: Path | str):
@@ -977,7 +962,7 @@ class LLMClassifier:
     def __init__(
         self,
         policy: IsolationSourcePromptPolicy,
-        ontology: IsolationSourceOntology,
+        ontology: _LegacyIsolationSourceOntology,
         cache_manager: SQLiteCache,
         result_logger: logging.Logger | None = None,
         client: object = _LOAD_CONFIGURED_CLIENT,
@@ -1188,6 +1173,7 @@ class LLMClassifier:
                             response_model=response_schema,
                             messages=list(request.messages),
                             **request.parameters,
+                            max_retries=3,
                         )
                     evidence_level = IsolationSourceEvidenceLevel(resp.evidence_level)
                     if evidence_level not in permitted_evidence_levels:
@@ -1205,10 +1191,13 @@ class LLMClassifier:
                         claimed_level=evidence_level,
                     )
                     call.accepted()
+                except InstructorRetryException as e:
+                    call.validation_retries_exhausted()
+                    raise _IsolationSourceClassificationError(
+                        f"Isolation-source LLM failed for accession {accession}"
+                    ) from e
                 except Exception as e:
-                    if isinstance(e, openai.APIError):
-                        call.validation_retries_exhausted()
-                    else:
+                    if not isinstance(e, openai.APIError):
                         call.failed(LLMFailureCategory.INVALID_MODEL_RESPONSE)
                     raise RuntimeError(
                         f"Isolation-source LLM failed for accession {accession}"
@@ -1303,7 +1292,7 @@ class IsolationSourceStandardizer:
 
         self.cache = SQLiteCache(policy.cache_db_path)
         try:
-            self.ontology = IsolationSourceOntology(policy.ontology_tsv_path)
+            self.ontology = _LegacyIsolationSourceOntology(policy.ontology_tsv_path)
             self.pipeline = LLMClassifier(
                 policy,
                 self.ontology,
@@ -1370,13 +1359,16 @@ class IsolationSourceStandardizer:
             return IsolationSourceRejection(tuple(diagnostics))
 
         before = dict(self.pipeline.stats)
-        standardized = self.pipeline.standardize_record(
-            accession,
-            "||".join(pair.attribute for pair in supporting_pairs),
-            "||".join(pair.value for pair in supporting_pairs),
-            host_context,
-            project_contexts,
-        )
+        try:
+            standardized = self.pipeline.standardize_record(
+                accession,
+                "||".join(pair.attribute for pair in supporting_pairs),
+                "||".join(pair.value for pair in supporting_pairs),
+                host_context,
+                project_contexts,
+            )
+        except _IsolationSourceClassificationError:
+            return IsolationSourceRejection((IsolationSourceDiagnostic.CLASSIFICATION_FAILURE,))
         exact_matches = self.pipeline.stats["exact_matches"] - before["exact_matches"]
         cache_hits = self.pipeline.stats["cache_hits"] - before["cache_hits"]
         llm_calls = self.pipeline.stats["llm_calls"] - before["llm_calls"]
