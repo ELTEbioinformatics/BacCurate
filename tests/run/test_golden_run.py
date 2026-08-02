@@ -196,8 +196,8 @@ def _write_runtime_config(
     return destination
 
 
-def _golden_bytes(golden_run_fixture_dir: Path, name: str) -> bytes:
-    return (golden_run_fixture_dir / "expected" / name).read_bytes()
+def _golden_text(golden_run_fixture_dir: Path, name: str) -> str:
+    return (golden_run_fixture_dir / "expected" / name).read_text(encoding="utf-8")
 
 
 def _tsv_rows(path: Path) -> tuple[tuple[str, ...], ...]:
@@ -350,7 +350,7 @@ def test_all_standardization_targets_match_golden_run(
     assert all(len(row) == len(dataset_tsv_rows[0]) for row in dataset_tsv_rows)
     expected_dataset_tsv_rows = _tsv_rows(golden_run_fixture_dir / "expected" / "final.tsv")
     assert dataset_tsv_rows == _pad_trailing_empty_fields(expected_dataset_tsv_rows)
-    assert reasoning.read_bytes() == _golden_bytes(
+    assert reasoning.read_text(encoding="utf-8") == _golden_text(
         golden_run_fixture_dir, "isolation_source_reasoning.jsonl"
     )
     with destination.open(encoding="utf-8", newline="") as stream:
