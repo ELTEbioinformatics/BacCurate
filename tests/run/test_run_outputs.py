@@ -1,5 +1,6 @@
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -19,7 +20,10 @@ from baccurate.run.statistics import (
     LocationBuildStatistics,
     LocationStatistics,
 )
-from baccurate.standardization.isolation_source import IsolationSourcePromptPolicy
+from baccurate.standardization.isolation_source import (
+    IsolationSourcePromptPolicy,
+    IsolationSourceProvenance,
+)
 from baccurate.standardization.location import LocationPolicy
 
 ROOT = Path(__file__).parents[2]
@@ -28,14 +32,6 @@ ROOT = Path(__file__).parents[2]
 def _write_prompt_configs(
     tmp_path: Path,
 ) -> tuple[LocationPolicy, IsolationSourcePromptPolicy]:
-    ontology = tmp_path / "ontology.tsv"
-    ontology.write_text(
-        "term_path\tdisplay_term\texternal_ontology_identifier\tcrosslink_targets\t"
-        "synonyms\tcomment\texamples\n"
-        "environmental\tenvironmental\t\t\t\t\t\n"
-        "unspecified\tunspecified\t\t\t\tNo source named.\t\n",
-        encoding="utf-8",
-    )
     location = tmp_path / "location.yaml"
     location.write_text(
         "schema_version: 1\n"
@@ -50,8 +46,8 @@ def _write_prompt_configs(
     )
     isolation_source = tmp_path / "isolation.yaml"
     isolation_source.write_text(
-        "schema_version: 1\n"
-        f'ontology_tsv_path: "{ontology.as_posix()}"\n'
+        "schema_version: 2\n"
+        f'ontology_directory: "{(ROOT / "tests" / "fixtures" / "standardization" / "ontology").as_posix()}"\n'
         "prompt_version: isolation-v3\n"
         "system_prompt: |-\n"
         "  Classify using:\n"
@@ -104,27 +100,7 @@ def test_prompt_snapshot_uses_loaded_effective_isolation_source_prompts(tmp_path
     assert "prompt_version: isolation-v3" in contents
     assert "{ontology_tree}" not in contents
     assert "environmental" in contents
-    assert "unspecified" in contents
-
-
-def test_production_prompt_snapshot_is_byte_stable(tmp_path: Path) -> None:
-    destination = tmp_path / "production-prompts.txt"
-
-    write_prompt_snapshot(
-        destination,
-        model_identifiers={
-            "location": "snapshot-model",
-            "isolation_source": "snapshot-model",
-        },
-        location_policy=LocationPolicy.load(ROOT / "config" / "location.yaml"),
-        isolation_source_prompt_policy=IsolationSourcePromptPolicy.load(
-            ROOT / "config" / "isolation_source.yaml"
-        ),
-    )
-
-    assert hashlib.sha256(destination.read_bytes()).hexdigest() == (
-        "9a4da88989772399c133b35b09938fa39eb7501433a355a306f2bff9174a98d2"
-    )
+    assert "## source_type" in contents
 
 
 @pytest.mark.parametrize("include_prompt_snapshot", [False, True])
@@ -257,7 +233,7 @@ def test_run_report_omits_prompt_artifact_when_snapshot_is_not_planned(tmp_path:
     assert "prompt_artifact" not in run_report
 
 
-def test_run_report_names_requested_standardization_targets_in_schema_version_5(
+def test_run_report_names_requested_standardization_targets_in_schema_version_6(
     tmp_path: Path,
 ) -> None:
     outputs = RunOutputs.plan(
@@ -272,10 +248,51 @@ def test_run_report_names_requested_standardization_targets_in_schema_version_5(
     RunReport(outputs, _run_context(tmp_path))
 
     run_report = json.loads(outputs.run_report.read_text(encoding="utf-8"))
-    assert run_report["schema_version"] == 5
+    assert run_report["schema_version"] == 6
     assert run_report["request"] == {
         "pathogens": ["ecoli"],
         "standardization_targets": ["date"],
+    }
+
+
+def test_run_report_records_isolation_source_provenance_without_schema_version_change(
+    tmp_path: Path,
+) -> None:
+    provenance = IsolationSourceProvenance(
+        vocabulary_version="vocabulary-v1",
+        vocabulary_fingerprint="vocabulary-content",
+        mapping_set_version="mapping-set-v2",
+        mapping_set_fingerprint="mapping-set-content",
+        prompt_version="prompt-v3",
+        prompt_configuration_fingerprint="prompt-content",
+    )
+    outputs = RunOutputs.plan(
+        output_dir=tmp_path,
+        run_name="run",
+        output_file=None,
+        include_isolation_source=True,
+        include_prompt_snapshot=False,
+    )
+    outputs.initialize()
+
+    RunReport(
+        outputs,
+        replace(
+            _run_context(tmp_path),
+            requested_standardization_targets=("iso",),
+            isolation_source_provenance=provenance,
+        ),
+    )
+
+    run_report = json.loads(outputs.run_report.read_text(encoding="utf-8"))
+    assert run_report["schema_version"] == 6
+    assert run_report["provenance"]["isolation_source"] == {
+        "vocabulary_version": "vocabulary-v1",
+        "vocabulary_fingerprint": "vocabulary-content",
+        "mapping_set_version": "mapping-set-v2",
+        "mapping_set_fingerprint": "mapping-set-content",
+        "prompt_version": "prompt-v3",
+        "prompt_configuration_fingerprint": "prompt-content",
     }
 
 

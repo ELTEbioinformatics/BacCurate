@@ -14,6 +14,6 @@ def test_fixture_policies_select_fixture_sized_reference_resources(
         == standardization_fixture_resources.geographic_locations
     )
     assert (
-        fixture_isolation_source_prompt_policy.ontology_tsv_path
-        == standardization_fixture_resources.isolation_source_ontology
+        fixture_isolation_source_prompt_policy.ontology_directory
+        == standardization_fixture_resources.isolation_source_ontology_directory
     )

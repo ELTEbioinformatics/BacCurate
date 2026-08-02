@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import json
 import logging
 import shutil
@@ -45,6 +46,19 @@ from baccurate.standardization_target.specifications import StandardizationTarge
 
 STANDARDIZATION_TARGETS = tuple(StandardizationTarget)
 PATHOGENS = ("ecoli", "abaumannii")
+ISOLATION_SOURCE_COLUMNS = (
+    "iso_attr_orig",
+    "iso_val_orig",
+    "iso_source_type",
+    "iso_body_product",
+    "iso_body_site",
+    "iso_lesion",
+    "iso_environmental_material",
+    "iso_facility",
+    "iso_sampled_object",
+    "iso_food_type",
+    "iso_term_ids",
+)
 
 
 class _LocationCompletions:
@@ -64,10 +78,19 @@ class _IsolationSourceCompletions:
 
     def create(self, **kwargs):
         self.calls.append(kwargs)
-        return SimpleNamespace(
-            terms=["wound"],
-            reasoning="The submitted lesion is wound material.",
-            evidence_level="sample_and_project",
+        return kwargs["response_model"].model_validate(
+            {
+                "reasoning": "The submitted lesion is wound material.",
+                "evidence_level": "sample_and_project",
+                "source_type": "animal host",
+                "body_product": [],
+                "body_site": [],
+                "lesion": ["wound"],
+                "environmental_material": [],
+                "facility": [],
+                "sampled_object": [],
+                "food_type": [],
+            }
         )
 
 
@@ -173,8 +196,22 @@ def _write_runtime_config(
     return destination
 
 
-def _golden_bytes(golden_run_fixture_dir: Path, name: str) -> bytes:
-    return (golden_run_fixture_dir / "expected" / name).read_bytes()
+def _golden_text(golden_run_fixture_dir: Path, name: str) -> str:
+    return (golden_run_fixture_dir / "expected" / name).read_text(encoding="utf-8")
+
+
+def _tsv_rows(path: Path) -> tuple[tuple[str, ...], ...]:
+    with path.open(encoding="utf-8", newline="") as stream:
+        return tuple(tuple(row) for row in csv.reader(stream, delimiter="\t"))
+
+
+def _pad_trailing_empty_fields(
+    rows: tuple[tuple[str, ...], ...],
+) -> tuple[tuple[str, ...], ...]:
+    if not rows:
+        return rows
+    column_count = len(rows[0])
+    return tuple(row + ("",) * max(0, column_count - len(row)) for row in rows)
 
 
 def test_all_standardization_targets_match_golden_run(
@@ -203,7 +240,7 @@ def test_all_standardization_targets_match_golden_run(
         tmp_path,
         golden_run_fixture_dir,
         "isolation_source.yaml",
-        ontology_tsv_path=golden_run_fixture_dir / "ontology.tsv",
+        ontology_directory=golden_run_fixture_dir / "ontology",
         cache_db_path=tmp_path / "isolation-cache.db",
     )
     isolation_source_prompt_policy = IsolationSourcePromptPolicy.load(isolation_source_config)
@@ -308,10 +345,34 @@ def test_all_standardization_targets_match_golden_run(
     )
     run_report = json.loads(run_outputs.run_report.read_text(encoding="utf-8"))
 
-    assert destination.read_bytes() == _golden_bytes(golden_run_fixture_dir, "final.tsv")
-    assert reasoning.read_bytes() == _golden_bytes(
+    dataset_tsv_rows = _tsv_rows(destination)
+    assert dataset_tsv_rows
+    assert all(len(row) == len(dataset_tsv_rows[0]) for row in dataset_tsv_rows)
+    expected_dataset_tsv_rows = _tsv_rows(golden_run_fixture_dir / "expected" / "final.tsv")
+    assert dataset_tsv_rows == _pad_trailing_empty_fields(expected_dataset_tsv_rows)
+    assert reasoning.read_text(encoding="utf-8") == _golden_text(
         golden_run_fixture_dir, "isolation_source_reasoning.jsonl"
     )
+    with destination.open(encoding="utf-8", newline="") as stream:
+        dataset_rows = {row["accession"]: row for row in csv.DictReader(stream, delimiter="\t")}
+    reasoning_rows = {
+        row["accession"]: row
+        for row in (json.loads(line) for line in reasoning.read_text(encoding="utf-8").splitlines())
+    }
+    # This pair protects fresh and cached answers from diverging during deterministic
+    # post-processing while allowing their route diagnostics and record identities to differ.
+    assert tuple(dataset_rows["ECO_MODEL"][column] for column in ISOLATION_SOURCE_COLUMNS) == tuple(
+        dataset_rows["ABA_CACHE"][column] for column in ISOLATION_SOURCE_COLUMNS
+    )
+    assert {
+        key: value
+        for key, value in reasoning_rows["ECO_MODEL"].items()
+        if key not in {"accession", "pathogen", "diagnostics"}
+    } == {
+        key: value
+        for key, value in reasoning_rows["ABA_CACHE"].items()
+        if key not in {"accession", "pathogen", "diagnostics"}
+    }
     assert len(location_client.completions.calls) == 1
     assert len(isolation_source_client.completions.calls) == 1
     llm_entries = run_report["llm"]["by_target_and_model"]

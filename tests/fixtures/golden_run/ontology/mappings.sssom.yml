@@ -1,0 +1,17 @@
+mapping_set_id: https://example.org/baccurate/golden-fixture-mappings.tsv
+mapping_set_version: golden-v2
+mapping_set_title: Golden fixture isolation-source mappings
+mapping_set_description: Compact mappings for the golden run.
+mapping_date: "2026-07-31"
+license: https://opensource.org/license/mit/
+subject_source: baccurate:terms.tsv
+subject_source_version: golden-v2
+comment: Fixture-only mappings.
+curie_map:
+  baccurate: https://example.org/baccurate/
+  ENVO: http://purl.obolibrary.org/obo/ENVO_
+  FOODON: http://purl.obolibrary.org/obo/FOODON_
+  UBERON: http://purl.obolibrary.org/obo/UBERON_
+  obo: http://purl.obolibrary.org/obo/
+  semapv: https://w3id.org/semapv/vocab/
+  skos: http://www.w3.org/2004/02/skos/core#

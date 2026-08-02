@@ -1,5 +1,6 @@
-schema_version: 1
-prompt_version: fixture-v1
+schema_version: 2
+prompt_version: fixture-v2
+ontology_directory: tests/fixtures/standardization/ontology
 system_prompt: |
   Classify isolation-source evidence using this ontology:
   {ontology_tree}

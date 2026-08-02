@@ -33,8 +33,8 @@ from baccurate.standardization.isolation_source import (
     IsolationSourceReasoningStep,
     IsolationSourceRejection,
     IsolationSourceStandardizer,
-    ontology_semantics_fingerprint,
 )
+from baccurate.standardization.isolation_source_ontology import ontology_semantics_fingerprint
 
 # None disables the LLM path here.
 _LOAD_LLM_ADAPTER = object()
@@ -183,27 +183,17 @@ class HostIsolationSourceStandardizer:
         if ontology is None:
             # A real IsolationSourceStandardizer always carries an ontology; test doubles need
             # not. Fingerprint the empty graph so identity stays well defined.
-            self._ontology_fingerprint = ontology_semantics_fingerprint({}, {}, {})
+            self._ontology_fingerprint = ontology_semantics_fingerprint(None)
             prompt_contract = {
                 "isolation_configuration": isolation_source_config,
                 "request_parameters": ISOLATION_SOURCE_LLM_PARAMETERS,
             }
+            self._prompt_configuration_fingerprint = canonical_json_sha256(prompt_contract)
         else:
-            self._ontology_fingerprint = ontology_semantics_fingerprint(
-                ontology.node_metadata,
-                ontology.children_map,
-                ontology.crosslink_map,
+            self._ontology_fingerprint = ontology_semantics_fingerprint(ontology)
+            self._prompt_configuration_fingerprint = (
+                isolation_source_policy.prompt_configuration_fingerprint
             )
-            prompts = isolation_source_policy.effective_prompts
-            prompt_contract = {
-                "prompt_version": isolation_source_config.get("prompt_version"),
-                "system_prompt": prompts.system,
-                "user_prompt_template": prompts.user_template,
-                "bioproject_system_prompt": prompts.bioproject_system,
-                "bioproject_user_prompt_template": prompts.bioproject_user,
-                "request_parameters": ISOLATION_SOURCE_LLM_PARAMETERS,
-            }
-        self._prompt_configuration_fingerprint = canonical_json_sha256(prompt_contract)
 
     @property
     def llm_cache_reads_enabled(self) -> bool:
@@ -246,9 +236,9 @@ class HostIsolationSourceStandardizer:
         )
 
         # 2nd host pass
-        # A term path under HOST_RECOVERY_TRIGGERS means the organism is named in the
-        # isolation-source values themselves, so run a host recovery pass over the record's
-        # own raw pairs, excluding overflow and project text, which the first host pass already saw.
+        # An eligible isolation-source result means the organism is named in the submitted
+        # values. Retry only the record's own pairs, excluding text that
+        # the first host pass already saw.
         final_host = initial_host
         recovery_routing = HostRecoveryRouting.NOT_ELIGIBLE
         host_diagnostics = initial_host.diagnostics

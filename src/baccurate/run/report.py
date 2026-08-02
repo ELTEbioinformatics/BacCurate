@@ -30,6 +30,7 @@ from baccurate.provenance.source_snapshot import (
 )
 from baccurate.run.outputs import RunOutputs
 from baccurate.run.statistics import DatasetBuildProgress, DatasetBuildStatistics
+from baccurate.standardization.isolation_source import IsolationSourceProvenance
 from baccurate.standardization_target.specifications import TARGET_SPECS, StandardizationTarget
 
 
@@ -51,6 +52,7 @@ class RunContext:
     skip_llm: bool
     model_identifiers: Mapping[str, str | None]
     trace_llm_calls: bool = False
+    isolation_source_provenance: IsolationSourceProvenance | None = None
 
 
 class RunStatus(StrEnum):
@@ -94,7 +96,7 @@ class RunReport:
         }
         timestamp = _local_timestamp()
         self._document: dict[str, object] = {
-            "schema_version": 5,
+            "schema_version": 6,
             "status": RunStatus.RUNNING.value,
             "phase": RunPhase.STARTING.value,
             "started_at": timestamp,
@@ -139,6 +141,10 @@ class RunReport:
                 "path": str(outputs.prompt_snapshot),
                 "sha256": sha256_file(outputs.prompt_snapshot),
             }
+        if context.isolation_source_provenance is not None:
+            self._document["provenance"] = {
+                "isolation_source": _stable_json_value(context.isolation_source_provenance)
+            }
         self._write()
 
     def transition(self, phase: RunPhase) -> None:
@@ -156,10 +162,12 @@ class RunReport:
         elapsed_seconds: float,
     ) -> None:
         """Record what a completed extraction produced."""
-        self._document["provenance"] = _provenance_document(
-            biosample_snapshot_id=report.biosample_snapshot_id,
-            bioproject_snapshot_id=report.bioproject_snapshot_id,
-            metadata_reference_date=report.metadata_reference_date,
+        self._update_provenance(
+            _provenance_document(
+                biosample_snapshot_id=report.biosample_snapshot_id,
+                bioproject_snapshot_id=report.bioproject_snapshot_id,
+                metadata_reference_date=report.metadata_reference_date,
+            )
         )
         self._document["extraction"] = _extraction_document(
             mode="performed",
@@ -258,11 +266,19 @@ class RunReport:
         biosample_manifest: SourceSnapshotManifest,
         bioproject_manifest: SourceSnapshotManifest,
     ) -> None:
-        self._document["provenance"] = _provenance_document(
-            biosample_snapshot_id=biosample_manifest.snapshot_id,
-            bioproject_snapshot_id=bioproject_manifest.snapshot_id,
-            metadata_reference_date=biosample_manifest.metadata_reference_date,
+        self._update_provenance(
+            _provenance_document(
+                biosample_snapshot_id=biosample_manifest.snapshot_id,
+                bioproject_snapshot_id=bioproject_manifest.snapshot_id,
+                metadata_reference_date=biosample_manifest.metadata_reference_date,
+            )
         )
+
+    def _update_provenance(self, values: Mapping[str, object]) -> None:
+        provenance = self._document.setdefault("provenance", {})
+        if not isinstance(provenance, dict):
+            raise TypeError("Run report provenance must be a mapping")
+        provenance.update(values)
 
     def finish(
         self,
