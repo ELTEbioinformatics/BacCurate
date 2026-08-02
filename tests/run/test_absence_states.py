@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import shutil
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import date
@@ -11,6 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 import yaml
+from instructor.core import InstructorRetryException
 
 from baccurate.adapters.llm.client import LLMSettings
 from baccurate.extraction import CurationDecision, CurationEvent, CurationSchema
@@ -34,15 +36,17 @@ from baccurate.run.statistics import DatasetBuildStatistics
 from baccurate.standardization.host import HostPolicy, HostStandardizer
 from baccurate.standardization.host_lineage import HostLineage
 from baccurate.standardization.isolation_source import (
+    IsolationSourceDiagnostic,
     IsolationSourcePromptPolicy,
     IsolationSourceStandardizer,
 )
+from baccurate.standardization.isolation_source_ontology import IsolationSourceOntology
 from baccurate.standardization.location import (
     LocationDiagnostic,
     LocationPolicy,
     LocationStandardizer,
 )
-from baccurate.standardization_target.specifications import StandardizationTarget
+from baccurate.standardization_target.specifications import TARGET_SPECS, StandardizationTarget
 
 ROOT = Path(__file__).parents[2]
 CURATION_SCHEMA_PATH = ROOT / "config" / "curation_schema.yaml"
@@ -66,9 +70,15 @@ LOCATION_COLUMNS = (
 ISOLATION_SOURCE_COLUMNS = (
     "iso_attr_orig",
     "iso_val_orig",
-    "iso_term_paths",
-    "iso_display_terms",
-    "iso_external_ontology_identifiers",
+    "iso_source_type",
+    "iso_body_product",
+    "iso_body_site",
+    "iso_lesion",
+    "iso_environmental_material",
+    "iso_facility",
+    "iso_sampled_object",
+    "iso_food_type",
+    "iso_term_ids",
 )
 HOST_COLUMNS = (
     "host_attr_orig",
@@ -103,6 +113,7 @@ class _BuiltDataset:
     columns: tuple[str, ...]
     records: tuple[dict[str, str], ...]
     statistics: DatasetBuildStatistics
+    content: bytes
 
 
 @pytest.fixture(scope="module")
@@ -241,7 +252,7 @@ def _build_dataset(
         reader = csv.DictReader(stream, delimiter="\t")
         records = tuple(dict(record) for record in reader)
         columns = tuple(reader.fieldnames or ())
-    return _BuiltDataset(columns, records, statistics)
+    return _BuiltDataset(columns, records, statistics, destination.read_bytes())
 
 
 def _dated_record(accession: str, **metadata: str) -> dict[str, str]:
@@ -297,16 +308,10 @@ def _minimal_host_components(tmp_path: Path) -> tuple[HostPolicy, Path]:
 
 def _isolation_source_policy(tmp_path: Path) -> IsolationSourcePromptPolicy:
     tmp_path.mkdir(parents=True, exist_ok=True)
-    ontology_path = tmp_path / "ontology.tsv"
-    ontology_path.write_text(
-        "term_path\tdisplay_term\texternal_ontology_identifier\t"
-        "crosslink_targets\tsynonyms\tcomment\n"
-        "environmental:identifierless\tidentifierless node\t\t\t\t\n",
-        encoding="utf-8",
-    )
     return replace(
-        IsolationSourcePromptPolicy.load(ISOLATION_SOURCE_POLICY_PATH),
-        ontology_tsv_path=ontology_path,
+        IsolationSourcePromptPolicy.load(
+            ROOT / "tests" / "fixtures" / "standardization" / "isolation_source.yaml"
+        ),
         cache_db_path=tmp_path / "isolation-source-cache.db",
     )
 
@@ -337,6 +342,144 @@ def _build_isolation_source_dataset(
             )
         ),
     )
+
+
+def test_isolation_source_outcome_projects_eleven_columns_in_facet_order(
+    tmp_path: Path,
+) -> None:
+    host_policy, taxonomy_path = _minimal_host_components(tmp_path)
+    isolation_source_policy = replace(
+        IsolationSourcePromptPolicy.load(ISOLATION_SOURCE_POLICY_PATH),
+        cache_db_path=tmp_path / "faceted-isolation-source-cache.db",
+    )
+    built = _build_dataset(
+        tmp_path,
+        [
+            _dated_record(
+                "FACETED_SOURCE",
+                iso_attr_orig="material||site||lesion",
+                iso_val_orig="pus||liver||abscess",
+            )
+        ],
+        (StandardizationTarget.DATE, StandardizationTarget.ISOLATION_SOURCE),
+        host_policy=host_policy,
+        isolation_source_policy=isolation_source_policy,
+        host_standardizer_factory=lambda policy, _logger: HostStandardizer(
+            policy,
+            taxonomy_path,
+        ),
+        isolation_source_standardizer_factory=(
+            lambda policy, bundle_path, logger: IsolationSourceStandardizer(
+                policy,
+                bundle_path,
+                client=None,
+                llm_settings=LLMSettings(None, None, "test-model"),
+                result_logger=logger,
+            )
+        ),
+    )
+
+    assert tuple(column for column in built.columns if column.startswith("iso_")) == (
+        "iso_attr_orig",
+        "iso_val_orig",
+        "iso_source_type",
+        "iso_body_product",
+        "iso_body_site",
+        "iso_lesion",
+        "iso_environmental_material",
+        "iso_facility",
+        "iso_sampled_object",
+        "iso_food_type",
+        "iso_term_ids",
+    )
+    assert tuple(built.records[0][column] for column in ISOLATION_SOURCE_COLUMNS) == (
+        "material||site||lesion",
+        "pus||liver||abscess",
+        "host-associated||animal host",
+        "body fluid||pus",
+        "liver",
+        "abscess",
+        "NA",
+        "NA",
+        "NA",
+        "NA",
+        ("BACC:0000001||BACC:0000002||BACC:0000009||BACC:0000017||BACC:0000057||BACC:0000063"),
+    )
+    facet_labels = tuple(
+        label
+        for column in ISOLATION_SOURCE_COLUMNS[2:-1]
+        for label in built.records[0][column].split("||")
+        if label != "NA"
+    )
+    term_id_by_label = {
+        term.label: term.term_id for term in isolation_source_policy.ontology.terms.values()
+    }
+    assert tuple(term_id_by_label[label] for label in facet_labels) == tuple(
+        built.records[0]["iso_term_ids"].split("||")
+    )
+
+
+def test_equivalent_vocabulary_order_produces_byte_stable_dataset(tmp_path: Path) -> None:
+    source_ontology = ROOT / "tests" / "fixtures" / "standardization" / "ontology"
+    built_datasets: list[_BuiltDataset] = []
+
+    for name, reverse_order in (("ordered_a", False), ("ordered_b", True)):
+        build_root = tmp_path / name
+        ontology_directory = build_root / "ontology"
+        shutil.copytree(source_ontology, ontology_directory)
+        if reverse_order:
+            terms_path = ontology_directory / "terms.tsv"
+            lines = terms_path.read_text(encoding="utf-8").splitlines()
+            terms_path.write_text(
+                "\n".join((lines[0], *reversed(lines[1:]))) + "\n",
+                encoding="utf-8",
+            )
+            facets_path = ontology_directory / "facets.yaml"
+            facet_document = yaml.safe_load(facets_path.read_text(encoding="utf-8"))
+            facet_document["facets"] = dict(reversed(tuple(facet_document["facets"].items())))
+            facets_path.write_text(
+                yaml.safe_dump(facet_document, sort_keys=False),
+                encoding="utf-8",
+            )
+
+        host_policy, taxonomy_path = _minimal_host_components(build_root)
+        isolation_source_policy = replace(
+            _isolation_source_policy(build_root),
+            ontology_directory=ontology_directory,
+            ontology=IsolationSourceOntology.load(ontology_directory),
+        )
+        built_datasets.append(
+            _build_dataset(
+                build_root,
+                [
+                    _dated_record(
+                        "DETERMINISTIC_ENRICHMENT",
+                        iso_attr_orig="specimen||isolation_source||anatomical_site",
+                        iso_val_orig="blood||stool||rectal swab",
+                    )
+                ],
+                (StandardizationTarget.DATE, StandardizationTarget.ISOLATION_SOURCE),
+                host_policy=host_policy,
+                isolation_source_policy=isolation_source_policy,
+                host_standardizer_factory=lambda policy, _logger, taxonomy_path=taxonomy_path: (
+                    HostStandardizer(
+                        policy,
+                        taxonomy_path,
+                    )
+                ),
+                isolation_source_standardizer_factory=(
+                    lambda policy, bundle_path, logger: IsolationSourceStandardizer(
+                        policy,
+                        bundle_path,
+                        client=None,
+                        llm_settings=LLMSettings(None, None, "test-model"),
+                        result_logger=logger,
+                    )
+                ),
+            )
+        )
+
+    assert built_datasets[0].content == built_datasets[1].content
 
 
 def test_requested_target_without_outcome_serializes_exact_empty_columns_without_shifting_others(
@@ -387,21 +530,119 @@ def test_requested_target_without_outcome_serializes_exact_empty_columns_without
     )
 
     cases = (
-        (date_without_outcome, DATE_COLUMNS, "loc_country", "Germany"),
-        (location_without_outcome, LOCATION_COLUMNS, "date_start", "2020-01-02"),
-        (host_without_outcome, HOST_COLUMNS, "date_start", "2020-01-02"),
+        (date_without_outcome, StandardizationTarget.DATE, "loc_country", "Germany"),
+        (
+            location_without_outcome,
+            StandardizationTarget.LOCATION,
+            "date_start",
+            "2020-01-02",
+        ),
+        (host_without_outcome, StandardizationTarget.HOST, "date_start", "2020-01-02"),
         (
             isolation_source_without_outcome,
-            ISOLATION_SOURCE_COLUMNS,
+            StandardizationTarget.ISOLATION_SOURCE,
             "date_start",
             "2020-01-02",
         ),
     )
-    for built, absent_columns, preserved_column, preserved_value in cases:
+    for built, target, preserved_column, preserved_value in cases:
         assert len(built.records) == 1
         record = built.records[0]
+        absent_columns = TARGET_SPECS[target].output_columns
+        assert None not in record
         assert tuple(record[column] for column in absent_columns) == ("",) * len(absent_columns)
         assert record[preserved_column] == preserved_value
+
+
+def test_failed_isolation_source_classification_skips_record_and_continues(
+    tmp_path: Path,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def create(**kwargs: object) -> object:
+        calls.append(kwargs)
+        if len(calls) == 1:
+            raise InstructorRetryException(
+                "invalid structured response",
+                n_attempts=4,
+                total_usage=0,
+            )
+        return kwargs["response_model"].model_validate(
+            {
+                "reasoning": "The second response is valid.",
+                "evidence_level": "sample",
+                "source_type": "environmental",
+                "body_product": [],
+                "body_site": [],
+                "lesion": [],
+                "environmental_material": [],
+                "facility": [],
+                "sampled_object": [],
+                "food_type": [],
+            }
+        )
+
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create)),
+        close=lambda: None,
+    )
+    host_policy, taxonomy_path = _minimal_host_components(tmp_path)
+    isolation_source_policy = _isolation_source_policy(tmp_path)
+
+    def isolation_source_factory(
+        policy: IsolationSourcePromptPolicy,
+        bundle_path: Path,
+        logger: object,
+    ) -> IsolationSourceStandardizer:
+        standardizer = IsolationSourceStandardizer(
+            policy,
+            bundle_path,
+            client=None,
+            llm_settings=LLMSettings(None, None, "test-model"),
+            result_logger=logger,
+        )
+        standardizer.pipeline.client = client
+        return standardizer
+
+    built = _build_dataset(
+        tmp_path,
+        [
+            _dated_record(
+                "FAILED_CLASSIFICATION",
+                iso_attr_orig="isolation_source",
+                iso_val_orig="unresolved material",
+            ),
+            _dated_record(
+                "RECOVERED_CLASSIFICATION",
+                iso_attr_orig="isolation_source",
+                iso_val_orig="unresolved material",
+            ),
+        ],
+        (StandardizationTarget.DATE, StandardizationTarget.ISOLATION_SOURCE),
+        host_policy=host_policy,
+        isolation_source_policy=isolation_source_policy,
+        host_standardizer_factory=lambda policy, _logger: HostStandardizer(
+            policy,
+            taxonomy_path,
+        ),
+        isolation_source_standardizer_factory=isolation_source_factory,
+    )
+
+    records = {record["accession"]: record for record in built.records}
+    assert tuple(records) == ("FAILED_CLASSIFICATION", "RECOVERED_CLASSIFICATION")
+    assert tuple(
+        records["FAILED_CLASSIFICATION"][column] for column in ISOLATION_SOURCE_COLUMNS
+    ) == ("",) * len(ISOLATION_SOURCE_COLUMNS)
+    assert records["RECOVERED_CLASSIFICATION"]["iso_source_type"] == "environmental"
+    assert records["RECOVERED_CLASSIFICATION"]["iso_term_ids"] == "BACC:0000004"
+    assert [call["max_retries"] for call in calls] == [3, 3]
+    assert built.statistics.isolation_source is not None
+    assert built.statistics.isolation_source.aggregate.rejected == 1
+    assert built.statistics.isolation_source.aggregate.standardized == 1
+    assert built.statistics.isolation_source.aggregate.diagnostics == {
+        IsolationSourceDiagnostic.CLASSIFICATION_FAILURE: 1,
+        IsolationSourceDiagnostic.LLM_CALL: 1,
+    }
 
 
 def test_unrequested_targets_omit_columns_instead_of_serializing_empty(
@@ -529,7 +770,7 @@ def test_rejected_locations_serialize_as_empty_not_na_while_diagnostics_preserve
     }
 
 
-def test_absent_external_ontology_identifier_serializes_as_na_not_empty(
+def test_unfilled_isolation_source_facets_serialize_as_na_not_empty(
     tmp_path: Path,
 ) -> None:
     built = _build_isolation_source_dataset(
@@ -538,32 +779,40 @@ def test_absent_external_ontology_identifier_serializes_as_na_not_empty(
             _dated_record(
                 "NO_IDENTIFIER",
                 iso_attr_orig="isolation_source",
-                iso_val_orig="identifierless node",
+                iso_val_orig="environmental",
             )
         ],
     )
 
-    assert built.records[0]["iso_term_paths"] == "environmental:identifierless"
-    assert built.records[0]["iso_external_ontology_identifiers"] == "NA"
+    assert built.records[0]["iso_source_type"] == "environmental"
+    assert (
+        tuple(built.records[0][column] for column in ISOLATION_SOURCE_COLUMNS[3:-1]) == ("NA",) * 7
+    )
+    assert built.records[0]["iso_term_ids"] == "BACC:0000004"
 
 
-def test_unspecified_isolation_source_serializes_as_explicit_term_not_empty(
+def test_classified_source_with_no_applicable_facet_serializes_as_na(
     tmp_path: Path,
 ) -> None:
     built = _build_isolation_source_dataset(
         tmp_path,
         [
             _dated_record(
-                "UNSPECIFIED",
+                "EMPTY_FACETS",
                 iso_attr_orig="isolation_source",
                 iso_val_orig="unmapped submitted material",
             )
         ],
     )
 
-    assert built.records[0]["iso_term_paths"] == "unspecified"
-    assert built.records[0]["iso_display_terms"] == "unspecified"
-    assert built.records[0]["iso_external_ontology_identifiers"] == "NA"
+    assert (
+        tuple(built.records[0][column] for column in ISOLATION_SOURCE_COLUMNS[2:-1]) == ("NA",) * 8
+    )
+    assert built.records[0]["iso_term_ids"] == ""
+    assert built.statistics.isolation_source is not None
+    assert built.statistics.isolation_source.aggregate.diagnostics == {
+        IsolationSourceDiagnostic.UNSPECIFIED: 1,
+    }
 
 
 def test_host_absence_and_non_resolution_share_empty_columns_but_run_report_separates_them(

@@ -54,6 +54,7 @@ from baccurate.standardization.isolation_source import (
     IsolationSourceRejection,
     IsolationSourceStandardizer,
 )
+from baccurate.standardization.isolation_source_ontology import IsolationSourceFacet
 from baccurate.standardization.location import (
     LocationDiagnostic,
     LocationOutcome,
@@ -61,10 +62,10 @@ from baccurate.standardization.location import (
     LocationRejection,
     LocationStandardizer,
 )
+from baccurate.standardization_target import specifications as target_specifications
 from baccurate.standardization_target.policy_slot import PolicySlot
 from baccurate.standardization_target.specifications import (
     DATASET_COLUMN_ORDER,
-    TARGET_SPECS,
     StandardizationTarget,
     required_policy_slots,
 )
@@ -175,15 +176,25 @@ class _FinalRowAssembler:
         atb_by_pathogen: Mapping[str, set[str]],
         targets: Sequence[StandardizationTarget],
         pathogen_registry: PathogenRegistry,
+        isolation_source_facets: Sequence[IsolationSourceFacet] = (),
     ):
         self.atb_by_pathogen = atb_by_pathogen
         self._pathogen_registry = pathogen_registry
         self._selected_targets = tuple(targets)
+        self._isolation_source_facets = tuple(isolation_source_facets)
         selected = set(targets)
         self.columns = self.base_columns
         for target in DATASET_COLUMN_ORDER:
             if target in selected:
-                self.columns += TARGET_SPECS[target].output_columns
+                if target is StandardizationTarget.ISOLATION_SOURCE:
+                    self.columns += (
+                        "iso_attr_orig",
+                        "iso_val_orig",
+                        *(facet.output_column for facet in self._isolation_source_facets),
+                        "iso_term_ids",
+                    )
+                else:
+                    self.columns += target_specifications.TARGET_SPECS[target].output_columns
 
     def assemble(
         self,
@@ -245,16 +256,23 @@ class _FinalRowAssembler:
                 )
         if StandardizationTarget.ISOLATION_SOURCE in self._selected_targets:
             if final_row.isolation_source is None:
-                values += ("", "", "", "", "")
+                values += ("",) * (len(self._isolation_source_facets) + 3)
             else:
+                labels_by_facet: dict[str, list[str]] = {
+                    facet.key: [] for facet in self._isolation_source_facets
+                }
+                for term in final_row.isolation_source.selected_terms:
+                    labels_by_facet[term.facet].append(term.label)
                 values += (
                     "||".join(
                         pair.attribute for pair in final_row.isolation_source.supporting_pairs
                     ),
                     "||".join(pair.value for pair in final_row.isolation_source.supporting_pairs),
-                    final_row.isolation_source.term_paths,
-                    final_row.isolation_source.display_terms,
-                    final_row.isolation_source.external_ontology_identifiers,
+                    *(
+                        "||".join(labels_by_facet[facet.key]) or "NA"
+                        for facet in self._isolation_source_facets
+                    ),
+                    "||".join(term.term_id for term in final_row.isolation_source.selected_terms),
                 )
         if StandardizationTarget.HOST in self._selected_targets:
             if final_row.host is None or final_row.host.standardized is None:
@@ -330,6 +348,17 @@ class DatasetBuilder:
         destinations = tuple(
             path for path in (destination, reasoning_destination) if path is not None
         )
+        isolation_source_facets = (
+            tuple(
+                sorted(
+                    request.isolation_source_prompt_policy.ontology.facets.values(),
+                    key=lambda facet: facet.render_order,
+                )
+            )
+            if StandardizationTarget.ISOLATION_SOURCE in targets
+            and request.isolation_source_prompt_policy is not None
+            else ()
+        )
         if not request.overwrite:
             collision = next((path for path in destinations if path.exists()), None)
             if collision is not None:
@@ -350,7 +379,14 @@ class DatasetBuilder:
                 else None
             )
             writer = csv.writer(destination_stream, delimiter="\t", lineterminator="\n")
-            writer.writerow(_FinalRowAssembler({}, targets, request.pathogen_registry).columns)
+            writer.writerow(
+                _FinalRowAssembler(
+                    {},
+                    targets,
+                    request.pathogen_registry,
+                    isolation_source_facets,
+                ).columns
+            )
 
             source_contract = validate_extracted_metadata_bundle(
                 request.extracted_metadata,
@@ -365,6 +401,7 @@ class DatasetBuilder:
                 atb_by_pathogen,
                 targets,
                 request.pathogen_registry,
+                isolation_source_facets,
             )
             date_standardizers = (
                 {
@@ -985,7 +1022,7 @@ def _require_columns(
         "bioproject_accession",
     }
     for target in targets:
-        required.update(TARGET_SPECS[target].input_columns)
+        required.update(target_specifications.TARGET_SPECS[target].input_columns)
     available = set(fieldnames or ())
     missing = sorted(required - available)
     if missing:
@@ -998,6 +1035,11 @@ def _isolation_source_reasoning_json(
     outcome: IsolationSourceOutcome,
 ) -> str:
     """Render an extracted metadata record's isolation-source reasoning as a JSON line."""
+    selected_terms: dict[str, list[dict[str, str]]] = {}
+    for term in outcome.selected_terms:
+        selected_terms.setdefault(term.facet, []).append(
+            {"term_id": term.term_id, "label": term.label}
+        )
     reasoning_record = {
         "accession": accession,
         "pathogen": pathogen,
@@ -1005,10 +1047,7 @@ def _isolation_source_reasoning_json(
             {"attribute": pair.attribute, "value": pair.value} for pair in outcome.supporting_pairs
         ],
         "host_context": outcome.host_context,
-        "term_path_roots": outcome.term_path_roots,
-        "term_paths": outcome.term_paths,
-        "display_terms": outcome.display_terms,
-        "external_ontology_identifiers": outcome.external_ontology_identifiers,
+        "selected_terms": selected_terms,
         "evidence_level": outcome.evidence_level.value,
         "diagnostics": [diagnostic.value for diagnostic in outcome.diagnostics],
         "reasoning": [step.as_dict() for step in outcome.reasoning],

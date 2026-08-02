@@ -1,0 +1,9 @@
+subject_id	subject_label	predicate_id	object_id	mapping_justification	object_source	object_source_version	comment
+BACC:0000010	blood	skos:exactMatch	ENVO:02000020	semapv:ManualMappingCuration	obo:envo.owl	fixture	Fixture mapping.
+BACC:0000041	rectum	skos:exactMatch	UBERON:0001052	semapv:ManualMappingCuration	obo:uberon.owl	fixture	Fixture mapping.
+BACC:0000025	feces	skos:exactMatch	ENVO:00002003	semapv:ManualMappingCuration	obo:envo.owl	fixture	Fixture mapping.
+BACC:0000061	wound	skos:exactMatch	UBERON:0001003	semapv:ManualMappingCuration	obo:uberon.owl	fixture	Fixture mapping.
+BACC:0000065	rhizosphere soil	skos:exactMatch	ENVO:00005801	semapv:ManualMappingCuration	obo:envo.owl	fixture	Fixture mapping.
+BACC:0000064	soil	skos:exactMatch	ENVO:00001998	semapv:ManualMappingCuration	obo:envo.owl	fixture	Fixture mapping.
+BACC:0000095	animal food product	skos:exactMatch	FOODON:00004270	semapv:ManualMappingCuration	obo:foodon.owl	fixture	Fixture mapping.
+BACC:0000097	meat product	skos:exactMatch	FOODON:00001006	semapv:ManualMappingCuration	obo:foodon.owl	fixture	Fixture mapping.

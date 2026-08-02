@@ -89,9 +89,15 @@ TARGET_SPECS: Mapping[StandardizationTarget, TargetSpec] = MappingProxyType(
             output_columns=(
                 "iso_attr_orig",
                 "iso_val_orig",
-                "iso_term_paths",
-                "iso_display_terms",
-                "iso_external_ontology_identifiers",
+                "iso_source_type",
+                "iso_body_product",
+                "iso_body_site",
+                "iso_lesion",
+                "iso_environmental_material",
+                "iso_facility",
+                "iso_sampled_object",
+                "iso_food_type",
+                "iso_term_ids",
             ),
         ),
     }
