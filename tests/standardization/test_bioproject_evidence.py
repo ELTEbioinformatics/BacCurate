@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from instructor.core import InstructorRetryException
 
 from baccurate.adapters.llm.client import LLMSettings
 from baccurate.provenance.source_snapshot import SourceSnapshotError
@@ -19,12 +20,19 @@ from baccurate.standardization.isolation_source import (
     IsolationSourceOutcome,
     IsolationSourcePromptPolicy,
     IsolationSourceStandardizer,
+    SelectedTerm,
 )
 from baccurate.standardization.supporting_attribute_value_pair import SupportingAttributeValuePair
 from baccurate.standardization_target.specifications import StandardizationTarget
 
-FECES = "host-associated:animal host:feces"
-SOIL = "environmental:natural environment:terrestrial:soil"
+FECES = "BACC:0000025"
+SOIL = "BACC:0000064"
+
+FACET_BY_LABEL = {
+    "host-associated": "source_type",
+    "soil": "environmental_material",
+    "wound": "lesion",
+}
 
 
 class _ScriptedCompletions:
@@ -36,7 +44,10 @@ class _ScriptedCompletions:
         if not self._parent.responses:
             raise AssertionError("LLM create() was called unexpectedly")
         response_index = min(len(self._parent.calls) - 1, len(self._parent.responses) - 1)
-        return self._parent.responses[response_index]
+        response = self._parent.responses[response_index]
+        if isinstance(response, Exception):
+            raise response
+        return kwargs["response_model"].model_validate(response)
 
 
 class ScriptedClient:
@@ -54,13 +65,25 @@ class ScriptedClient:
         evidence_level: str,
         reasoning: str = "fixture classification",
     ) -> None:
-        self.responses.append(
-            SimpleNamespace(
-                terms=terms,
-                reasoning=reasoning,
-                evidence_level=evidence_level,
-            )
-        )
+        answer: dict[str, object] = {
+            "reasoning": reasoning,
+            "evidence_level": evidence_level,
+            "source_type": None,
+            "body_product": [],
+            "body_site": [],
+            "lesion": [],
+            "environmental_material": [],
+            "facility": [],
+            "sampled_object": [],
+            "food_type": [],
+        }
+        for term in terms:
+            facet = FACET_BY_LABEL[term]
+            if facet == "source_type":
+                answer[facet] = term
+            else:
+                answer[facet].append(term)
+        self.responses.append(answer)
 
     def close(self) -> None:
         pass
@@ -146,7 +169,7 @@ def test_dataset_build_preserves_evidence_levels_artifacts_and_statistics(
     client.respond_with(["soil"], evidence_level="project")
     client.respond_with(["host-associated"], evidence_level="sample")
     client.respond_with(["soil"], evidence_level="project")
-    client.respond_with(["unspecified"], evidence_level="project")
+    client.respond_with([], evidence_level="none")
     run = _build_isolation_source_run(
         tmp_path,
         rows=[
@@ -228,11 +251,15 @@ def test_dataset_build_preserves_evidence_levels_artifacts_and_statistics(
     rows = _dataset_rows(run.dataset)
     reasoning = _reasoning_rows(run.reasoning)
     assert len(client.calls) == 4
-    assert rows["SAMPLE_ONLY"]["iso_term_paths"] == FECES
-    assert rows["PROJECT_ONLY"]["iso_term_paths"] == SOIL
-    assert rows["HOST_ONLY"]["iso_term_paths"] == "host-associated"
-    assert set(rows["SAMPLE_AND_PROJECT"]["iso_term_paths"].split("||")) == {FECES, SOIL}
-    assert rows["UNINFORMATIVE_PROJECT"]["iso_display_terms"] == "unspecified"
+    assert rows["SAMPLE_ONLY"]["iso_body_product"] == "feces"
+    assert rows["SAMPLE_ONLY"]["iso_term_ids"] == (f"BACC:0000001||BACC:0000002||{FECES}")
+    assert rows["PROJECT_ONLY"]["iso_environmental_material"] == "soil"
+    assert rows["PROJECT_ONLY"]["iso_term_ids"] == f"BACC:0000004||{SOIL}"
+    assert rows["HOST_ONLY"]["iso_source_type"] == "host-associated"
+    assert rows["SAMPLE_AND_PROJECT"]["iso_term_ids"] == (
+        f"BACC:0000001||BACC:0000002||{FECES}||{SOIL}"
+    )
+    assert rows["UNINFORMATIVE_PROJECT"]["iso_source_type"] == "NA"
     assert "UNRESOLVED_PROJECT" not in rows
     assert {accession: record["evidence_level"] for accession, record in reasoning.items()} == {
         "SAMPLE_ONLY": "sample",
@@ -333,10 +360,8 @@ def test_dataset_build_orders_resolved_bioproject_context_and_includes_it_in_req
     assert [project["accession"] for project in first_context] == ["PRJNA100", "PRJNA300"]
 
 
-@pytest.mark.parametrize("invalid_evidence_level", ["sample", "sample_and_project", "none"])
-def test_dataset_build_rejects_invalid_project_only_evidence_claim(
+def test_dataset_build_skips_project_only_response_after_validation_retries(
     tmp_path: Path,
-    invalid_evidence_level: str,
     extracted_metadata_bundle_factory,
     fixture_dataset_builder_factory,
     fixture_host_policy,
@@ -345,36 +370,45 @@ def test_dataset_build_rejects_invalid_project_only_evidence_claim(
     standardization_fixture_resources,
 ) -> None:
     client = ScriptedClient()
-    client.respond_with(["soil"], evidence_level=invalid_evidence_level)
-    with pytest.raises(
-        RuntimeError, match="Isolation-source LLM failed for accession PROJECT_ONLY"
-    ):
-        _build_isolation_source_run(
-            tmp_path,
-            rows=[
-                {
-                    "accession": "PROJECT_ONLY",
-                    "pathogen": "ecoli",
-                    "bioproject_accession": "PRJNA1",
-                }
-            ],
-            bioproject_context_entries=[
-                {
-                    "id": "1",
-                    "accession": "PRJNA1",
-                    "title": "Soil survey",
-                    "description": "Soil sampling.",
-                    "relevance": ["Environmental"],
-                }
-            ],
-            client=client,
-            extracted_metadata_bundle_factory=extracted_metadata_bundle_factory,
-            fixture_dataset_builder_factory=fixture_dataset_builder_factory,
-            fixture_host_policy=fixture_host_policy,
-            fixture_isolation_source_prompt_policy=fixture_isolation_source_prompt_policy,
-            fixture_pathogen_registry=fixture_pathogen_registry,
-            standardization_fixture_resources=standardization_fixture_resources,
+    client.responses.append(
+        InstructorRetryException(
+            "invalid project-only classification response",
+            n_attempts=4,
+            total_usage=0,
         )
+    )
+    run = _build_isolation_source_run(
+        tmp_path,
+        rows=[
+            {
+                "accession": "PROJECT_ONLY",
+                "pathogen": "ecoli",
+                "bioproject_accession": "PRJNA1",
+            }
+        ],
+        bioproject_context_entries=[
+            {
+                "id": "1",
+                "accession": "PRJNA1",
+                "title": "Soil survey",
+                "description": "Soil sampling.",
+                "relevance": ["Environmental"],
+            }
+        ],
+        client=client,
+        extracted_metadata_bundle_factory=extracted_metadata_bundle_factory,
+        fixture_dataset_builder_factory=fixture_dataset_builder_factory,
+        fixture_host_policy=fixture_host_policy,
+        fixture_isolation_source_prompt_policy=fixture_isolation_source_prompt_policy,
+        fixture_pathogen_registry=fixture_pathogen_registry,
+        standardization_fixture_resources=standardization_fixture_resources,
+    )
+
+    assert _dataset_rows(run.dataset) == {}
+    assert run.statistics.isolation_source.aggregate.rejected == 1
+    assert run.statistics.isolation_source.aggregate.diagnostics == {
+        IsolationSourceDiagnostic.CLASSIFICATION_FAILURE: 1
+    }
 
 
 @pytest.mark.parametrize(
@@ -500,12 +534,7 @@ def test_host_recovery_uses_record_pairs_and_not_project_only_evidence(
                 else ()
             )
             return IsolationSourceOutcome(
-                term_path_roots="environmental",
-                display_terms="meat product",
-                external_ontology_identifiers="FOODON:00001006",
-                term_paths=(
-                    "environmental:anthropogenic environment:food:animal product:meat product"
-                ),
+                selected_terms=(SelectedTerm("BACC:0000097", "food_type", "meat product"),),
                 evidence_level=IsolationSourceEvidenceLevel.PROJECT,
                 host_context=host_context,
                 supporting_pairs=supporting_pairs,
@@ -515,6 +544,7 @@ def test_host_recovery_uses_record_pairs_and_not_project_only_evidence(
                 exact_matches=0,
                 cache_hits=0,
                 llm_calls=1,
+                host_recovery_eligible=True,
             )
 
         def close(self) -> None:

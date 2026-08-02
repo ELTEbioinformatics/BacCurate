@@ -1,104 +1,46 @@
-"""
-Render the ontology graph as an indented Markdown block for the LLM.
-"""
+"""Render the faceted isolation-source vocabulary for the LLM prompt."""
 
 from __future__ import annotations
 
-from baccurate.standardization.isolation_source_ontology import _LegacyOntologyGraph
+from collections import defaultdict
 
-TOP_LEVEL_ORDER = (
-    "environmental",
-    "host-associated",
-    "unspecified",
-    "ambiguous",
+from baccurate.standardization.isolation_source_ontology import (
+    IsolationSourceFacet,
+    IsolationSourceOntology,
+    IsolationSourceTerm,
 )
 
 
-def _format_node_line(*, indent: int, display_term: str) -> str:
-    return "  " * indent + "- " + display_term
+def ordered_facets(ontology: IsolationSourceOntology) -> tuple[IsolationSourceFacet, ...]:
+    """Return facet definitions in their declared render order."""
+    return tuple(sorted(ontology.facets.values(), key=lambda facet: facet.render_order))
 
 
-def _walk_tree(
-    ont: _LegacyOntologyGraph,
-    path: str,
-    indent: int,
-    out: list[str],
-) -> None:
-    meta = ont.node_metadata.get(path, {})
-    # The graph loader already falls back to the path tail when display_term
-    # is empty, so this is non-empty for every node.
-    display_term = (meta.get("display_term") or path.split(":")[-1]).strip()
-    out.append(_format_node_line(indent=indent, display_term=display_term))
-    for child in ont.children_map.get(path, []):
-        _walk_tree(ont, child, indent + 1, out)
+def _render_facet(ontology: IsolationSourceOntology, facet_key: str) -> list[str]:
+    children: dict[str | None, list[IsolationSourceTerm]] = defaultdict(list)
+    for term in ontology.terms.values():
+        if term.facet == facet_key:
+            children[term.parent_id].append(term)
+    for siblings in children.values():
+        siblings.sort(key=lambda term: term.term_id)
+
+    lines = [f"## {facet_key}"]
+    notes: list[str] = []
+
+    def walk(parent_id: str | None, depth: int) -> None:
+        for term in children.get(parent_id, []):
+            lines.append(f"{'  ' * depth}- {term.label}")
+            if term.curation_note:
+                notes.append(f'- "{term.label}": {term.curation_note.rstrip(".")}.')
+            walk(term.term_id, depth + 1)
+
+    walk(None, 0)
+    if notes:
+        lines.extend(("", "### Term notes", *notes))
+    return lines
 
 
-def _walk_notes(
-    ont: _LegacyOntologyGraph,
-    path: str,
-    out: list[str],
-) -> None:
-    meta = ont.node_metadata.get(path, {})
-    comment = (meta.get("comment") or "").strip()
-    if comment:
-        display_term = (meta.get("display_term") or path.split(":")[-1]).strip()
-        out.append(f'- "{display_term}": {comment.rstrip(".")}.')
-    for child in ont.children_map.get(path, []):
-        _walk_notes(ont, child, out)
-
-
-def _ordered_roots(ont: _LegacyOntologyGraph) -> list[str]:
-    """Top-level branches in TOP_LEVEL_ORDER, with any extras appended."""
-    roots = list(ont.children_map.get("", []))
-    ordered: list[str] = []
-    for name in TOP_LEVEL_ORDER:
-        if name in roots:
-            ordered.append(name)
-    for p in roots:
-        if p not in ordered:
-            ordered.append(p)
-    return ordered
-
-
-def render_ontology(ont: _LegacyOntologyGraph) -> str:
-    """Return the ontology as two sections: a tree and a notes list."""
-    roots = _ordered_roots(ont)
-
-    tree_lines: list[str] = []
-    for root in roots:
-        _walk_tree(ont, root, indent=0, out=tree_lines)
-
-    note_lines: list[str] = []
-    for root in roots:
-        _walk_notes(ont, root, out=note_lines)
-
-    parts = ["## Tree", "\n".join(tree_lines)]
-    if note_lines:
-        parts += ["", "## Node notes", "\n".join(note_lines)]
-    return "\n".join(parts)
-
-
-def valid_term_paths(ont: _LegacyOntologyGraph) -> list[str]:
-    """All term paths the LLM is allowed to return, in render order."""
-    seen: list[str] = []
-
-    def collect(path: str) -> None:
-        seen.append(path)
-        for child in ont.children_map.get(path, []):
-            collect(child)
-
-    for root in _ordered_roots(ont):
-        collect(root)
-    return seen
-
-
-def valid_display_terms(ont: _LegacyOntologyGraph) -> list[str]:
-    """Every display name the LLM may emit, in the same order as the rendered tree."""
-    paths = valid_term_paths(ont)
-    out: list[str] = []
-    for path in paths:
-        meta = ont.node_metadata.get(path, {})
-        display = (meta.get("display_term") or path.split(":")[-1]).strip()
-        if display:
-            out.append(display)
-    return out
+def render_ontology(ontology: IsolationSourceOntology) -> str:
+    """Render one ordered section per classifier response field."""
+    sections = ["\n".join(_render_facet(ontology, facet.key)) for facet in ordered_facets(ontology)]
+    return "\n\n".join(sections)

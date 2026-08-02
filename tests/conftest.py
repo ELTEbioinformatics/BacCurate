@@ -50,8 +50,8 @@ class StandardizationFixtureResources:
         return self.root / "taxonomy.tsv"
 
     @property
-    def isolation_source_ontology(self) -> Path:
-        return self.root / "ontology.tsv"
+    def isolation_source_ontology_directory(self) -> Path:
+        return self.root / "ontology"
 
     @property
     def geographic_locations(self) -> Path:
@@ -188,7 +188,7 @@ def fixture_isolation_source_prompt_policy(
     path = _write_runtime_policy(
         standardization_fixture_resources.isolation_source_policy,
         tmp_path / "isolation_source.yaml",
-        ontology_tsv_path=standardization_fixture_resources.isolation_source_ontology,
+        ontology_directory=standardization_fixture_resources.isolation_source_ontology_directory,
         cache_db_path=tmp_path / "isolation-source-cache.db",
     )
     return IsolationSourcePromptPolicy.load(path)

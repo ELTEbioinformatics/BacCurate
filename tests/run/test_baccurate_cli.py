@@ -4,6 +4,7 @@ import csv
 import json
 import logging
 import shutil
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
@@ -26,6 +27,7 @@ from baccurate.provenance.source_snapshot import (
 )
 from baccurate.run.logging import configure_run_logging
 from baccurate.run.main import main as pipeline_cli
+from baccurate.standardization.isolation_source import IsolationSourcePromptPolicy
 
 
 def test_run_logging_keeps_only_pipeline_lifecycle_info(
@@ -313,6 +315,49 @@ def _prepare_fixture_backed_cli_run(
     shutil.copytree(invocation_module.CONFIG_DIR, config_dir)
     shutil.copyfile(standardization_fixture_resources.host_policy, config_dir / "host.yaml")
     return extracted_metadata, config_dir
+
+
+def test_isolation_source_run_report_adds_loaded_policy_provenance_to_snapshot_provenance(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fixture_dataset_builder_factory,
+    standardization_fixture_resources,
+) -> None:
+    extracted_metadata, config_dir = _prepare_fixture_backed_cli_run(
+        tmp_path,
+        monkeypatch,
+        fixture_dataset_builder_factory,
+        standardization_fixture_resources,
+    )
+
+    pipeline_cli(
+        [
+            "ecoli",
+            "--standardize",
+            "iso",
+            "--config-dir",
+            str(config_dir),
+            "--extracted-metadata",
+            str(extracted_metadata),
+            "--output-dir",
+            str(tmp_path / "runs"),
+            "--run-name",
+            "isolation-source-provenance",
+            "--skip-llm",
+            "--quiet",
+        ]
+    )
+
+    run_report = json.loads(
+        (tmp_path / "runs" / "isolation-source-provenance" / "run_report.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    expected = asdict(
+        IsolationSourcePromptPolicy.load(config_dir / "isolation_source.yaml").provenance
+    )
+    assert set(run_report["provenance"]) == {"biosample", "bioproject", "isolation_source"}
+    assert run_report["provenance"]["isolation_source"] == expected
 
 
 def test_isolation_source_only_run_report_changes_when_borrowed_host_policy_changes(

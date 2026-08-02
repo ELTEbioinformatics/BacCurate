@@ -1,3 +1,5 @@
+"""Protect the public isolation-source ontology loading contract."""
+
 import csv
 from pathlib import Path
 
@@ -143,6 +145,21 @@ def _update_tsv_row(
 
 def test_authored_isolation_source_ontology_loads() -> None:
     IsolationSourceOntology.load(ONTOLOGY_DIRECTORY)
+
+
+def test_authored_ontology_preserves_host_recovery_eligible_term_set() -> None:
+    ontology = IsolationSourceOntology.load(ONTOLOGY_DIRECTORY)
+
+    assert {term.term_id for term in ontology.terms.values() if term.enables_host_recovery} == {
+        "BACC:0000001",  # host-associated
+        "BACC:0000002",  # animal host
+        "BACC:0000003",  # plant host
+        "BACC:0000094",  # plant food product
+        "BACC:0000095",  # animal food product
+        "BACC:0000096",  # dairy product
+        "BACC:0000097",  # meat product
+        "BACC:0000098",  # seafood product
+    }
 
 
 def test_load_returns_complete_facet_term_and_mapping_shapes(ontology_directory: Path) -> None:

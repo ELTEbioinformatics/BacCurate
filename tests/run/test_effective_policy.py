@@ -1,5 +1,6 @@
 """Public contract tests for selective effective-policy loading."""
 
+import json
 import shutil
 from pathlib import Path
 
@@ -11,8 +12,8 @@ from baccurate.pathogen_registry.registry import load_pathogen_registry
 from baccurate.paths import (
     DEFAULT_GEO_LOC_LIST,
     DEFAULT_ISOLATION_SOURCE_CACHE_DB,
+    DEFAULT_ISOLATION_SOURCE_ONTOLOGY_DIRECTORY,
     DEFAULT_LOC_CACHE_DB,
-    DEFAULT_ONTOLOGY_TSV,
 )
 from baccurate.run.effective_policy import load_effective_policy
 from baccurate.standardization.isolation_source import IsolationSourcePromptPolicy
@@ -95,16 +96,19 @@ def test_complete_production_effective_policy_has_required_semantics() -> None:
     assert "{attr_val_pairs}" in policy.location_policy.prompts.user_template
     assert policy.location_policy.insdc_country_map["United States"] == "USA"
     assert policy.isolation_source_prompt_policy is not None
-    assert policy.isolation_source_prompt_policy.schema_version == 1
-    assert policy.isolation_source_prompt_policy.prompt_version == "1"
+    assert policy.isolation_source_prompt_policy.schema_version == 2
+    assert policy.isolation_source_prompt_policy.prompt_version == "3"
     assert "{ontology_tree}" in policy.isolation_source_prompt_policy.prompts.sample_system_template
     assert "{metadata}" in policy.isolation_source_prompt_policy.prompts.sample_user_template
-    assert "unspecified" in policy.isolation_source_prompt_policy.effective_prompts.system
+    assert "## source_type" in policy.isolation_source_prompt_policy.effective_prompts.system
     assert policy.location_policy.geo_loc_list_path == DEFAULT_GEO_LOC_LIST
     assert policy.location_policy.geo_loc_list_path.is_file()
     assert policy.location_policy.cache_db_path == DEFAULT_LOC_CACHE_DB
-    assert policy.isolation_source_prompt_policy.ontology_tsv_path == DEFAULT_ONTOLOGY_TSV
-    assert policy.isolation_source_prompt_policy.ontology_tsv_path.is_file()
+    assert (
+        policy.isolation_source_prompt_policy.ontology_directory
+        == DEFAULT_ISOLATION_SOURCE_ONTOLOGY_DIRECTORY
+    )
+    assert policy.isolation_source_prompt_policy.ontology_directory.is_dir()
     assert policy.isolation_source_prompt_policy.cache_db_path == DEFAULT_ISOLATION_SOURCE_CACHE_DB
 
 
@@ -588,22 +592,14 @@ def _write_isolation_source_prompt_policy(
     tmp_path: Path,
     overrides: dict[str, object] | None = None,
 ) -> Path:
-    ontology = tmp_path / "ontology.tsv"
-    ontology.write_text(
-        "term_path\tdisplay_term\texternal_ontology_identifier\tcrosslink_targets\t"
-        "synonyms\tcomment\texamples\n"
-        "environmental\tenvironmental\t\t\t\t\t\n"
-        "unspecified\tunspecified\t\t\t\tNo source named.\t\n",
-        encoding="utf-8",
-    )
     policy = {
-        "schema_version": 1,
+        "schema_version": 2,
         "prompt_version": "isolation-v1",
         "system_prompt": "Classify with:\n{ontology_tree}",
         "user_prompt": "{metadata}\n{bioproject_context}",
         "bioproject_system_prompt": "Use study context carefully.",
         "bioproject_user_prompt": "Projects:\n{bioproject_context}",
-        "ontology_tsv_path": ontology.as_posix(),
+        "ontology_directory": DEFAULT_ISOLATION_SOURCE_ONTOLOGY_DIRECTORY.as_posix(),
         "cache_db_path": (tmp_path / "isolation-cache.db").as_posix(),
     }
     policy.update(overrides or {})
@@ -660,8 +656,9 @@ def test_unselected_isolation_source_prompt_policy_is_not_loaded(tmp_path: Path)
         ({"bioproject_system_prompt": None}, "bioproject_system_prompt"),
         ({"bioproject_system_prompt": "Rules {unsupported!r}"}, "bioproject_system_prompt"),
         ({"bioproject_user_prompt": "No project placeholder"}, "bioproject_user_prompt"),
-        ({"ontology_tsv_path": 1}, "ontology_tsv_path"),
-        ({"ontology_tsv_path": None}, "ontology_tsv_path"),
+        ({"ontology_directory": 1}, "ontology_directory"),
+        ({"ontology_directory": None}, "ontology_directory"),
+        ({"ontology_tsv_path": "ontology.tsv"}, "top level.ontology_tsv_path"),
         ({"cache_db_path": ""}, "cache_db_path"),
         ({"cache_db_path": None}, "cache_db_path"),
     ],
@@ -719,38 +716,85 @@ def test_isolation_source_prompt_policy_rejects_missing_required_values(
     assert missing_key in str(error.value)
 
 
-def test_isolation_source_prompt_policy_unsupported_version_error_provides_migration_guidance(
-    tmp_path: Path,
-) -> None:
-    registry = load_pathogen_registry(PATHOGEN_REGISTRY_PATH)
-    policy_path = _write_isolation_source_prompt_policy(tmp_path, {"schema_version": 2})
-
-    with pytest.raises(PolicyConfigurationError) as error:
-        load_effective_policy(
-            pathogen_registry=registry,
-            configuration_root=tmp_path,
-            requested_standardization_targets=("iso",),
-            extraction_required=False,
-        )
-
-    message = str(error.value)
-    assert str(policy_path) in message
-    assert "schema_version" in message
-    assert "unsupported schema version 2" in message
-    assert "supported schema version is 1" in message
-    assert "migrate" in message
-
-
 def test_isolation_source_prompt_policy_preserves_configured_path_spelling(
     tmp_path: Path,
 ) -> None:
     policy_path = _write_isolation_source_prompt_policy(tmp_path)
     source_mapping = yaml.safe_load(policy_path.read_text(encoding="utf-8"))
-    source_mapping["ontology_tsv_path"] = source_mapping["ontology_tsv_path"].replace("/", "\\")
+    source_mapping["ontology_directory"] = source_mapping["ontology_directory"].replace("/", "\\")
     source_mapping["cache_db_path"] = source_mapping["cache_db_path"].replace("/", "\\")
     policy_path.write_text(yaml.safe_dump(source_mapping, sort_keys=False), encoding="utf-8")
 
     policy = IsolationSourcePromptPolicy.load(policy_path)
 
-    assert policy.as_legacy_mapping()["ontology_tsv_path"] == source_mapping["ontology_tsv_path"]
+    assert policy.as_legacy_mapping()["ontology_directory"] == source_mapping["ontology_directory"]
     assert policy.as_legacy_mapping()["cache_db_path"] == source_mapping["cache_db_path"]
+
+
+def test_isolation_source_prompt_policy_serializes_the_ontology_directory(
+    tmp_path: Path,
+) -> None:
+    policy = IsolationSourcePromptPolicy.load(_write_isolation_source_prompt_policy(tmp_path))
+
+    serialized = json.loads(policy.serialize())
+
+    assert serialized["ontology_directory"] == (
+        DEFAULT_ISOLATION_SOURCE_ONTOLOGY_DIRECTORY.as_posix()
+    )
+    assert "ontology_tsv_path" not in serialized
+
+
+def test_isolation_source_prompt_version_is_independent_of_schema_version(
+    tmp_path: Path,
+) -> None:
+    policy = IsolationSourcePromptPolicy.load(
+        _write_isolation_source_prompt_policy(
+            tmp_path,
+            {"schema_version": 2, "prompt_version": "wording-revision-17"},
+        )
+    )
+
+    assert policy.schema_version == 2
+    assert policy.prompt_version == "wording-revision-17"
+
+
+def test_isolation_source_prompt_policy_rejects_a_non_directory_ontology_path(
+    tmp_path: Path,
+) -> None:
+    ontology_file = tmp_path / "ontology"
+    ontology_file.write_text("not a directory\n", encoding="utf-8")
+    policy_path = _write_isolation_source_prompt_policy(
+        tmp_path,
+        {"ontology_directory": ontology_file.as_posix()},
+    )
+
+    with pytest.raises(PolicyConfigurationError) as error:
+        IsolationSourcePromptPolicy.load(policy_path)
+
+    message = str(error.value)
+    assert "ontology_directory" in message
+    assert "readable directory" in message
+
+
+@pytest.mark.parametrize(
+    "missing_filename",
+    ["facets.yaml", "terms.tsv", "mappings.sssom.tsv", "mappings.sssom.yml"],
+)
+def test_isolation_source_prompt_policy_names_a_missing_ontology_file(
+    tmp_path: Path,
+    missing_filename: str,
+) -> None:
+    ontology_directory = tmp_path / "ontology"
+    shutil.copytree(DEFAULT_ISOLATION_SOURCE_ONTOLOGY_DIRECTORY, ontology_directory)
+    (ontology_directory / missing_filename).unlink()
+    policy_path = _write_isolation_source_prompt_policy(
+        tmp_path,
+        {"ontology_directory": ontology_directory.as_posix()},
+    )
+
+    with pytest.raises(PolicyConfigurationError) as error:
+        IsolationSourcePromptPolicy.load(policy_path)
+
+    message = str(error.value)
+    assert "ontology_directory" in message
+    assert missing_filename in message

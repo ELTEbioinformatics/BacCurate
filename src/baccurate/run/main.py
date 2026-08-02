@@ -65,6 +65,11 @@ def main(
             skip_llm=args.skip_llm,
             model_identifiers=model_identifiers,
             trace_llm_calls=args.debug,
+            isolation_source_provenance=(
+                effective_policy.isolation_source_prompt_policy.provenance
+                if effective_policy.isolation_source_prompt_policy is not None
+                else None
+            ),
         ),
     )
     started = monotonic()
