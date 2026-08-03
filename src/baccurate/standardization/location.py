@@ -402,7 +402,7 @@ class LocationStandardizer:
         self,
         policy: LocationPolicy,
         *,
-        client: openai.OpenAI | None | object = _LOAD_CONFIGURED_CLIENT,
+        client: openai.OpenAI | object | None = _LOAD_CONFIGURED_CLIENT,
         llm_settings: LLMSettings | None = None,
         result_logger: logging.Logger | None = None,
     ) -> None:
