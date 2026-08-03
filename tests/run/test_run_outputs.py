@@ -15,6 +15,7 @@ from baccurate.run.statistics import (
     DateStatistics,
     HostBuildStatistics,
     HostStatistics,
+    InventedLabelStatistics,
     IsolationSourceBuildStatistics,
     IsolationSourceStatistics,
     LocationBuildStatistics,
@@ -321,6 +322,14 @@ def test_run_report_publishes_the_full_scientific_target_key_set(tmp_path: Path)
         "host",
         "isolation_source",
     }
+    assert run_report["scientific"]["isolation_source"]["aggregate"]["invented_labels"] == {
+        "body_site": {
+            "nasal cavity": {
+                "occurrences": 2,
+                "accessions": {"SAMN00000001": 2},
+            }
+        }
+    }
 
 
 def _complete_build_statistics(tmp_path: Path) -> DatasetBuildStatistics:
@@ -362,6 +371,14 @@ def _complete_build_statistics(tmp_path: Path) -> DatasetBuildStatistics:
         host_recovery_passes=0,
         evidence_levels={},
         diagnostics={},
+        invented_labels={
+            "body_site": {
+                "nasal cavity": InventedLabelStatistics(
+                    occurrences=2,
+                    accessions={"SAMN00000001": 2},
+                )
+            }
+        },
     )
     return DatasetBuildStatistics(
         final_destination=tmp_path / "run" / "run.tsv",

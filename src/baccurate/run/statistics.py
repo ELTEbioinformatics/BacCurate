@@ -1,7 +1,8 @@
 """Statistics vocabulary for complete, partial, and running dataset builds."""
 
+from collections import Counter
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from baccurate.standardization.collection_date import DateDiagnostic
@@ -9,6 +10,7 @@ from baccurate.standardization.host import HostDiagnostic
 from baccurate.standardization.isolation_source import (
     IsolationSourceDiagnostic,
     IsolationSourceEvidenceLevel,
+    IsolationSourceOntologyGapDiagnostic,
 )
 from baccurate.standardization.location import LocationDiagnostic
 
@@ -98,6 +100,14 @@ class HostBuildStatistics:
 
 
 @dataclass(frozen=True, slots=True)
+class InventedLabelStatistics:
+    """Number of occurrences of one non-existing label and their BioSample accessions."""
+
+    occurrences: int
+    accessions: Mapping[str, int]
+
+
+@dataclass(frozen=True, slots=True)
 class IsolationSourceStatistics:
     """Isolation-source counts, either overall or for a single pathogen."""
 
@@ -111,6 +121,9 @@ class IsolationSourceStatistics:
     host_recovery_passes: int
     evidence_levels: Mapping[IsolationSourceEvidenceLevel, int]
     diagnostics: Mapping[IsolationSourceDiagnostic, int]
+    invented_labels: Mapping[str, Mapping[str, InventedLabelStatistics]] = field(
+        default_factory=dict
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,6 +132,28 @@ class IsolationSourceBuildStatistics:
 
     aggregate: IsolationSourceStatistics
     by_pathogen: Mapping[str, IsolationSourceStatistics]
+
+
+def invented_label_inventory(
+    diagnostics: Mapping[IsolationSourceOntologyGapDiagnostic, int],
+) -> dict[str, dict[str, InventedLabelStatistics]]:
+    """Group ontology-gap diagnostic counts by facet, label, and BioSample accession."""
+    accessions_by_facet_and_label: dict[str, dict[str, Counter[str]]] = {}
+    for diagnostic, occurrences in diagnostics.items():
+        accessions_by_label = accessions_by_facet_and_label.setdefault(diagnostic.facet, {})
+        accessions = accessions_by_label.setdefault(diagnostic.label, Counter())
+        accessions[diagnostic.accession] += occurrences
+
+    return {
+        facet: {
+            label: InventedLabelStatistics(
+                occurrences=sum(accessions.values()),
+                accessions=dict(sorted(accessions.items())),
+            )
+            for label, accessions in sorted(accessions_by_label.items())
+        }
+        for facet, accessions_by_label in sorted(accessions_by_facet_and_label.items())
+    }
 
 
 def processed_rows(statistics: DatasetBuildStatistics) -> int:
