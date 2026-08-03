@@ -7,11 +7,13 @@ import shutil
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 import yaml
+from instructor import Mode
 from instructor.core import InstructorRetryException
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 import baccurate.standardization.isolation_source as isolation_source_module
 from baccurate.adapters.llm.client import LLMSettings
@@ -23,6 +25,7 @@ from baccurate.standardization.isolation_source import (
     IsolationSourceClassifierAnswer,
     IsolationSourceDiagnostic,
     IsolationSourceEvidenceLevel,
+    IsolationSourceOntologyGapDiagnostic,
     IsolationSourceOutcome,
     IsolationSourcePromptPolicy,
     IsolationSourceReasoningStep,
@@ -75,6 +78,33 @@ FACET_BY_LABEL = {
 # =============================================================================
 
 
+def _classifier_answer(
+    *,
+    reasoning: str = "because",
+    evidence_level: str = "sample",
+    source_type: str | None = None,
+    body_product: list[str] | None = None,
+    body_site: list[str] | None = None,
+    lesion: list[str] | None = None,
+    environmental_material: list[str] | None = None,
+    facility: list[str] | None = None,
+    sampled_object: list[str] | None = None,
+    food_type: list[str] | None = None,
+) -> dict[str, object]:
+    return {
+        "reasoning": reasoning,
+        "evidence_level": evidence_level,
+        "source_type": source_type,
+        "body_product": body_product or [],
+        "body_site": body_site or [],
+        "lesion": lesion or [],
+        "environmental_material": environmental_material or [],
+        "facility": facility or [],
+        "sampled_object": sampled_object or [],
+        "food_type": food_type or [],
+    }
+
+
 class _FakeCompletions:
     def __init__(self, parent: FakeClient) -> None:
         self._parent = parent
@@ -88,6 +118,8 @@ class _FakeCompletions:
             raise behavior
         if isinstance(behavior, dict):
             return kwargs["response_model"].model_validate(behavior)
+        if callable(behavior):
+            return behavior(kwargs["response_model"])
         return behavior
 
 
@@ -143,21 +175,41 @@ class FakeClient:
         sampled_object: list[str] | None = None,
         food_type: list[str] | None = None,
     ) -> None:
-        self.behavior = {
-            "reasoning": reasoning,
-            "evidence_level": evidence_level,
-            "source_type": source_type,
-            "body_product": body_product or [],
-            "body_site": body_site or [],
-            "lesion": lesion or [],
-            "environmental_material": environmental_material or [],
-            "facility": facility or [],
-            "sampled_object": sampled_object or [],
-            "food_type": food_type or [],
-        }
+        self.behavior = _classifier_answer(
+            reasoning=reasoning,
+            evidence_level=evidence_level,
+            source_type=source_type,
+            body_product=body_product,
+            body_site=body_site,
+            lesion=lesion,
+            environmental_material=environmental_material,
+            facility=facility,
+            sampled_object=sampled_object,
+            food_type=food_type,
+        )
 
     def close(self) -> None:
         pass
+
+
+def test_classifier_requests_endpoint_enforced_json_schema_mode(
+    fixture_isolation_source_prompt_policy: IsolationSourcePromptPolicy,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_client = FakeClient()
+    from_openai = Mock(return_value=fake_client)
+    monkeypatch.setattr(isolation_source_module.instructor, "from_openai", from_openai)
+    standardizer = IsolationSourceStandardizer(
+        fixture_isolation_source_prompt_policy,
+        _empty_extracted_bundle(tmp_path),
+        client=fake_client,
+        llm_settings=LLMSettings(None, "https://model.example/v1", "test-model"),
+    )
+
+    standardizer.close()
+
+    from_openai.assert_called_once_with(fake_client, mode=Mode.JSON_SCHEMA)
 
 
 def _empty_extracted_bundle(tmp_path: Path) -> Path:
@@ -286,7 +338,7 @@ def test_typed_record_outcome_preserves_context_supporting_pairs_and_diagnostics
     assert result.diagnostics == (IsolationSourceDiagnostic.EXACT_MATCH,)
 
 
-def _classify_fixture_record(
+def _standardize_fixture_record(
     policy: IsolationSourcePromptPolicy,
     tmp_path: Path,
     *,
@@ -295,11 +347,14 @@ def _classify_fixture_record(
     fake: FakeClient | None = None,
     monkeypatch: pytest.MonkeyPatch | None = None,
     host_context: str = "",
-) -> IsolationSourceOutcome:
+    accession: str = "PUBLIC_CLASSIFICATION",
+) -> IsolationSourceOutcome | IsolationSourceRejection:
     if fake is not None:
         assert monkeypatch is not None
         monkeypatch.setattr(
-            isolation_source_module.instructor, "from_openai", lambda client: client
+            isolation_source_module.instructor,
+            "from_openai",
+            lambda client, **_kwargs: client,
         )
     standardizer = IsolationSourceStandardizer(
         policy,
@@ -310,7 +365,7 @@ def _classify_fixture_record(
     try:
         result = standardizer.standardize(
             {
-                "accession": "PUBLIC_CLASSIFICATION",
+                "accession": accession,
                 "iso_attr_orig": attributes,
                 "iso_val_orig": values,
             },
@@ -318,6 +373,15 @@ def _classify_fixture_record(
         )
     finally:
         standardizer.close()
+    return result
+
+
+def _classify_fixture_record(
+    policy: IsolationSourcePromptPolicy,
+    tmp_path: Path,
+    **kwargs: object,
+) -> IsolationSourceOutcome:
+    result = _standardize_fixture_record(policy, tmp_path, **kwargs)
     assert isinstance(result, IsolationSourceOutcome)
     return result
 
@@ -438,6 +502,31 @@ def test_host_recovery_eligibility_follows_the_flag_instead_of_term_identity(
     assert environmental.host_recovery_eligible is True
 
 
+def test_required_plant_host_term_must_descend_from_host_associated(
+    tmp_path: Path,
+) -> None:
+    ontology_directory = tmp_path / "ontology"
+    shutil.copytree(FIXTURE_ROOT / "ontology", ontology_directory)
+    terms_path = ontology_directory / "terms.tsv"
+    terms_path.write_text(
+        terms_path.read_text(encoding="utf-8").replace(
+            "BACC:0000003\tplant host\tsource_type\tBACC:0000001",
+            "BACC:0000003\tplant host\tsource_type\tBACC:0000004",
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(
+        PolicyConfigurationError,
+        match=r"BACC:0000003.*must descend from.*BACC:0000001",
+    ):
+        IsolationSourcePromptPolicy.load(
+            _isolation_source_config(
+                tmp_path,
+                overrides={"ontology_directory": ontology_directory.as_posix()},
+            )
+        )
+
+
 @pytest.mark.parametrize(
     "submitted_value",
     [
@@ -537,7 +626,11 @@ def test_disagreeing_pair_reports_diagnostic_when_classifier_validation_fails(
             total_usage=0,
         )
     )
-    monkeypatch.setattr(isolation_source_module.instructor, "from_openai", lambda client: client)
+    monkeypatch.setattr(
+        isolation_source_module.instructor,
+        "from_openai",
+        lambda client, **_kwargs: client,
+    )
     standardizer = IsolationSourceStandardizer(
         fixture_isolation_source_prompt_policy,
         _empty_extracted_bundle(tmp_path),
@@ -789,10 +882,30 @@ def test_classifier_response_schema_enforces_the_faceted_contract(
         "sampled_object",
         "food_type",
     )
+    response_schema = response_model.model_json_schema()
+    facet_labels = {
+        facet.key: {
+            term.label for term in policy.ontology.terms.values() if term.facet == facet.key
+        }
+        for facet in policy.ontology.facets.values()
+    }
+    source_type_schema = response_schema["properties"]["source_type"]
+    source_type_enum = next(
+        choice["enum"] for choice in source_type_schema["anyOf"] if "enum" in choice
+    )
+    assert set(source_type_enum) == facet_labels["source_type"]
+    assert {choice.get("type") for choice in source_type_schema["anyOf"]} == {
+        "string",
+        "null",
+    }
+    for facet_key in facet_labels.keys() - {"source_type"}:
+        assert (
+            set(response_schema["properties"][facet_key]["items"]["enum"])
+            == facet_labels[facet_key]
+        )
     response_model.model_validate(empty_answer)
 
     invalid_answers = (
-        {**empty_answer, "evidence_level": "sample"},
         {**empty_answer, "source_type": "animal host"},
         {
             **empty_answer,
@@ -800,16 +913,33 @@ def test_classifier_response_schema_enforces_the_faceted_contract(
             "source_type": ["animal host", "environmental"],
         },
         {**empty_answer, "evidence_level": "sample", "body_site": ["blood"]},
-        {
-            **empty_answer,
-            "evidence_level": "sample",
-            "body_site": ["digestive tract", "rectum"],
-        },
-        {**empty_answer, "evidence_level": "sample", "source_type": "animal-host"},
     )
     for invalid_answer in invalid_answers:
         with pytest.raises(ValidationError):
             response_model.model_validate(invalid_answer)
+    with pytest.raises(
+        ValidationError,
+        match="Every facet must be empty if and only if evidence_level is 'none'",
+    ):
+        response_model.model_validate({**empty_answer, "evidence_level": "sample"})
+    with pytest.raises(
+        ValidationError,
+        match="Unknown source_type labels: 'animal-host'",
+    ):
+        response_model.model_validate(
+            {**empty_answer, "evidence_level": "sample", "source_type": "animal-host"}
+        )
+    with pytest.raises(
+        ValidationError,
+        match=("'rectum' cannot be returned with its ancestor 'digestive tract' in body_site"),
+    ):
+        response_model.model_validate(
+            {
+                **empty_answer,
+                "evidence_level": "sample",
+                "body_site": ["digestive tract", "rectum"],
+            }
+        )
 
     assert fake.calls[0]["max_retries"] == 3
 
@@ -840,13 +970,6 @@ def test_classifier_prompt_and_schema_share_facet_order_and_guidance(
     assert re.findall(r"^## ([a-z_]+)$", system_prompt, flags=re.MULTILINE) == [
         facet.key for facet in ordered_facets
     ]
-    assert re.findall(r"^(\d+)\. ", system_prompt, flags=re.MULTILINE) == [
-        "1",
-        "2",
-        "3",
-        "4",
-        "5",
-    ]
     for facet in ordered_facets:
         assert response_model.model_fields[facet.key].description == (
             f"{facet.meaning} {facet.classifier_guidance}"
@@ -856,6 +979,15 @@ def test_classifier_prompt_and_schema_share_facet_order_and_guidance(
     assert '"lesion": ["abscess"]' in system_prompt
     assert '"evidence_level": "none"' in system_prompt
     assert '"source_type": null' in system_prompt
+
+
+def test_production_prompt_teaches_closed_isolation_source_vocabulary() -> None:
+    policy = IsolationSourcePromptPolicy.load(CONFIG_PATH)
+
+    system_prompt = policy.effective_prompts.system
+    assert policy.prompt_version == "4"
+    assert "Never write the metadata's own wording as a label" in system_prompt
+    assert "isolation_source = dust from hospital elevator button" in system_prompt
 
 
 def test_model_selected_feces_does_not_infer_anatomical_origin(
@@ -1085,6 +1217,114 @@ def test_response_that_failed_validation_is_not_cached(tmp_path: Path) -> None:
     assert failed.diagnostics == (IsolationSourceDiagnostic.CLASSIFICATION_FAILURE,)
     assert isinstance(retried, IsolationSourceOutcome)
     assert retried.diagnostics == (IsolationSourceDiagnostic.LLM_CALL,)
+
+
+def test_invented_label_is_preserved_when_validation_retry_recovers(
+    fixture_isolation_source_prompt_policy: IsolationSourcePromptPolicy,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invalid_answer = _classifier_answer(
+        reasoning="The sample names an unsupported anatomical site.",
+        source_type="animal host",
+        body_site=["nasal cavity", "nasal cavity"],
+    )
+    valid_answer = {**invalid_answer, "body_site": ["liver"]}
+
+    def respond(response_model: type[BaseModel]) -> object:
+        with pytest.raises(ValidationError):
+            response_model.model_validate(invalid_answer)
+        return response_model.model_validate(valid_answer)
+
+    fake = FakeClient()
+    fake.behavior = respond
+    result = _standardize_fixture_record(
+        fixture_isolation_source_prompt_policy,
+        tmp_path,
+        values="nasal aspirate 78143",
+        fake=fake,
+        monkeypatch=monkeypatch,
+        accession="INVENTED_THEN_VALID",
+    )
+
+    assert isinstance(result, IsolationSourceOutcome)
+    assert result.ontology_gap_diagnostics == (
+        IsolationSourceOntologyGapDiagnostic(
+            accession="INVENTED_THEN_VALID",
+            facet="body_site",
+            label="nasal cavity",
+        ),
+    )
+
+
+def test_each_invented_label_is_preserved_when_validation_retries_are_exhausted(
+    fixture_isolation_source_prompt_policy: IsolationSourcePromptPolicy,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invalid_answer = _classifier_answer(
+        reasoning="The sample names an unsupported anatomical site.",
+        source_type="animal host",
+        body_site=["nasal cavity"],
+    )
+
+    def respond(response_model: type[BaseModel]) -> object:
+        for _ in range(3):
+            with pytest.raises(ValidationError):
+                response_model.model_validate(invalid_answer)
+        raise InstructorRetryException("invalid response", n_attempts=3, total_usage=0)
+
+    fake = FakeClient()
+    fake.behavior = respond
+    result = _standardize_fixture_record(
+        fixture_isolation_source_prompt_policy,
+        tmp_path,
+        values="nasal aspirate 61512",
+        fake=fake,
+        monkeypatch=monkeypatch,
+        accession="INVENTED_FAILURE",
+    )
+
+    expected_diagnostic = IsolationSourceOntologyGapDiagnostic(
+        accession="INVENTED_FAILURE",
+        facet="body_site",
+        label="nasal cavity",
+    )
+    assert isinstance(result, IsolationSourceRejection)
+    assert result.diagnostics == (IsolationSourceDiagnostic.CLASSIFICATION_FAILURE,)
+    assert result.ontology_gap_diagnostics == (expected_diagnostic,) * 3
+
+
+def test_ancestor_exclusion_does_not_create_an_ontology_gap_diagnostic(
+    fixture_isolation_source_prompt_policy: IsolationSourcePromptPolicy,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invalid_answer = _classifier_answer(
+        reasoning="The response selects an ancestor and descendant.",
+        source_type="animal host",
+        body_site=["digestive tract", "rectum"],
+    )
+    valid_answer = {**invalid_answer, "body_site": ["rectum"]}
+
+    def respond(response_model: type[BaseModel]) -> object:
+        with pytest.raises(ValidationError):
+            response_model.model_validate(invalid_answer)
+        return response_model.model_validate(valid_answer)
+
+    fake = FakeClient()
+    fake.behavior = respond
+    result = _standardize_fixture_record(
+        fixture_isolation_source_prompt_policy,
+        tmp_path,
+        values="rectal sample 49115",
+        fake=fake,
+        monkeypatch=monkeypatch,
+        accession="ANCESTOR_THEN_VALID",
+    )
+
+    assert isinstance(result, IsolationSourceOutcome)
+    assert result.ontology_gap_diagnostics == ()
 
 
 def test_direct_matches_receive_derived_source_kind_ancestors_and_preorder(
@@ -1475,7 +1715,7 @@ def test_isolation_source_request_uses_rendered_synthetic_prompts(tmp_path: Path
 
 @pytest.mark.parametrize(
     "changed_component",
-    ["message", "model", "parameter", "schema_id"],
+    ["message", "model", "parameter", "schema_id", "structured_output_mode"],
 )
 def test_isolation_source_cache_misses_when_canonical_request_changes(
     tmp_path, monkeypatch, changed_component
@@ -1505,6 +1745,12 @@ def test_isolation_source_cache_misses_when_canonical_request_changes(
             isolation_source_module,
             "ISOLATION_SOURCE_RESPONSE_SCHEMA_ID",
             "baccurate.isolation.classification.changed",
+        )
+    elif changed_component == "structured_output_mode":
+        monkeypatch.setattr(
+            isolation_source_module,
+            "ISOLATION_SOURCE_STRUCTURED_OUTPUT_MODE",
+            Mode.TOOLS,
         )
     second = _standardize_model_isolation_source(
         second_config,

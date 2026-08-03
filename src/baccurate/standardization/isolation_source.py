@@ -10,7 +10,8 @@ import logging
 import os
 import re
 import string
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
@@ -81,6 +82,7 @@ _BRACKETED_BARE_IDENTIFIER_PATTERN = re.compile(
 )
 
 ISOLATION_SOURCE_LLM_PARAMETERS: dict[str, object] = {"temperature": 0, "seed": 100}
+ISOLATION_SOURCE_STRUCTURED_OUTPUT_MODE = instructor.Mode.JSON_SCHEMA
 # The value is part of existing request fingerprints and cache keys.
 ISOLATION_SOURCE_RESPONSE_SCHEMA_ID = "baccurate.isolation.classification.v3"
 
@@ -94,8 +96,13 @@ _NON_SOURCE_VALUES = frozenset({"no_host"})
 _SOURCE_TYPE_FACET = "source_type"
 _HOST_ASSOCIATED_TERM_ID = "BACC:0000001"
 _ANIMAL_HOST_TERM_ID = "BACC:0000002"
+_PLANT_HOST_TERM_ID = "BACC:0000003"
 _ENVIRONMENTAL_TERM_ID = "BACC:0000004"
 _FOOD_OR_FEED_TERM_ID = "BACC:0000007"
+HOST_SOURCE_TYPE_BY_LINEAGE_ROOT = (
+    (33208, _ANIMAL_HOST_TERM_ID),
+    (33090, _PLANT_HOST_TERM_ID),
+)
 _SOURCE_TYPE_BY_IMPLYING_FACET = {
     "body_product": _ANIMAL_HOST_TERM_ID,
     "body_site": _ANIMAL_HOST_TERM_ID,
@@ -112,6 +119,7 @@ def _validate_enrichment_vocabulary(ontology: IsolationSourceOntology) -> None:
     required_ids = {
         _HOST_ASSOCIATED_TERM_ID,
         _ANIMAL_HOST_TERM_ID,
+        _PLANT_HOST_TERM_ID,
         _ENVIRONMENTAL_TERM_ID,
         _FOOD_OR_FEED_TERM_ID,
     }
@@ -132,14 +140,15 @@ def _validate_enrichment_vocabulary(ontology: IsolationSourceOntology) -> None:
         if ontology.terms[root_id].parent_id is not None:
             raise ValueError(f"required broad source-kind term {root_id!r} must be a root term")
 
-    ancestor_id = ontology.terms[_ANIMAL_HOST_TERM_ID].parent_id
-    while ancestor_id is not None and ancestor_id != _HOST_ASSOCIATED_TERM_ID:
-        ancestor_id = ontology.terms[ancestor_id].parent_id
-    if ancestor_id is None:
-        raise ValueError(
-            f"required enrichment term {_ANIMAL_HOST_TERM_ID!r} must descend from "
-            f"{_HOST_ASSOCIATED_TERM_ID!r}"
-        )
+    for host_term_id in (_ANIMAL_HOST_TERM_ID, _PLANT_HOST_TERM_ID):
+        ancestor_id = ontology.terms[host_term_id].parent_id
+        while ancestor_id is not None and ancestor_id != _HOST_ASSOCIATED_TERM_ID:
+            ancestor_id = ontology.terms[ancestor_id].parent_id
+        if ancestor_id is None:
+            raise ValueError(
+                f"required enrichment term {host_term_id!r} must descend from "
+                f"{_HOST_ASSOCIATED_TERM_ID!r}"
+            )
 
 
 # --- Prompts and fingerprints ---
@@ -241,7 +250,8 @@ class IsolationSourcePromptPolicy:
                 "user_prompt_template": self.effective_prompts.user_template,
                 "bioproject_system_prompt": self.effective_prompts.bioproject_system,
                 "bioproject_user_prompt_template": self.effective_prompts.bioproject_user,
-                "request_parameters": ISOLATION_SOURCE_LLM_PARAMETERS,
+                "request_parameters": dict(ISOLATION_SOURCE_LLM_PARAMETERS),
+                "structured_output_mode": ISOLATION_SOURCE_STRUCTURED_OUTPUT_MODE.value,
             }
         )
 
@@ -512,6 +522,15 @@ class SelectedTerm:
 
 
 @dataclass(frozen=True, slots=True)
+class IsolationSourceOntologyGapDiagnostic:
+    """One classifier label absent from its declared facet vocabulary."""
+
+    accession: str
+    facet: str
+    label: str
+
+
+@dataclass(frozen=True, slots=True)
 class StandardizedIsolationSource:
     """Isolation-source classification for one extracted metadata record."""
 
@@ -523,6 +542,7 @@ class StandardizedIsolationSource:
     identifier_disagreement: bool = False
     vocabulary_disagreement: bool = False
     request_fingerprint: str | None = None
+    ontology_gap_diagnostics: tuple[IsolationSourceOntologyGapDiagnostic, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -551,9 +571,16 @@ class IsolationSourceDiagnostic(StrEnum):
 class _IsolationSourceClassificationError(RuntimeError):
     """A classifier response that remains unusable after validation retries."""
 
-    def __init__(self, message: str, *, identifier_disagreement: bool = False) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        identifier_disagreement: bool = False,
+        ontology_gap_diagnostics: tuple[IsolationSourceOntologyGapDiagnostic, ...] = (),
+    ) -> None:
         super().__init__(message)
         self.identifier_disagreement = identifier_disagreement
+        self.ontology_gap_diagnostics = ontology_gap_diagnostics
 
 
 def _parse_supporting_pairs(
@@ -628,6 +655,7 @@ class IsolationSourceOutcome:
     host_recovery_eligible: bool = False
     request_fingerprint: str | None = None
     resolved_bioproject_accessions: tuple[str, ...] = ()
+    ontology_gap_diagnostics: tuple[IsolationSourceOntologyGapDiagnostic, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -635,6 +663,7 @@ class IsolationSourceRejection:
     """An extracted metadata record with no isolation-source classification input."""
 
     diagnostics: tuple[IsolationSourceDiagnostic, ...]
+    ontology_gap_diagnostics: tuple[IsolationSourceOntologyGapDiagnostic, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -821,10 +850,13 @@ class SQLiteCache(SQLiteKVCache):
 def _build_schema(
     ontology: IsolationSourceOntology,
     request_mode: _IsolationSourceRequestMode,
+    observe_unknown_label: Callable[[str, str], None],
 ) -> type[BaseModel]:
     """Build the ordered, facet-specific classifier response model."""
 
     class IsolationSourceClassificationBase(BaseModel):
+        model_config = ConfigDict(title="IsolationClassification")
+
         reasoning: str = Field(..., description="Brief reason for the chosen terms.")
 
     permitted_evidence_levels = _EVIDENCE_LEVELS_BY_REQUEST_MODE[request_mode]
@@ -847,14 +879,19 @@ def _build_schema(
         labels_to_terms = {
             term.label: term for term in ontology.terms.values() if term.facet == facet.key
         }
+        permitted_labels = tuple(labels_to_terms)
+        label_literal = Literal.__getitem__(permitted_labels)
         description = f"{facet.meaning} {facet.classifier_guidance}"
         if facet.cardinality is FacetCardinality.SINGLE:
             facet_fields[facet.key] = (
-                str | None,
+                label_literal | None,
                 Field(..., description=description),
             )
         else:
-            facet_fields[facet.key] = (list[str], Field(..., description=description))
+            facet_fields[facet.key] = (
+                list[label_literal],
+                Field(..., description=description),
+            )
 
         def validate_facet(
             value: str | list[str] | None,
@@ -863,8 +900,10 @@ def _build_schema(
             terms_by_label: Mapping[str, IsolationSourceTerm] = labels_to_terms,
         ) -> str | list[str] | None:
             labels = [] if value is None else [value] if isinstance(value, str) else value
-            invalid = [label for label in labels if label not in terms_by_label]
+            invalid = list(dict.fromkeys(label for label in labels if label not in terms_by_label))
             if invalid:
+                for label in invalid:
+                    observe_unknown_label(facet_key, label)
                 raise ValueError(
                     f"Unknown {facet_key} labels: " + ", ".join(repr(label) for label in invalid)
                 )
@@ -881,7 +920,9 @@ def _build_schema(
                     parent_id = ontology.terms[parent_id].parent_id
             return value
 
-        validators[f"validate_{facet.key}"] = field_validator(facet.key)(validate_facet)
+        validators[f"validate_{facet.key}"] = field_validator(facet.key, mode="before")(
+            validate_facet
+        )
 
     def validate_evidence_and_facets(model: BaseModel) -> BaseModel:
         has_selection = any(getattr(model, facet_key) not in (None, []) for facet_key in facet_keys)
@@ -896,7 +937,6 @@ def _build_schema(
     return create_model(
         "IsolationSourceClassification",
         __base__=IsolationSourceClassificationBase,
-        __config__=ConfigDict(title="IsolationClassification"),
         __validators__=validators,
         evidence_level=(evidence_literal, Field(..., description=evidence_description)),
         **facet_fields,
@@ -960,7 +1000,14 @@ class LLMClassifier:
         self.server = settings.server
         try:
             self.model = env_model or ""
-            self.client = instructor.from_openai(raw_client) if raw_client else None
+            self.client = (
+                instructor.from_openai(
+                    raw_client,
+                    mode=ISOLATION_SOURCE_STRUCTURED_OUTPUT_MODE,
+                )
+                if raw_client
+                else None
+            )
 
             self._ordered_facets = ordered_facets(ontology)
             self._facet_order = {
@@ -992,8 +1039,15 @@ class LLMClassifier:
             self._declared_identifier_prefixes.update(
                 term_id.partition(":")[0].casefold() for term_id in ontology.terms
             )
+            self._active_ontology_gap_observation: ContextVar[
+                tuple[str, list[IsolationSourceOntologyGapDiagnostic]] | None
+            ] = ContextVar("active_isolation_source_ontology_gap_observation", default=None)
             self._response_schemas = {
-                request_mode: _build_schema(ontology, request_mode)
+                request_mode: _build_schema(
+                    ontology,
+                    request_mode,
+                    self._record_unknown_label,
+                )
                 for request_mode in _IsolationSourceRequestMode
             }
             prompts = policy.effective_prompts
@@ -1009,6 +1063,14 @@ class LLMClassifier:
     def close(self) -> None:
         if self._raw_client is not None:
             self._raw_client.close()
+
+    def _record_unknown_label(self, facet: str, label: str) -> None:
+        """Record a classifier label that is missing from the facet vocabulary."""
+        observation = self._active_ontology_gap_observation.get()
+        if observation is None:
+            return
+        accession, diagnostics = observation
+        diagnostics.append(IsolationSourceOntologyGapDiagnostic(accession, facet, label))
 
     def _direct_match(self, value: str) -> tuple[IsolationSourceTerm | None, bool]:
         """Resolve an ontology term when the entire value is a label, identifier, or
@@ -1112,6 +1174,7 @@ class LLMClassifier:
         direct_term_ids: set[str],
         identifier_disagreement: bool,
         request_fingerprint: str,
+        ontology_gap_diagnostics: tuple[IsolationSourceOntologyGapDiagnostic, ...] = (),
     ) -> StandardizedIsolationSource:
         """Combine one raw answer with current deterministic evidence and enrichment."""
         classifier_selection, classifier_term_ids = self._resolve_classifier_answer(answer)
@@ -1133,6 +1196,7 @@ class LLMClassifier:
             classifier_term_ids=frozenset(classifier_term_ids),
             identifier_disagreement=identifier_disagreement,
             request_fingerprint=request_fingerprint,
+            ontology_gap_diagnostics=ontology_gap_diagnostics,
         )
         return self._enrich(classification)
 
@@ -1338,6 +1402,7 @@ class LLMClassifier:
                 if has_sample_context
                 else _IsolationSourceRequestMode.PROJECT_ONLY
             )
+            ontology_gap_diagnostics: list[IsolationSourceOntologyGapDiagnostic] = []
             response_schema = self._response_schemas[request_mode]
             permitted_evidence_levels = _EVIDENCE_LEVELS_BY_REQUEST_MODE[request_mode]
             metadata_block = self._format_metadata(valid_attrs, valid_vals, host)
@@ -1366,6 +1431,7 @@ class LLMClassifier:
                 parameters=ISOLATION_SOURCE_LLM_PARAMETERS,
                 response_schema_id=(
                     f"{ISOLATION_SOURCE_RESPONSE_SCHEMA_ID}:"
+                    f"{ISOLATION_SOURCE_STRUCTURED_OUTPUT_MODE.value}:"
                     f"{canonical_json_sha256(response_schema.model_json_schema())}"
                 ),
             )
@@ -1402,13 +1468,19 @@ class LLMClassifier:
                         target=TARGET_SPECS[StandardizationTarget.ISOLATION_SOURCE].published_key,
                         model=self.model,
                     ) as call:
-                        resp = self.client.chat.completions.create(
-                            model=request.model,
-                            response_model=response_schema,
-                            messages=list(request.messages),
-                            **request.parameters,
-                            max_retries=3,
+                        observation_token = self._active_ontology_gap_observation.set(
+                            (accession, ontology_gap_diagnostics)
                         )
+                        try:
+                            resp = self.client.chat.completions.create(
+                                model=request.model,
+                                response_model=response_schema,
+                                messages=list(request.messages),
+                                **request.parameters,
+                                max_retries=3,
+                            )
+                        finally:
+                            self._active_ontology_gap_observation.reset(observation_token)
                     classifier_evidence_level = IsolationSourceEvidenceLevel(resp.evidence_level)
                     if classifier_evidence_level not in permitted_evidence_levels:
                         raise ValueError(
@@ -1431,6 +1503,7 @@ class LLMClassifier:
                     raise _IsolationSourceClassificationError(
                         f"Isolation-source LLM failed for accession {accession}",
                         identifier_disagreement=identifier_disagreement,
+                        ontology_gap_diagnostics=tuple(ontology_gap_diagnostics),
                     ) from e
                 except Exception as e:
                     if not isinstance(e, openai.APIError):
@@ -1445,6 +1518,7 @@ class LLMClassifier:
                     direct_term_ids=direct_term_ids,
                     identifier_disagreement=identifier_disagreement,
                     request_fingerprint=request.fingerprint,
+                    ontology_gap_diagnostics=tuple(ontology_gap_diagnostics),
                 )
 
         classification = StandardizedIsolationSource(
@@ -1559,7 +1633,10 @@ class IsolationSourceStandardizer:
             diagnostics = [IsolationSourceDiagnostic.CLASSIFICATION_FAILURE]
             if error.identifier_disagreement:
                 diagnostics.append(IsolationSourceDiagnostic.IDENTIFIER_DISAGREEMENT)
-            return IsolationSourceRejection(tuple(diagnostics))
+            return IsolationSourceRejection(
+                tuple(diagnostics),
+                ontology_gap_diagnostics=error.ontology_gap_diagnostics,
+            )
         exact_matches = self.pipeline.stats["exact_matches"] - before["exact_matches"]
         cache_hits = self.pipeline.stats["cache_hits"] - before["cache_hits"]
         llm_calls = self.pipeline.stats["llm_calls"] - before["llm_calls"]
@@ -1594,6 +1671,81 @@ class IsolationSourceStandardizer:
             host_recovery_eligible=standardized.host_recovery_eligible,
             request_fingerprint=standardized.request_fingerprint,
             resolved_bioproject_accessions=tuple(project.accession for project in project_contexts),
+            ontology_gap_diagnostics=standardized.ontology_gap_diagnostics,
+        )
+
+    def refine_source_type_from_host_lineage(
+        self,
+        outcome: IsolationSourceOutcome,
+        *,
+        host_taxid: int,
+        lineage_root_taxid: int,
+        source_type_term_id: str,
+    ) -> IsolationSourceOutcome:
+        """Set the source type from host lineage unless the current type is non-host."""
+        selected_ids = {term.term_id for term in outcome.selected_terms}
+        source_type_ids = {
+            term_id
+            for term_id in selected_ids
+            if self.ontology.terms[term_id].facet == _SOURCE_TYPE_FACET
+        }
+
+        def is_host_associated(term_id: str) -> bool:
+            current_term_id: str | None = term_id
+            while current_term_id is not None:
+                if current_term_id == _HOST_ASSOCIATED_TERM_ID:
+                    return True
+                current_term_id = self.ontology.terms[current_term_id].parent_id
+            return False
+
+        if any(not is_host_associated(term_id) for term_id in source_type_ids):
+            return outcome
+
+        previous_labels = [self.ontology.terms[term_id].label for term_id in source_type_ids]
+        selected_ids -= source_type_ids
+        selected_ids.add(source_type_term_id)
+        parent_id = self.ontology.terms[source_type_term_id].parent_id
+        while parent_id is not None:
+            selected_ids.add(parent_id)
+            parent_id = self.ontology.terms[parent_id].parent_id
+
+        derived_label = self.ontology.terms[source_type_term_id].label
+        specific_previous_labels = [
+            label for label in previous_labels if label != "host-associated"
+        ]
+        disagreement = bool(
+            specific_previous_labels and derived_label not in specific_previous_labels
+        )
+        reasoning = (
+            f"Standardized host taxid {host_taxid} descends from NCBI lineage root "
+            f"{lineage_root_taxid}; selected {derived_label!r}."
+        )
+        if disagreement:
+            reasoning += f" Replaced conflicting source-type selection {previous_labels!r}."
+        return replace(
+            outcome,
+            selected_terms=self.pipeline._resolved_terms(selected_ids),
+            reasoning=(
+                *outcome.reasoning,
+                IsolationSourceReasoningStep(
+                    node="host_lineage_derivation",
+                    reasoning=reasoning,
+                    selected_terms={_SOURCE_TYPE_FACET: (derived_label,)},
+                ),
+            ),
+            diagnostics=tuple(
+                diagnostic
+                for diagnostic in outcome.diagnostics
+                if diagnostic is not IsolationSourceDiagnostic.UNSPECIFIED
+            ),
+            evidence_level=(
+                IsolationSourceEvidenceLevel.SAMPLE
+                if outcome.evidence_level is IsolationSourceEvidenceLevel.NONE
+                else IsolationSourceEvidenceLevel.SAMPLE_AND_PROJECT
+                if outcome.evidence_level is IsolationSourceEvidenceLevel.PROJECT
+                else outcome.evidence_level
+            ),
+            host_recovery_eligible=True,
         )
 
     def close(self) -> None:
