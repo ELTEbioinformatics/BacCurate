@@ -27,6 +27,7 @@ from baccurate.run.statistics import (
     IsolationSourceStatistics,
     LocationBuildStatistics,
     LocationStatistics,
+    invented_label_inventory,
 )
 from baccurate.standardization.collection_date import (
     DateDiagnostic,
@@ -49,6 +50,7 @@ from baccurate.standardization.host_lineage import HostLineage, HostLineageEnric
 from baccurate.standardization.isolation_source import (
     IsolationSourceDiagnostic,
     IsolationSourceEvidenceLevel,
+    IsolationSourceOntologyGapDiagnostic,
     IsolationSourceOutcome,
     IsolationSourcePromptPolicy,
     IsolationSourceRejection,
@@ -141,6 +143,9 @@ class _MutableIsolationSourceStatistics:
     host_recovery_passes: int = 0
     evidence_levels: Counter[IsolationSourceEvidenceLevel] = field(default_factory=Counter)
     diagnostics: Counter[IsolationSourceDiagnostic] = field(default_factory=Counter)
+    ontology_gap_diagnostics: Counter[IsolationSourceOntologyGapDiagnostic] = field(
+        default_factory=Counter
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -458,17 +463,21 @@ class DatasetBuilder:
                     )
             if isolation_source_standardizer is not None:
                 resources.callback(isolation_source_standardizer.close)
+            host_lineage = (
+                self._host_lineage_factory(request.names_dmp, request.nodes_dmp)
+                if StandardizationTarget.HOST in targets
+                or StandardizationTarget.ISOLATION_SOURCE in targets
+                else None
+            )
             host_isolation_source_standardizer = (
                 host_isolation_source_standardizer_from_components(
                     host_standardizer,
                     isolation_source_standardizer,
+                    host_lineage,
                 )
-                if host_standardizer is not None and isolation_source_standardizer is not None
-                else None
-            )
-            host_lineage = (
-                self._host_lineage_factory(request.names_dmp, request.nodes_dmp)
-                if StandardizationTarget.HOST in targets
+                if host_standardizer is not None
+                and isolation_source_standardizer is not None
+                and host_lineage is not None
                 else None
             )
             date_stats = (
@@ -703,6 +712,9 @@ class DatasetBuilder:
                     isolation_source_pathogen_stats.diagnostics.update(
                         host_isolation_source_result.diagnostics.isolation_source
                     )
+                    isolation_source_pathogen_stats.ontology_gap_diagnostics.update(
+                        isolation_source_result.ontology_gap_diagnostics
+                    )
                     isolation_source_pathogen_stats.host_recovery_passes += int(
                         host_isolation_source_result.routing.host_recovery
                         is not HostRecoveryRouting.NOT_ELIGIBLE
@@ -765,6 +777,9 @@ class DatasetBuilder:
                     )
                     stats.host_contexts += int(bool(host_context))
                     stats.diagnostics.update(isolation_source_result.diagnostics)
+                    stats.ontology_gap_diagnostics.update(
+                        isolation_source_result.ontology_gap_diagnostics
+                    )
                     if isinstance(isolation_source_result, IsolationSourceRejection):
                         stats.rejected += 1
                     else:
@@ -987,14 +1002,17 @@ class DatasetBuilder:
                 host_recovery_passes=stats.host_recovery_passes,
                 evidence_levels=dict(sorted(stats.evidence_levels.items())),
                 diagnostics=dict(sorted(stats.diagnostics.items())),
+                invented_labels=invented_label_inventory(stats.ontology_gap_diagnostics),
             )
 
         by_pathogen = {pathogen: freeze(stats) for pathogen, stats in mutable_stats.items()}
         aggregate_diagnostics: Counter[IsolationSourceDiagnostic] = Counter()
         aggregate_evidence_levels: Counter[IsolationSourceEvidenceLevel] = Counter()
+        aggregate_ontology_gaps: Counter[IsolationSourceOntologyGapDiagnostic] = Counter()
         for stats in mutable_stats.values():
             aggregate_diagnostics.update(stats.diagnostics)
             aggregate_evidence_levels.update(stats.evidence_levels)
+            aggregate_ontology_gaps.update(stats.ontology_gap_diagnostics)
         aggregate = IsolationSourceStatistics(
             processed=sum(stats.processed for stats in mutable_stats.values()),
             standardized=sum(stats.standardized for stats in mutable_stats.values()),
@@ -1008,6 +1026,7 @@ class DatasetBuilder:
             ),
             evidence_levels=dict(sorted(aggregate_evidence_levels.items())),
             diagnostics=dict(sorted(aggregate_diagnostics.items())),
+            invented_labels=invented_label_inventory(aggregate_ontology_gaps),
         )
         return IsolationSourceBuildStatistics(aggregate=aggregate, by_pathogen=by_pathogen)
 

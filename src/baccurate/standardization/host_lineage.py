@@ -167,3 +167,17 @@ class HostLineageEnricher:
         )
         self._cache[taxid] = result
         return result
+
+    def is_descendant_or_self(self, taxid: int, ancestor_taxid: int) -> bool:
+        """Return whether ``taxid`` belongs to the configured ancestor's subtree."""
+        current = taxid
+        seen: set[int] = set()
+        while current and current not in seen:
+            if current == ancestor_taxid:
+                return True
+            seen.add(current)
+            parent = self._parent_rank.get(current)
+            if parent is None or parent[0] == current:
+                return False
+            current = parent[0]
+        return False

@@ -13,6 +13,7 @@ from types import SimpleNamespace
 import pytest
 import yaml
 from instructor.core import InstructorRetryException
+from pydantic import ValidationError
 
 from baccurate.adapters.llm.client import LLMSettings
 from baccurate.extraction import CurationDecision, CurationEvent, CurationSchema
@@ -32,7 +33,7 @@ from baccurate.run.dataset_builder import (
     DatasetBuilder,
     DatasetBuildRequest,
 )
-from baccurate.run.statistics import DatasetBuildStatistics
+from baccurate.run.statistics import DatasetBuildStatistics, InventedLabelStatistics
 from baccurate.standardization.host import HostPolicy, HostStandardizer
 from baccurate.standardization.host_lineage import HostLineage
 from baccurate.standardization.isolation_source import (
@@ -228,7 +229,8 @@ def _build_dataset(
         location_standardizer_factory=location_standardizer_factory,
         host_standardizer_factory=host_standardizer_factory,
         host_lineage_factory=lambda *_paths: SimpleNamespace(
-            enrich=lambda _taxid: HostLineage("", "", "")
+            enrich=lambda _taxid: HostLineage("", "", ""),
+            is_descendant_or_self=lambda _taxid, _ancestor: False,
         ),
         isolation_source_standardizer_factory=isolation_source_standardizer_factory,
     ).build(
@@ -553,6 +555,7 @@ def test_requested_target_without_outcome_serializes_exact_empty_columns_without
         assert tuple(record[column] for column in absent_columns) == ("",) * len(absent_columns)
         assert record[preserved_column] == preserved_value
 
+
 def test_failed_isolation_source_classification_skips_record_and_continues(
     tmp_path: Path,
 ) -> None:
@@ -560,13 +563,31 @@ def test_failed_isolation_source_classification_skips_record_and_continues(
 
     def create(**kwargs: object) -> object:
         calls.append(kwargs)
+        response_model = kwargs["response_model"]
+        invalid_answer = {
+            "reasoning": "The sample names an unsupported anatomical site.",
+            "evidence_level": "sample",
+            "source_type": "animal host",
+            "body_product": [],
+            "body_site": ["nasal cavity"],
+            "lesion": [],
+            "environmental_material": [],
+            "facility": [],
+            "sampled_object": [],
+            "food_type": [],
+        }
         if len(calls) == 1:
+            for _ in range(3):
+                with pytest.raises(ValidationError):
+                    response_model.model_validate(invalid_answer)
             raise InstructorRetryException(
                 "invalid structured response",
                 n_attempts=4,
                 total_usage=0,
             )
-        return kwargs["response_model"].model_validate(
+        with pytest.raises(ValidationError):
+            response_model.model_validate(invalid_answer)
+        return response_model.model_validate(
             {
                 "reasoning": "The second response is valid.",
                 "evidence_level": "sample",
@@ -641,6 +662,17 @@ def test_failed_isolation_source_classification_skips_record_and_continues(
     assert built.statistics.isolation_source.aggregate.diagnostics == {
         IsolationSourceDiagnostic.CLASSIFICATION_FAILURE: 1,
         IsolationSourceDiagnostic.LLM_CALL: 1,
+    }
+    assert built.statistics.isolation_source.aggregate.invented_labels == {
+        "body_site": {
+            "nasal cavity": InventedLabelStatistics(
+                occurrences=4,
+                accessions={
+                    "FAILED_CLASSIFICATION": 3,
+                    "RECOVERED_CLASSIFICATION": 1,
+                },
+            )
+        }
     }
 
 

@@ -224,7 +224,11 @@ def test_all_standardization_targets_match_golden_run(
         "get",
         lambda _coordinates: (_ for _ in ()).throw(RuntimeError("synthetic service failure")),
     )
-    monkeypatch.setattr(isolation_source_module.instructor, "from_openai", lambda client: client)
+    monkeypatch.setattr(
+        isolation_source_module.instructor,
+        "from_openai",
+        lambda client, **_kwargs: client,
+    )
     extracted, biosample_manifest, bioproject_manifest = _prepare_bundle(
         tmp_path, golden_run_fixture_dir
     )
@@ -311,7 +315,10 @@ def test_all_standardization_targets_match_golden_run(
                 9031: HostLineage(
                     "chicken", "Eukaryota||Metazoa||Gallus gallus", "2759||33208||9031"
                 ),
-            }[taxid]
+            }[taxid],
+            is_descendant_or_self=lambda taxid, ancestor: (
+                taxid in {9606, 9031} and ancestor == 33208
+            ),
         ),
         isolation_source_standardizer_factory=isolation_source_factory,
     ).build(

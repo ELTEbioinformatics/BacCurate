@@ -8,6 +8,7 @@ import pytest
 
 from baccurate.pathogen_registry.registry import load_pathogen_registry
 from baccurate.standardization.host import HostDiagnostic, HostPolicy, HostStandardizer
+from baccurate.standardization.host_lineage import HostLineageEnricher
 
 ROOT = Path(__file__).parents[2]
 CONFIG_PATH = ROOT / "config" / "host.yaml"
@@ -358,3 +359,31 @@ def test_record_standardization_rejects_misaligned_host_pair_counts(
                 "host_val_orig": "human",
             }
         )
+
+
+def test_lineage_membership_uses_taxonomy_parents_and_stops_on_broken_cycles(
+    tmp_path: Path,
+) -> None:
+    names = tmp_path / "names.dmp"
+    names.write_text("", encoding="utf-8")
+    nodes = tmp_path / "nodes.dmp"
+    nodes.write_text(
+        "1 | 1 | no rank |\n"
+        "2759 | 1 | superkingdom |\n"
+        "33208 | 2759 | kingdom |\n"
+        "9606 | 33208 | species |\n"
+        "33090 | 2759 | kingdom |\n"
+        "3702 | 33090 | species |\n"
+        "4932 | 2759 | species |\n"
+        "10 | 11 | no rank |\n"
+        "11 | 10 | no rank |\n",
+        encoding="utf-8",
+    )
+    lineage = HostLineageEnricher(names, nodes)
+
+    assert lineage.is_descendant_or_self(33208, 33208)
+    assert lineage.is_descendant_or_self(9606, 33208)
+    assert lineage.is_descendant_or_self(3702, 33090)
+    assert not lineage.is_descendant_or_self(4932, 33208)
+    assert not lineage.is_descendant_or_self(999999, 33208)
+    assert not lineage.is_descendant_or_self(10, 33208)

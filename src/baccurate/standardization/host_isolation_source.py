@@ -18,13 +18,16 @@ from time import perf_counter
 
 from baccurate.adapters.llm.client import LLMSettings, load_llm_settings
 from baccurate.adapters.llm.request import canonical_json_sha256
+from baccurate.paths import DEFAULT_NAMES_DMP, DEFAULT_NODES_DMP
 from baccurate.standardization.host import (
     HostDiagnostic,
     HostOutcome,
     HostPolicy,
     HostStandardizer,
 )
+from baccurate.standardization.host_lineage import HostLineageEnricher
 from baccurate.standardization.isolation_source import (
+    HOST_SOURCE_TYPE_BY_LINEAGE_ROOT,
     ISOLATION_SOURCE_LLM_PARAMETERS,
     IsolationSourceDiagnostic,
     IsolationSourceEvidenceLevel,
@@ -135,6 +138,9 @@ class HostIsolationSourceStandardizer:
         llm_adapter: object = _LOAD_LLM_ADAPTER,
         llm_settings: LLMSettings | None = None,
         read_llm_cache: bool = True,
+        host_lineage: HostLineageEnricher | None = None,
+        names_dmp: Path = DEFAULT_NAMES_DMP,
+        nodes_dmp: Path = DEFAULT_NODES_DMP,
     ) -> None:
         effective_llm_settings = llm_settings or load_llm_settings()
         self._host = HostStandardizer(host_policy, result_logger=result_logger)
@@ -157,6 +163,8 @@ class HostIsolationSourceStandardizer:
             )
             self._isolation_source.pipeline.client = llm_adapter
         self._owns_components = True
+        self._host_lineage = host_lineage
+        self._host_lineage_paths = (names_dmp, nodes_dmp)
         self._initialize_fingerprints()
 
     def _initialize_fingerprints(self) -> None:
@@ -229,11 +237,37 @@ class HostIsolationSourceStandardizer:
         host_context = (
             standardized_host or str(extracted_record.get("host_val_orig", "") or "").strip()
         )
-        isolation_source = self._isolation_source.standardize(
-            extracted_record,
-            host_context=host_context,
-            overflow=initial_host.overflow,
+        initial_lineage_source = self._lineage_source_type(initial_host)
+        host_only = not any(
+            str(extracted_record.get(key, "") or "").strip()
+            for key in ("iso_val_orig", "bioproject_id", "bioproject_accession")
         )
+        lineage_applied = initial_lineage_source is not None and host_only
+        if lineage_applied:
+            lineage_root_taxid, source_type_term_id = initial_lineage_source
+            isolation_source = self._isolation_source.refine_source_type_from_host_lineage(
+                IsolationSourceOutcome(
+                    selected_terms=(),
+                    evidence_level=IsolationSourceEvidenceLevel.NONE,
+                    host_context=host_context,
+                    supporting_pairs=(),
+                    host_recovery_pairs=(),
+                    reasoning=(),
+                    diagnostics=(),
+                    exact_matches=0,
+                    cache_hits=0,
+                    llm_calls=0,
+                ),
+                host_taxid=initial_host.standardized.taxid,
+                lineage_root_taxid=lineage_root_taxid,
+                source_type_term_id=source_type_term_id,
+            )
+        else:
+            isolation_source = self._isolation_source.standardize(
+                extracted_record,
+                host_context=host_context,
+                overflow=initial_host.overflow,
+            )
 
         # 2nd host pass
         # An eligible isolation-source result means the organism is named in the submitted
@@ -258,6 +292,20 @@ class HostIsolationSourceStandardizer:
                 HostRecoveryRouting.RESOLVED
                 if final_host.standardized is not None
                 else HostRecoveryRouting.UNRESOLVED
+            )
+
+        final_lineage_source = self._lineage_source_type(final_host)
+        if (
+            not lineage_applied
+            and final_lineage_source is not None
+            and isinstance(isolation_source, IsolationSourceOutcome)
+        ):
+            lineage_root_taxid, source_type_term_id = final_lineage_source
+            isolation_source = self._isolation_source.refine_source_type_from_host_lineage(
+                isolation_source,
+                host_taxid=final_host.standardized.taxid,
+                lineage_root_taxid=lineage_root_taxid,
+                source_type_term_id=source_type_term_id,
             )
 
         initial_routing = (
@@ -301,6 +349,22 @@ class HostIsolationSourceStandardizer:
             ),
         )
 
+    def _lineage_source_type(self, host: HostOutcome) -> tuple[int, str] | None:
+        if host.standardized is None:
+            return None
+        if self._host_lineage is None:
+            self._host_lineage = HostLineageEnricher(*self._host_lineage_paths)
+        return next(
+            (
+                (lineage_root_taxid, source_type_term_id)
+                for lineage_root_taxid, source_type_term_id in HOST_SOURCE_TYPE_BY_LINEAGE_ROOT
+                if self._host_lineage.is_descendant_or_self(
+                    host.standardized.taxid, lineage_root_taxid
+                )
+            ),
+            None,
+        )
+
     @staticmethod
     def _isolation_source_routing(
         isolation_source: IsolationSourceOutcome | IsolationSourceRejection,
@@ -313,6 +377,8 @@ class HostIsolationSourceStandardizer:
         if isolation_source.cache_hits:
             return IsolationSourceRouting.CACHE
         if isolation_source.exact_matches:
+            return IsolationSourceRouting.DETERMINISTIC
+        if any(step.node == "host_lineage_derivation" for step in isolation_source.reasoning):
             return IsolationSourceRouting.DETERMINISTIC
         # No route left any trace, which only happens with no configured client.
         return IsolationSourceRouting.LLM_DISABLED
@@ -328,6 +394,7 @@ class HostIsolationSourceStandardizer:
 def host_isolation_source_standardizer_from_components(
     host_standardizer: HostStandardizer,
     isolation_source_standardizer: IsolationSourceStandardizer,
+    host_lineage: HostLineageEnricher,
 ) -> HostIsolationSourceStandardizer:
     """
     Adapt builder-owned standardizers to the cross-target standardizer.
@@ -339,6 +406,8 @@ def host_isolation_source_standardizer_from_components(
     standardizer = HostIsolationSourceStandardizer.__new__(HostIsolationSourceStandardizer)
     standardizer._host = host_standardizer
     standardizer._isolation_source = isolation_source_standardizer
+    standardizer._host_lineage = host_lineage
+    standardizer._host_lineage_paths = None
     standardizer._owns_components = False
     standardizer._initialize_fingerprints()
     return standardizer

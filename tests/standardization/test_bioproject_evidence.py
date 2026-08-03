@@ -167,7 +167,6 @@ def test_dataset_build_preserves_evidence_levels_artifacts_and_statistics(
 ) -> None:
     client = ScriptedClient()
     client.respond_with(["soil"], evidence_level="project")
-    client.respond_with(["host-associated"], evidence_level="sample")
     client.respond_with(["soil"], evidence_level="project")
     client.respond_with([], evidence_level="none")
     run = _build_isolation_source_run(
@@ -250,12 +249,12 @@ def test_dataset_build_preserves_evidence_levels_artifacts_and_statistics(
 
     rows = _dataset_rows(run.dataset)
     reasoning = _reasoning_rows(run.reasoning)
-    assert len(client.calls) == 4
+    assert len(client.calls) == 3
     assert rows["SAMPLE_ONLY"]["iso_body_product"] == "feces"
     assert rows["SAMPLE_ONLY"]["iso_term_ids"] == (f"BACC:0000001||BACC:0000002||{FECES}")
     assert rows["PROJECT_ONLY"]["iso_environmental_material"] == "soil"
     assert rows["PROJECT_ONLY"]["iso_term_ids"] == f"BACC:0000004||{SOIL}"
-    assert rows["HOST_ONLY"]["iso_source_type"] == "host-associated"
+    assert rows["HOST_ONLY"]["iso_source_type"] == "host-associated||animal host"
     assert rows["SAMPLE_AND_PROJECT"]["iso_term_ids"] == (
         f"BACC:0000001||BACC:0000002||{FECES}||{SOIL}"
     )
@@ -546,6 +545,10 @@ def test_host_recovery_uses_record_pairs_and_not_project_only_evidence(
                 llm_calls=1,
                 host_recovery_eligible=True,
             )
+
+        @staticmethod
+        def refine_source_type_from_host_lineage(outcome, **_lineage):
+            return outcome
 
         def close(self) -> None:
             pass
