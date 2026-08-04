@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import shutil
 from dataclasses import replace
 from pathlib import Path
@@ -19,7 +18,6 @@ import baccurate.standardization.isolation_source as isolation_source_module
 from baccurate.adapters.llm.client import LLMSettings
 from baccurate.adapters.llm.diagnostics import LLMObservability
 from baccurate.adapters.policy_yaml import PolicyConfigurationError
-from baccurate.provenance.source_snapshot import bioproject_catalog_path_for
 from baccurate.standardization.host import HostOverflowContext
 from baccurate.standardization.isolation_source import (
     IsolationSourceClassifierAnswer,
@@ -202,7 +200,6 @@ def test_classifier_requests_endpoint_enforced_json_schema_mode(
     monkeypatch.setattr(isolation_source_module.instructor, "from_openai", from_openai)
     standardizer = IsolationSourceStandardizer(
         fixture_isolation_source_prompt_policy,
-        _empty_extracted_bundle(tmp_path),
         client=fake_client,
         llm_settings=LLMSettings(None, "https://model.example/v1", "test-model"),
     )
@@ -210,12 +207,6 @@ def test_classifier_requests_endpoint_enforced_json_schema_mode(
     standardizer.close()
 
     from_openai.assert_called_once_with(fake_client, mode=Mode.JSON_SCHEMA)
-
-
-def _empty_extracted_bundle(tmp_path: Path) -> Path:
-    extracted = tmp_path / "unit-extracted.tsv"
-    bioproject_catalog_path_for(extracted).write_text("", encoding="utf-8")
-    return extracted
 
 
 # =============================================================================
@@ -235,7 +226,7 @@ def cache(tmp_path) -> SQLiteCache:
 # =============================================================================
 
 
-def test_typed_record_outcome_preserves_context_supporting_pairs_and_diagnostics(
+def test_typed_record_outcome_preserves_supporting_pairs_and_diagnostics(
     tmp_path,
     monkeypatch,
 ):
@@ -246,7 +237,6 @@ def test_typed_record_outcome_preserves_context_supporting_pairs_and_diagnostics
     )
     standardizer = IsolationSourceStandardizer(
         IsolationSourcePromptPolicy.load(config_path),
-        _empty_extracted_bundle(tmp_path),
     )
 
     try:
@@ -256,7 +246,6 @@ def test_typed_record_outcome_preserves_context_supporting_pairs_and_diagnostics
                 "iso_attr_orig": "isolation_source",
                 "iso_val_orig": "stool",
             },
-            host_context="Homo sapiens",
             overflow=HostOverflowContext(
                 attribute="host sample",
                 value="blood",
@@ -275,7 +264,6 @@ def test_typed_record_outcome_preserves_context_supporting_pairs_and_diagnostics
                     "iso_attr_orig": "isolation_source||tissue",
                     "iso_val_orig": "blood",
                 },
-                host_context="",
             )
         fake_client = FakeClient()
         fake_client.fail_with(RuntimeError("boom"))
@@ -290,13 +278,11 @@ def test_typed_record_outcome_preserves_context_supporting_pairs_and_diagnostics
                     "iso_attr_orig": "isolation_source",
                     "iso_val_orig": "venous draw",
                 },
-                host_context="",
             )
     finally:
         standardizer.close()
 
     assert isinstance(result, IsolationSourceOutcome)
-    assert result.host_context == "Homo sapiens"
     assert [(pair.attribute, pair.value) for pair in result.supporting_pairs] == [
         ("isolation_source", "stool"),
         ("host sample", "blood"),
@@ -346,7 +332,6 @@ def _standardize_fixture_record(
     attributes: str = "isolation_source",
     fake: FakeClient | None = None,
     monkeypatch: pytest.MonkeyPatch | None = None,
-    host_context: str = "",
     accession: str = "PUBLIC_CLASSIFICATION",
 ) -> IsolationSourceOutcome | IsolationSourceRejection:
     if fake is not None:
@@ -358,7 +343,6 @@ def _standardize_fixture_record(
         )
     standardizer = IsolationSourceStandardizer(
         policy,
-        _empty_extracted_bundle(tmp_path),
         client=fake,
         llm_settings=LLMSettings(None, None, "test-model"),
     )
@@ -369,7 +353,6 @@ def _standardize_fixture_record(
                 "iso_attr_orig": attributes,
                 "iso_val_orig": values,
             },
-            host_context=host_context,
         )
     finally:
         standardizer.close()
@@ -633,7 +616,6 @@ def test_disagreeing_pair_reports_diagnostic_when_classifier_validation_fails(
     )
     standardizer = IsolationSourceStandardizer(
         fixture_isolation_source_prompt_policy,
-        _empty_extracted_bundle(tmp_path),
         client=fake,
         llm_settings=LLMSettings(None, None, "test-model"),
     )
@@ -644,7 +626,6 @@ def test_disagreeing_pair_reports_diagnostic_when_classifier_validation_fails(
                 "iso_attr_orig": "isolation_source",
                 "iso_val_orig": "blood [ENVO:00002003]",
             },
-            host_context="",
         )
     finally:
         standardizer.close()
@@ -944,52 +925,6 @@ def test_classifier_response_schema_enforces_the_faceted_contract(
     assert fake.calls[0]["max_retries"] == 3
 
 
-def test_classifier_prompt_and_schema_share_facet_order_and_guidance(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    policy = replace(
-        IsolationSourcePromptPolicy.load(CONFIG_PATH),
-        cache_db_path=tmp_path / "faceted-prompt-cache.db",
-    )
-    fake = FakeClient()
-    fake.respond_with_facets(source_type="animal host")
-    _classify_fixture_record(
-        policy,
-        tmp_path,
-        values="clinical isolate 82461",
-        fake=fake,
-        monkeypatch=monkeypatch,
-    )
-
-    system_prompt = fake.calls[0]["messages"][0]["content"]
-    response_model = fake.calls[0]["response_model"]
-    ordered_facets = tuple(
-        sorted(policy.ontology.facets.values(), key=lambda facet: facet.render_order)
-    )
-    assert re.findall(r"^## ([a-z_]+)$", system_prompt, flags=re.MULTILINE) == [
-        facet.key for facet in ordered_facets
-    ]
-    for facet in ordered_facets:
-        assert response_model.model_fields[facet.key].description == (
-            f"{facet.meaning} {facet.classifier_guidance}"
-        )
-    assert '"body_product": ["pus"]' in system_prompt
-    assert '"body_site": ["liver"]' in system_prompt
-    assert '"lesion": ["abscess"]' in system_prompt
-    assert '"evidence_level": "none"' in system_prompt
-    assert '"source_type": null' in system_prompt
-
-
-def test_production_prompt_teaches_closed_isolation_source_vocabulary() -> None:
-    policy = IsolationSourcePromptPolicy.load(CONFIG_PATH)
-
-    system_prompt = policy.effective_prompts.system
-    assert policy.prompt_version == "4"
-    assert "Never write the metadata's own wording as a label" in system_prompt
-    assert "isolation_source = dust from hospital elevator button" in system_prompt
-
-
 def test_model_selected_feces_does_not_infer_anatomical_origin(
     fixture_isolation_source_prompt_policy: IsolationSourcePromptPolicy,
     tmp_path: Path,
@@ -1062,7 +997,6 @@ def test_partial_deterministic_result_uses_sample_evidence_when_llm_is_disabled(
     config_path = _isolation_source_config(tmp_path)
     standardizer = IsolationSourceStandardizer(
         IsolationSourcePromptPolicy.load(config_path),
-        _empty_extracted_bundle(tmp_path),
         client=None,
         llm_settings=LLMSettings(None, None, "test-model"),
     )
@@ -1074,7 +1008,6 @@ def test_partial_deterministic_result_uses_sample_evidence_when_llm_is_disabled(
                 "iso_attr_orig": "isolation_source||environment",
                 "iso_val_orig": "stool||unresolved material 12345",
             },
-            host_context="",
         )
     finally:
         standardizer.close()
@@ -1091,9 +1024,8 @@ def test_partial_deterministic_result_uses_sample_evidence_when_llm_is_disabled(
 def test_typed_record_outcome_preserves_model_reasoning_on_exact_cache_hit(tmp_path, monkeypatch):
     config_path = _isolation_source_config(tmp_path)
     monkeypatch.setenv("LLM_MODEL", "test-model")
-    extracted = _empty_extracted_bundle(tmp_path)
     policy = IsolationSourcePromptPolicy.load(config_path)
-    first_standardizer = IsolationSourceStandardizer(policy, extracted, client=None)
+    first_standardizer = IsolationSourceStandardizer(policy, client=None)
     fake_client = FakeClient()
     fake_client.respond_with(["wound"], reasoning="clinical wound")
     first_standardizer.pipeline.client = fake_client
@@ -1105,12 +1037,11 @@ def test_typed_record_outcome_preserves_model_reasoning_on_exact_cache_hit(tmp_p
                 "iso_attr_orig": "isolation_source",
                 "iso_val_orig": "wound patient 1",
             },
-            host_context="Homo sapiens",
         )
     finally:
         first_standardizer.close()
 
-    cached_standardizer = IsolationSourceStandardizer(policy, extracted, client=None)
+    cached_standardizer = IsolationSourceStandardizer(policy, client=None)
     try:
         cached = cached_standardizer.standardize(
             {
@@ -1118,7 +1049,6 @@ def test_typed_record_outcome_preserves_model_reasoning_on_exact_cache_hit(tmp_p
                 "iso_attr_orig": "isolation_source",
                 "iso_val_orig": "wound patient 1",
             },
-            host_context="Homo sapiens",
         )
     finally:
         cached_standardizer.close()
@@ -1193,7 +1123,6 @@ def test_response_that_failed_validation_is_not_cached(tmp_path: Path) -> None:
     )
     standardizer = IsolationSourceStandardizer(
         IsolationSourcePromptPolicy.load(_isolation_source_config(tmp_path)),
-        _empty_extracted_bundle(tmp_path),
         client=None,
         llm_settings=LLMSettings(None, None, "test-model"),
     )
@@ -1204,12 +1133,12 @@ def test_response_that_failed_validation_is_not_cached(tmp_path: Path) -> None:
         "iso_val_orig": "ambiguous material 6248",
     }
     try:
-        failed = standardizer.standardize(record, host_context="")
+        failed = standardizer.standardize(record)
         fake.respond_with_facets(
             source_type="animal host",
             lesion=["wound"],
         )
-        retried = standardizer.standardize(record, host_context="")
+        retried = standardizer.standardize(record)
     finally:
         standardizer.close()
 
@@ -1332,7 +1261,6 @@ def test_direct_matches_receive_derived_source_kind_ancestors_and_preorder(
 ) -> None:
     standardizer = IsolationSourceStandardizer(
         IsolationSourcePromptPolicy.load(_isolation_source_config(tmp_path)),
-        _empty_extracted_bundle(tmp_path),
         client=None,
     )
     try:
@@ -1342,7 +1270,6 @@ def test_direct_matches_receive_derived_source_kind_ancestors_and_preorder(
                 "iso_attr_orig": "specimen||isolation_source||anatomical_site||lesion",
                 "iso_val_orig": "blood||stool||rectal swab||abscess",
             },
-            host_context="",
         )
     finally:
         standardizer.close()
@@ -1372,7 +1299,6 @@ def test_crosslink_overwrites_classifier_source_kind_and_reports_disagreement(
     )
     standardizer = IsolationSourceStandardizer(
         IsolationSourcePromptPolicy.load(_isolation_source_config(tmp_path)),
-        _empty_extracted_bundle(tmp_path),
         client=None,
         llm_settings=LLMSettings(None, None, "test-model"),
     )
@@ -1384,7 +1310,6 @@ def test_crosslink_overwrites_classifier_source_kind_and_reports_disagreement(
                 "iso_attr_orig": "isolation_source",
                 "iso_val_orig": "root-zone material 8472",
             },
-            host_context="",
         )
     finally:
         standardizer.close()
@@ -1407,7 +1332,6 @@ def test_direct_crosslink_conflict_does_not_report_classifier_disagreement(
 ) -> None:
     standardizer = IsolationSourceStandardizer(
         IsolationSourcePromptPolicy.load(_isolation_source_config(tmp_path)),
-        _empty_extracted_bundle(tmp_path),
         client=None,
     )
     try:
@@ -1417,7 +1341,6 @@ def test_direct_crosslink_conflict_does_not_report_classifier_disagreement(
                 "iso_attr_orig": "environment||isolation_source",
                 "iso_val_orig": "environment||rhizosphere",
             },
-            host_context="",
         )
     finally:
         standardizer.close()
@@ -1436,7 +1359,6 @@ def test_derived_source_kind_uses_host_environment_food_precedence(tmp_path: Pat
     )
     standardizer = IsolationSourceStandardizer(
         IsolationSourcePromptPolicy.load(_isolation_source_config(tmp_path)),
-        _empty_extracted_bundle(tmp_path),
         client=None,
         llm_settings=LLMSettings(None, None, "test-model"),
     )
@@ -1448,7 +1370,6 @@ def test_derived_source_kind_uses_host_environment_food_precedence(tmp_path: Pat
                 "iso_attr_orig": "isolation_source",
                 "iso_val_orig": "mixed material 1937",
             },
-            host_context="",
         )
     finally:
         standardizer.close()
@@ -1467,7 +1388,7 @@ def test_derived_source_kind_uses_host_environment_food_precedence(tmp_path: Pat
 
 
 @pytest.mark.parametrize(
-    ("record", "host_context", "answer", "expected_terms"),
+    ("record", "answer", "expected_terms"),
     [
         (
             {
@@ -1475,25 +1396,14 @@ def test_derived_source_kind_uses_host_environment_food_precedence(tmp_path: Pat
                 "iso_attr_orig": "isolation_source",
                 "iso_val_orig": "laboratory strain",
             },
-            "",
             None,
             (SelectedTerm(LABORATORY, "source_type", "laboratory"),),
-        ),
-        (
-            {"accession": "HOST_ONLY", "iso_attr_orig": "", "iso_val_orig": ""},
-            "cattle",
-            "animal host",
-            (
-                SelectedTerm(HOST_ASSOCIATED, "source_type", "host-associated"),
-                SelectedTerm(ANIMAL_HOST, "source_type", "animal host"),
-            ),
         ),
     ],
 )
 def test_source_kind_stands_when_no_other_facet_implies_one(
     tmp_path: Path,
     record: dict[str, str],
-    host_context: str,
     answer: str | None,
     expected_terms: tuple[SelectedTerm, ...],
 ) -> None:
@@ -1502,13 +1412,12 @@ def test_source_kind_stands_when_no_other_facet_implies_one(
         fake.respond_with([answer])
     standardizer = IsolationSourceStandardizer(
         IsolationSourcePromptPolicy.load(_isolation_source_config(tmp_path)),
-        _empty_extracted_bundle(tmp_path),
         client=None,
         llm_settings=LLMSettings(None, None, "test-model"),
     )
     standardizer.pipeline.client = fake
     try:
-        outcome = standardizer.standardize(record, host_context=host_context)
+        outcome = standardizer.standardize(record)
     finally:
         standardizer.close()
 
@@ -1563,7 +1472,6 @@ def _standardize_model_isolation_source(
 ) -> IsolationSourceOutcome:
     standardizer = IsolationSourceStandardizer(
         IsolationSourcePromptPolicy.load(config_path),
-        _empty_extracted_bundle(config_path.parent),
         client=None,
         llm_settings=LLMSettings(None, None, model),
     )
@@ -1575,7 +1483,6 @@ def _standardize_model_isolation_source(
                 "iso_attr_orig": "isolation_source",
                 "iso_val_orig": "wound patient 739105",
             },
-            host_context="Homo sapiens",
         )
     finally:
         standardizer.close()
@@ -1606,7 +1513,6 @@ def test_isolation_source_standardizer_does_not_reopen_loaded_policy_source(tmp_
 
     standardizer = IsolationSourceStandardizer(
         policy,
-        _empty_extracted_bundle(tmp_path),
         client=None,
     )
     try:
@@ -1616,7 +1522,6 @@ def test_isolation_source_standardizer_does_not_reopen_loaded_policy_source(tmp_
                 "iso_attr_orig": "isolation_source",
                 "iso_val_orig": "stool",
             },
-            host_context="",
         )
     finally:
         standardizer.close()
@@ -1654,9 +1559,7 @@ def test_isolation_source_request_uses_rendered_synthetic_prompts(tmp_path: Path
         overrides={
             "prompt_version": "synthetic-v1",
             "system_prompt": "Synthetic ontology:\n{ontology_tree}",
-            "user_prompt": "Synthetic sample:\n{metadata}\n{bioproject_context}",
-            "bioproject_system_prompt": "Synthetic BioProject rules.",
-            "bioproject_user_prompt": "Synthetic projects:\n{bioproject_context}",
+            "user_prompt": "Synthetic sample:\n{metadata}",
             "ontology_directory": (
                 ROOT / "tests" / "fixtures" / "standardization" / "ontology"
             ).as_posix(),
@@ -1664,7 +1567,6 @@ def test_isolation_source_request_uses_rendered_synthetic_prompts(tmp_path: Path
     )
     standardizer = IsolationSourceStandardizer(
         IsolationSourcePromptPolicy.load(config_path),
-        _empty_extracted_bundle(tmp_path),
         client=None,
         llm_settings=LLMSettings(None, None, "test-model"),
     )
@@ -1676,7 +1578,6 @@ def test_isolation_source_request_uses_rendered_synthetic_prompts(tmp_path: Path
                 "iso_attr_orig": "isolation_source",
                 "iso_val_orig": "stool",
             },
-            host_context="Homo sapiens",
         )
         assert fake.calls == []
         outcome = standardizer.standardize(
@@ -1685,7 +1586,6 @@ def test_isolation_source_request_uses_rendered_synthetic_prompts(tmp_path: Path
                 "iso_attr_orig": "isolation_source",
                 "iso_val_orig": "wound patient 739105",
             },
-            host_context="Homo sapiens",
         )
     finally:
         standardizer.close()
@@ -1693,19 +1593,13 @@ def test_isolation_source_request_uses_rendered_synthetic_prompts(tmp_path: Path
     assert isinstance(direct, IsolationSourceOutcome)
     assert direct.diagnostics == (IsolationSourceDiagnostic.EXACT_MATCH,)
     assert fake.calls[0]["messages"][0]["role"] == "system"
-    assert fake.calls[0]["messages"][0]["content"].startswith(
-        "Synthetic ontology:\n## source_type\n"
-    )
-    assert "- wound" in fake.calls[0]["messages"][0]["content"]
-    assert fake.calls[0]["messages"][1] == {
-        "role": "user",
-        "content": (
-            "Synthetic sample:\n"
-            "Metadata:\n"
-            "isolation_source = wound patient 739105\n"
-            "host = Homo sapiens\n"
-        ),
-    }
+    system_message = fake.calls[0]["messages"][0]["content"]
+    user_message = fake.calls[0]["messages"][1]
+    assert "Synthetic ontology:" in system_message
+    assert "wound" in system_message
+    assert user_message["role"] == "user"
+    assert "isolation_source = wound patient 739105" in user_message["content"]
+    assert "Homo sapiens" not in str(fake.calls[0]["messages"])
     assert fake.calls[0]["model"] == "test-model"
     assert fake.calls[0]["temperature"] == 0
     assert fake.calls[0]["seed"] == 100

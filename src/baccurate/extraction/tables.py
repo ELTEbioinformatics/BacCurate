@@ -38,9 +38,7 @@ def extracted_metadata_row(
             if match.target == "date":
                 date_categories.append(match.category)
 
-    # Keep rows that carry only a BioProject link, so unresolved-only samples
-    # stay in the dataset, distinct from fully unlinked ones that we drop.
-    if not found and not bioproject_id:
+    if not found:
         return None
 
     extracted_metadata_values = [

@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING
 from lxml import etree
 
 from baccurate.adapters.compressed_io import open_binary
-from baccurate.extraction.bioproject import require_numeric_bioproject_id
 
 if TYPE_CHECKING:
     from baccurate.extraction.curation import CurationDecision
@@ -149,10 +148,7 @@ def _extract_bioprojects(elem: etree._Element) -> tuple[str, ...]:
         for link in elem.findall("./Links/Link")
         if link.get("target") == "bioproject" and link.text and link.text.strip()
     }
-    ordered_ids = sorted(project_ids)
-    for project_id in ordered_ids:
-        require_numeric_bioproject_id(project_id)
-    return tuple(ordered_ids)
+    return tuple(sorted(project_ids))
 
 
 def process_biosample_xml(

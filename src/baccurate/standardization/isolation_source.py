@@ -30,11 +30,6 @@ from baccurate.paths import (
     DEFAULT_ISOLATION_SOURCE_CACHE_DB,
     DEFAULT_ISOLATION_SOURCE_ONTOLOGY_DIRECTORY,
 )
-from baccurate.provenance.source_snapshot import (
-    BIOPROJECT_RELEVANCE_FLAGS,
-    SourceSnapshotError,
-    bioproject_catalog_path_for,
-)
 from baccurate.standardization._attribute_value_text import normalize_keyword, split_pipe_separated
 from baccurate.standardization._cache import SQLiteKVCache
 from baccurate.standardization._isolation_source_ontology_renderer import (
@@ -84,10 +79,7 @@ _BRACKETED_BARE_IDENTIFIER_PATTERN = re.compile(
 ISOLATION_SOURCE_LLM_PARAMETERS: dict[str, object] = {"temperature": 0, "seed": 100}
 ISOLATION_SOURCE_STRUCTURED_OUTPUT_MODE = instructor.Mode.JSON_SCHEMA
 # The value is part of existing request fingerprints and cache keys.
-ISOLATION_SOURCE_RESPONSE_SCHEMA_ID = "baccurate.isolation.classification.v3"
-
-# Flags records from the upstream Relevance element, excluding Medical and Evolution.
-_BIOPROJECT_RELEVANCE_FLAG_SET = frozenset(BIOPROJECT_RELEVANCE_FLAGS)
+ISOLATION_SOURCE_RESPONSE_SCHEMA_ID = "baccurate.isolation.classification.v4"
 
 # These submitted values explicitly state that no isolation source is available. They
 # are consumed without selecting an ontology term or invoking the classifier.
@@ -160,8 +152,6 @@ class IsolationSourcePromptTemplates:
 
     sample_system_template: str
     sample_user_template: str
-    bioproject_system: str
-    bioproject_user_template: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,8 +160,6 @@ class IsolationSourcePrompts:
 
     system: str
     user_template: str
-    bioproject_system: str
-    bioproject_user: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,8 +202,6 @@ class IsolationSourcePromptPolicy:
                 "prompt_version": self.prompt_version,
                 "system_prompt": self.prompts.sample_system_template,
                 "user_prompt": self.prompts.sample_user_template,
-                "bioproject_system_prompt": self.prompts.bioproject_system,
-                "bioproject_user_prompt": self.prompts.bioproject_user_template,
                 "ontology_directory": self.ontology_directory.as_posix(),
                 "cache_db_path": self.cache_db_path.as_posix(),
             },
@@ -231,8 +217,6 @@ class IsolationSourcePromptPolicy:
             "prompt_version": self.prompt_version,
             "system_prompt": self.prompts.sample_system_template,
             "user_prompt": self.prompts.sample_user_template,
-            "bioproject_system_prompt": self.prompts.bioproject_system,
-            "bioproject_user_prompt": self.prompts.bioproject_user_template,
         }
         if self.configured_ontology_directory is not None:
             configuration["ontology_directory"] = self.configured_ontology_directory
@@ -241,19 +225,20 @@ class IsolationSourcePromptPolicy:
         return configuration
 
     @property
+    def effective_prompt_configuration(self) -> dict[str, object]:
+        """Return the response-affecting prompt and decoding configuration."""
+        return {
+            "prompt_version": self.prompt_version,
+            "system_prompt": self.effective_prompts.system,
+            "user_prompt_template": self.effective_prompts.user_template,
+            "request_parameters": dict(ISOLATION_SOURCE_LLM_PARAMETERS),
+            "structured_output_mode": ISOLATION_SOURCE_STRUCTURED_OUTPUT_MODE.value,
+        }
+
+    @property
     def prompt_configuration_fingerprint(self) -> str:
         """Identify the effective isolation-source prompt contract from its parsed content."""
-        return canonical_json_sha256(
-            {
-                "prompt_version": self.prompt_version,
-                "system_prompt": self.effective_prompts.system,
-                "user_prompt_template": self.effective_prompts.user_template,
-                "bioproject_system_prompt": self.effective_prompts.bioproject_system,
-                "bioproject_user_prompt_template": self.effective_prompts.bioproject_user,
-                "request_parameters": dict(ISOLATION_SOURCE_LLM_PARAMETERS),
-                "structured_output_mode": ISOLATION_SOURCE_STRUCTURED_OUTPUT_MODE.value,
-            }
-        )
+        return canonical_json_sha256(self.effective_prompt_configuration)
 
     @property
     def provenance(self) -> IsolationSourceProvenance:
@@ -347,8 +332,6 @@ def _parse_isolation_source_prompt_policy(
         "prompt_version",
         "system_prompt",
         "user_prompt",
-        "bioproject_system_prompt",
-        "bioproject_user_prompt",
         "ontology_directory",
         "cache_db_path",
     }
@@ -360,25 +343,19 @@ def _parse_isolation_source_prompt_policy(
     schema_version = config.get("schema_version")
     if type(schema_version) is not int:
         raise _isolation_source_policy_error(
-            policy_path, "schema_version", "must be integer version 2"
+            policy_path, "schema_version", "must be integer version 3"
         )
-    if schema_version != 2:
+    if schema_version != 3:
         raise _isolation_source_policy_error(
             policy_path,
             "schema_version",
-            f"unsupported schema version {schema_version}; expected version 2;  "
+            f"unsupported schema version {schema_version}; expected version 3; "
             "migrate the isolation-source prompt policy, then retry",
         )
 
     prompt_version = _require_isolation_source_string(config, "prompt_version", policy_path)
     sample_system = _require_isolation_source_string(config, "system_prompt", policy_path)
     sample_user = _require_isolation_source_string(config, "user_prompt", policy_path)
-    bioproject_system = _require_isolation_source_string(
-        config, "bioproject_system_prompt", policy_path
-    )
-    bioproject_user = _require_isolation_source_string(
-        config, "bioproject_user_prompt", policy_path
-    )
     _validate_isolation_source_prompt(
         sample_system,
         policy_path=policy_path,
@@ -389,20 +366,7 @@ def _parse_isolation_source_prompt_policy(
         sample_user,
         policy_path=policy_path,
         key="user_prompt",
-        required_fields=("metadata", "bioproject_context"),
-        uses_format=True,
-    )
-    _validate_isolation_source_prompt(
-        bioproject_system,
-        policy_path=policy_path,
-        key="bioproject_system_prompt",
-        required_fields=(),
-    )
-    _validate_isolation_source_prompt(
-        bioproject_user,
-        policy_path=policy_path,
-        key="bioproject_user_prompt",
-        required_fields=("bioproject_context",),
+        required_fields=("metadata",),
         uses_format=True,
     )
 
@@ -456,18 +420,14 @@ def _parse_isolation_source_prompt_policy(
     prompts = IsolationSourcePromptTemplates(
         sample_system_template=sample_system,
         sample_user_template=sample_user,
-        bioproject_system=bioproject_system,
-        bioproject_user_template=bioproject_user,
     )
     return IsolationSourcePromptPolicy(
-        schema_version=2,
+        schema_version=3,
         prompt_version=prompt_version,
         prompts=prompts,
         effective_prompts=IsolationSourcePrompts(
             system=sample_system.replace("{ontology_tree}", render_ontology(ontology)),
             user_template=sample_user,
-            bioproject_system=bioproject_system,
-            bioproject_user=bioproject_user,
         ),
         ontology_directory=ontology_directory,
         ontology=ontology,
@@ -481,35 +441,10 @@ def _parse_isolation_source_prompt_policy(
 
 
 class IsolationSourceEvidenceLevel(StrEnum):
-    """The BioSample or BioProject level evidence supporting an isolation-source result."""
+    """Whether BioSample evidence supports an isolation-source result."""
 
     SAMPLE = "sample"
-    PROJECT = "project"
-    SAMPLE_AND_PROJECT = "sample_and_project"
     NONE = "none"
-
-
-class _IsolationSourceRequestMode(StrEnum):
-    """Which context the prompt actually carried."""
-
-    SAMPLE_ONLY = "sample_only"
-    PROJECT_ONLY = "project_only"
-    COMBINED = "combined"
-
-
-# The model cannot cite evidence it was never shown, so the request mode narrows
-# the Literal of evidence levels its response schema will accept.
-_EVIDENCE_LEVELS_BY_REQUEST_MODE = {
-    _IsolationSourceRequestMode.SAMPLE_ONLY: (
-        IsolationSourceEvidenceLevel.SAMPLE,
-        IsolationSourceEvidenceLevel.NONE,
-    ),
-    _IsolationSourceRequestMode.PROJECT_ONLY: (
-        IsolationSourceEvidenceLevel.PROJECT,
-        IsolationSourceEvidenceLevel.NONE,
-    ),
-    _IsolationSourceRequestMode.COMBINED: tuple(IsolationSourceEvidenceLevel),
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -565,7 +500,6 @@ class IsolationSourceDiagnostic(StrEnum):
     IDENTIFIER_DISAGREEMENT = "identifier_disagreement"
     CROSSLINK_DISAGREEMENT = "crosslink_disagreement"
     UNSPECIFIED = "unspecified"
-    UNRESOLVED_BIOPROJECT_LINK = "unresolved_bioproject_link"
 
 
 class _IsolationSourceClassificationError(RuntimeError):
@@ -644,7 +578,6 @@ class IsolationSourceOutcome:
 
     selected_terms: tuple[SelectedTerm, ...]
     evidence_level: IsolationSourceEvidenceLevel
-    host_context: str
     supporting_pairs: tuple[SupportingAttributeValuePair, ...]
     host_recovery_pairs: tuple[SupportingAttributeValuePair, ...]
     reasoning: tuple[IsolationSourceReasoningStep, ...]
@@ -654,7 +587,6 @@ class IsolationSourceOutcome:
     llm_calls: int
     host_recovery_eligible: bool = False
     request_fingerprint: str | None = None
-    resolved_bioproject_accessions: tuple[str, ...] = ()
     ontology_gap_diagnostics: tuple[IsolationSourceOntologyGapDiagnostic, ...] = ()
 
 
@@ -664,125 +596,6 @@ class IsolationSourceRejection:
 
     diagnostics: tuple[IsolationSourceDiagnostic, ...]
     ontology_gap_diagnostics: tuple[IsolationSourceOntologyGapDiagnostic, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class ResolvedBioProjectContext:
-    """Validated study-level context for one canonical BioProject accession."""
-
-    id: str
-    accession: str
-    title: str
-    description: str
-    relevance: tuple[str, ...]
-
-    def prompt_object(self) -> dict[str, object]:
-        """Return the stable JSON shape supplied to the isolation-source prompt."""
-        return {
-            "id": self.id,
-            "accession": self.accession,
-            "title": self.title,
-            "description": self.description,
-            "relevance": list(self.relevance),
-        }
-
-
-def _load_bioproject_catalog(
-    extracted_metadata_path: Path | str,
-) -> dict[str, ResolvedBioProjectContext]:
-    """Discover and validate the BioProject catalog paired with an extracted TSV."""
-    catalog_path = bioproject_catalog_path_for(extracted_metadata_path)
-    projects: dict[str, ResolvedBioProjectContext] = {}
-    project_ids: set[str] = set()
-    try:
-        # A well-formed bundle always pairs a (possibly empty) catalog with the
-        # TSV; a missing file means a broken bundle, not an unlinked sample set.
-        stream = catalog_path.open("r", encoding="utf-8")
-    except OSError as exc:
-        raise SourceSnapshotError(
-            f"Invalid BioProject context catalog {catalog_path}: {exc}"
-        ) from exc
-
-    with stream:
-        for line_number, line in enumerate(stream, start=1):
-            try:
-                raw = json.loads(line)
-            except json.JSONDecodeError as exc:
-                raise SourceSnapshotError(
-                    f"Invalid BioProject context catalog {catalog_path} line {line_number}: {exc}"
-                ) from exc
-            project = _validate_bioproject_context(raw, catalog_path, line_number)
-            if project.id in project_ids:
-                raise SourceSnapshotError(
-                    f"Invalid BioProject context catalog {catalog_path} line "
-                    f"{line_number}: duplicate project ID {project.id!r}"
-                )
-            if project.accession in projects:
-                raise SourceSnapshotError(
-                    f"Invalid BioProject context catalog {catalog_path} line "
-                    f"{line_number}: duplicate project accession {project.accession!r}"
-                )
-            project_ids.add(project.id)
-            projects[project.accession] = project
-    return projects
-
-
-# Public interface for benchmark clients. Integrated regression tests still import
-# the private name.
-load_bioproject_catalog = _load_bioproject_catalog
-
-
-def _validate_bioproject_context(
-    raw: object,
-    catalog_path: Path,
-    line_number: int,
-) -> ResolvedBioProjectContext:
-    """Validate one catalog line into a ResolvedBioProjectContext, or raise."""
-    expected_fields = {"id", "accession", "title", "description", "relevance"}
-    if not isinstance(raw, dict) or set(raw) != expected_fields:
-        raise SourceSnapshotError(
-            f"Invalid BioProject context catalog {catalog_path} line {line_number}: "
-            f"expected fields {', '.join(sorted(expected_fields))}"
-        )
-    project_id = raw["id"]
-    accession = raw["accession"]
-    title = raw["title"]
-    description = raw["description"]
-    relevance = raw["relevance"]
-    if not isinstance(project_id, str) or not project_id.isascii() or not project_id.isdecimal():
-        raise SourceSnapshotError(
-            f"Invalid BioProject context catalog {catalog_path} line {line_number}: "
-            "project ID must be a numeric string"
-        )
-    for field_name, value, allow_empty in (
-        ("accession", accession, False),
-        ("title", title, False),
-        ("description", description, True),
-    ):
-        if not isinstance(value, str) or (not allow_empty and not value.strip()):
-            raise SourceSnapshotError(
-                f"Invalid BioProject context catalog {catalog_path} line {line_number}: "
-                f"{field_name} must be {'a string' if allow_empty else 'a non-empty string'}"
-            )
-    if (
-        not isinstance(relevance, list)
-        or any(
-            not isinstance(flag, str) or flag not in _BIOPROJECT_RELEVANCE_FLAG_SET
-            for flag in relevance
-        )
-        or len(relevance) != len(set(relevance))
-    ):
-        raise SourceSnapshotError(
-            f"Invalid BioProject context catalog {catalog_path} line {line_number}: "
-            "relevance must contain distinct Agricultural, Environmental, or Veterinary flags"
-        )
-    return ResolvedBioProjectContext(
-        id=project_id,
-        accession=accession,
-        title=title,
-        description=description,
-        relevance=tuple(relevance),
-    )
 
 
 # --- Cache ---
@@ -849,7 +662,6 @@ class SQLiteCache(SQLiteKVCache):
 
 def _build_schema(
     ontology: IsolationSourceOntology,
-    request_mode: _IsolationSourceRequestMode,
     observe_unknown_label: Callable[[str, str], None],
 ) -> type[BaseModel]:
     """Build the ordered, facet-specific classifier response model."""
@@ -859,12 +671,10 @@ def _build_schema(
 
         reasoning: str = Field(..., description="Brief reason for the chosen terms.")
 
-    permitted_evidence_levels = _EVIDENCE_LEVELS_BY_REQUEST_MODE[request_mode]
+    permitted_evidence_levels = tuple(IsolationSourceEvidenceLevel)
     evidence_description = (
-        "Evidence provenance for the selected terms: 'sample' when only BioSample "
-        "metadata supports them, 'project' when only BioProject context supports "
-        "them, 'sample_and_project' when both support them, and 'none' only when no "
-        "facet applies. Permitted values for this request: "
+        "Evidence provenance for the selected terms: 'sample' when BioSample metadata "
+        "supports them, and 'none' only when no facet applies. Permitted values: "
         + ", ".join(level.value for level in permitted_evidence_levels)
         + "."
     )
@@ -881,7 +691,12 @@ def _build_schema(
         }
         permitted_labels = tuple(labels_to_terms)
         label_literal = Literal.__getitem__(permitted_labels)
-        description = f"{facet.meaning} {facet.classifier_guidance}"
+        description = (
+            f"{facet.meaning} {facet.classifier_guidance} "
+            "The permitted labels form a closed vocabulary: "
+            + ", ".join(permitted_labels)
+            + ". Leave this facet empty when none fits."
+        )
         if facet.cardinality is FacetCardinality.SINGLE:
             facet_fields[facet.key] = (
                 label_literal | None,
@@ -947,21 +762,13 @@ def _resolve_evidence_level(
     *,
     direct_term_ids: set[str],
     classifier_term_ids: set[str],
-    claimed_level: IsolationSourceEvidenceLevel,
 ) -> IsolationSourceEvidenceLevel:
-    """Reconcile model provenance with the specific terms in the final result."""
-    if not direct_term_ids and not classifier_term_ids:
-        return IsolationSourceEvidenceLevel.NONE
-    if direct_term_ids and not classifier_term_ids:
-        return IsolationSourceEvidenceLevel.SAMPLE
-    if direct_term_ids and claimed_level in {
-        IsolationSourceEvidenceLevel.PROJECT,
-        IsolationSourceEvidenceLevel.SAMPLE_AND_PROJECT,
-    }:
-        return IsolationSourceEvidenceLevel.SAMPLE_AND_PROJECT
-    if claimed_level is IsolationSourceEvidenceLevel.NONE:
-        raise ValueError("A specific isolation source must name supporting evidence")
-    return claimed_level
+    """Derive whether BioSample evidence supports the final result."""
+    return (
+        IsolationSourceEvidenceLevel.SAMPLE
+        if direct_term_ids or classifier_term_ids
+        else IsolationSourceEvidenceLevel.NONE
+    )
 
 
 class LLMClassifier:
@@ -1042,19 +849,10 @@ class LLMClassifier:
             self._active_ontology_gap_observation: ContextVar[
                 tuple[str, list[IsolationSourceOntologyGapDiagnostic]] | None
             ] = ContextVar("active_isolation_source_ontology_gap_observation", default=None)
-            self._response_schemas = {
-                request_mode: _build_schema(
-                    ontology,
-                    request_mode,
-                    self._record_unknown_label,
-                )
-                for request_mode in _IsolationSourceRequestMode
-            }
+            self._response_schema = _build_schema(ontology, self._record_unknown_label)
             prompts = policy.effective_prompts
             self.system_prompt = prompts.system
             self.user_template = prompts.user_template
-            self.bioproject_system_prompt = prompts.bioproject_system
-            self.bioproject_user_prompt = prompts.bioproject_user
         except BaseException:
             if raw_client is not None:
                 raw_client.close()
@@ -1065,7 +863,7 @@ class LLMClassifier:
             self._raw_client.close()
 
     def _record_unknown_label(self, facet: str, label: str) -> None:
-        """Record a classifier label that is missing from the facet vocabulary."""
+        """One classifier label absent from its declared facet vocabulary."""
         observation = self._active_ontology_gap_observation.get()
         if observation is None:
             return
@@ -1181,7 +979,6 @@ class LLMClassifier:
         evidence_level = _resolve_evidence_level(
             direct_term_ids=direct_term_ids,
             classifier_term_ids=classifier_term_ids,
-            claimed_level=answer.evidence_level,
         )
         classification = StandardizedIsolationSource(
             selected_terms=self._resolved_terms(direct_term_ids | classifier_term_ids),
@@ -1315,19 +1112,16 @@ class LLMClassifier:
         )
 
     @staticmethod
-    def _format_metadata(attrs: list[str], vals: list[str], host: str) -> str:
-        lines = [f"{a} = {v}" for a, v in zip(attrs, vals, strict=True)]
-        if host.strip():
-            lines.append(f"host = {host}")
-        return "Metadata:\n" + "\n".join(lines)
+    def _format_metadata(attrs: list[str], vals: list[str]) -> str:
+        return "Metadata:\n" + "\n".join(
+            f"{attribute} = {value}" for attribute, value in zip(attrs, vals, strict=True)
+        )
 
     def standardize_record(
         self,
         accession: str,
         attr_name: str,
         value: str,
-        host: str,
-        bioproject_contexts: tuple[ResolvedBioProjectContext, ...] = (),
     ) -> StandardizedIsolationSource:
         """Classify one record through deterministic matching, cache, and model fallback."""
 
@@ -1340,10 +1134,7 @@ class LLMClassifier:
             valid_attrs.append(a.strip())
             valid_vals.append(v.strip())
 
-        # A host alone is sample context: 'host = cattle' places the sample even
-        # with no isolation-source attribute of its own.
-        has_sample_context = bool(valid_vals) or bool(host.strip())
-        if not has_sample_context and not bioproject_contexts:
+        if not valid_vals:
             return StandardizedIsolationSource(
                 selected_terms=(),
                 reasoning=[
@@ -1385,7 +1176,6 @@ class LLMClassifier:
             evidence_level = _resolve_evidence_level(
                 direct_term_ids=direct_term_ids,
                 classifier_term_ids=set(),
-                claimed_level=IsolationSourceEvidenceLevel.NONE,
             )
             reasoning_history.append(
                 {
@@ -1395,37 +1185,15 @@ class LLMClassifier:
                 }
             )
         else:
-            request_mode = (
-                _IsolationSourceRequestMode.COMBINED
-                if has_sample_context and bioproject_contexts
-                else _IsolationSourceRequestMode.SAMPLE_ONLY
-                if has_sample_context
-                else _IsolationSourceRequestMode.PROJECT_ONLY
-            )
             ontology_gap_diagnostics: list[IsolationSourceOntologyGapDiagnostic] = []
-            response_schema = self._response_schemas[request_mode]
-            permitted_evidence_levels = _EVIDENCE_LEVELS_BY_REQUEST_MODE[request_mode]
-            metadata_block = self._format_metadata(valid_attrs, valid_vals, host)
-            system_prompt = self.system_prompt
-            bioproject_context = ""
-            if bioproject_contexts:
-                rendered_context = json.dumps(
-                    [project.prompt_object() for project in bioproject_contexts],
-                    ensure_ascii=False,
-                    indent=2,
-                )
-                system_prompt += "\n" + self.bioproject_system_prompt
-                bioproject_context = self.bioproject_user_prompt.format(
-                    bioproject_context=rendered_context,
-                )
+            response_schema = self._response_schema
             user_prompt = self.user_template.format(
-                metadata=metadata_block,
-                bioproject_context=bioproject_context,
+                metadata=self._format_metadata(valid_attrs, valid_vals),
             )
             request = CanonicalLLMRequest(
                 model=self.model,
                 messages=(
-                    {"role": "system", "content": system_prompt},
+                    {"role": "system", "content": self.system_prompt},
                     {"role": "user", "content": user_prompt},
                 ),
                 parameters=ISOLATION_SOURCE_LLM_PARAMETERS,
@@ -1451,7 +1219,6 @@ class LLMClassifier:
                 evidence_level = _resolve_evidence_level(
                     direct_term_ids=direct_term_ids,
                     classifier_term_ids=set(),
-                    claimed_level=IsolationSourceEvidenceLevel.NONE,
                 )
                 reasoning_history.append(
                     {
@@ -1482,12 +1249,6 @@ class LLMClassifier:
                         finally:
                             self._active_ontology_gap_observation.reset(observation_token)
                     classifier_evidence_level = IsolationSourceEvidenceLevel(resp.evidence_level)
-                    if classifier_evidence_level not in permitted_evidence_levels:
-                        raise ValueError(
-                            "Invalid isolation-source evidence level "
-                            f"{classifier_evidence_level.value!r} "
-                            "for the available record context"
-                        )
                     facet_values: dict[str, str | tuple[str, ...] | None] = {}
                     for facet in self._ordered_facets:
                         value = getattr(resp, facet.key)
@@ -1537,12 +1298,11 @@ class LLMClassifier:
 
 
 class IsolationSourceStandardizer:
-    """Standardize one extracted metadata record using BioProject study context."""
+    """Standardize one extracted metadata record from BioSample evidence."""
 
     def __init__(
         self,
         policy: IsolationSourcePromptPolicy,
-        extracted_metadata_path: Path | str,
         result_logger: logging.Logger | None = None,
         client: object = _LOAD_CONFIGURED_CLIENT,
         llm_settings: LLMSettings | None = None,
@@ -1550,7 +1310,6 @@ class IsolationSourceStandardizer:
     ) -> None:
         self.logger = result_logger or logger
         self.policy = policy
-        self._projects_by_accession = load_bioproject_catalog(extracted_metadata_path)
 
         self.cache = SQLiteCache(policy.cache_db_path)
         try:
@@ -1573,7 +1332,6 @@ class IsolationSourceStandardizer:
         self,
         extracted_record: Mapping[str, str],
         *,
-        host_context: str,
         overflow: HostOverflowContext | None = None,
     ) -> IsolationSourceOutcome | IsolationSourceRejection:
         """Classify one extracted metadata record, including host overflow values.
@@ -1595,30 +1353,8 @@ class IsolationSourceStandardizer:
             values = "||".join(part for part in (values, overflow.value) if part)
 
         supporting_pairs = _parse_supporting_pairs(accession, attributes, values)
-        linked_project_ids = split_pipe_separated(
-            str(extracted_record.get("bioproject_id", "") or "")
-        )
-        linked_project_accessions = split_pipe_separated(
-            str(extracted_record.get("bioproject_accession", "") or "")
-        )
-        # Extraction emits an accession per ID it could resolve, so a shortfall in
-        # the accession list means a linked project never made it into the catalog.
-        has_unresolved_project_link = len(linked_project_ids) > len(linked_project_accessions)
-        # Resolve linked accessions to catalog projects, dropping unresolved
-        # ones, deduping, and ordering canonically by accession.
-        resolved_projects = {
-            linked_accession: project
-            for linked_accession in linked_project_accessions
-            if (project := self._projects_by_accession.get(linked_accession)) is not None
-        }
-        project_contexts = tuple(
-            resolved_projects[accession] for accession in sorted(resolved_projects)
-        )
-        if not supporting_pairs and not host_context.strip() and not project_contexts:
-            diagnostics = [IsolationSourceDiagnostic.NO_CLASSIFICATION_INPUT]
-            if has_unresolved_project_link:
-                diagnostics.append(IsolationSourceDiagnostic.UNRESOLVED_BIOPROJECT_LINK)
-            return IsolationSourceRejection(tuple(diagnostics))
+        if not supporting_pairs:
+            return IsolationSourceRejection((IsolationSourceDiagnostic.NO_CLASSIFICATION_INPUT,))
 
         before = dict(self.pipeline.stats)
         try:
@@ -1626,8 +1362,6 @@ class IsolationSourceStandardizer:
                 accession,
                 "||".join(pair.attribute for pair in supporting_pairs),
                 "||".join(pair.value for pair in supporting_pairs),
-                host_context,
-                project_contexts,
             )
         except _IsolationSourceClassificationError as error:
             diagnostics = [IsolationSourceDiagnostic.CLASSIFICATION_FAILURE]
@@ -1653,12 +1387,9 @@ class IsolationSourceStandardizer:
             diagnostics.append(IsolationSourceDiagnostic.IDENTIFIER_DISAGREEMENT)
         if not standardized.selected_terms:
             diagnostics.append(IsolationSourceDiagnostic.UNSPECIFIED)
-        if has_unresolved_project_link:
-            diagnostics.append(IsolationSourceDiagnostic.UNRESOLVED_BIOPROJECT_LINK)
         return IsolationSourceOutcome(
             selected_terms=standardized.selected_terms,
             evidence_level=standardized.evidence_level,
-            host_context=host_context,
             supporting_pairs=supporting_pairs,
             host_recovery_pairs=host_recovery_pairs,
             reasoning=tuple(
@@ -1670,7 +1401,6 @@ class IsolationSourceStandardizer:
             llm_calls=llm_calls,
             host_recovery_eligible=standardized.host_recovery_eligible,
             request_fingerprint=standardized.request_fingerprint,
-            resolved_bioproject_accessions=tuple(project.accession for project in project_contexts),
             ontology_gap_diagnostics=standardized.ontology_gap_diagnostics,
         )
 
@@ -1741,8 +1471,6 @@ class IsolationSourceStandardizer:
             evidence_level=(
                 IsolationSourceEvidenceLevel.SAMPLE
                 if outcome.evidence_level is IsolationSourceEvidenceLevel.NONE
-                else IsolationSourceEvidenceLevel.SAMPLE_AND_PROJECT
-                if outcome.evidence_level is IsolationSourceEvidenceLevel.PROJECT
                 else outcome.evidence_level
             ),
             host_recovery_eligible=True,

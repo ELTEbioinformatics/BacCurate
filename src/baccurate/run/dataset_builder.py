@@ -139,7 +139,6 @@ class _MutableIsolationSourceStatistics:
     exact_matches: int = 0
     cache_hits: int = 0
     llm_calls: int = 0
-    host_contexts: int = 0
     host_recovery_passes: int = 0
     evidence_levels: Counter[IsolationSourceEvidenceLevel] = field(default_factory=Counter)
     diagnostics: Counter[IsolationSourceDiagnostic] = field(default_factory=Counter)
@@ -322,9 +321,7 @@ class DatasetBuilder:
         ) = None,
         host_lineage_factory: Callable[[Path, Path], HostLineageEnricher] | None = None,
         isolation_source_standardizer_factory: (
-            Callable[
-                [IsolationSourcePromptPolicy, Path, logging.Logger], IsolationSourceStandardizer
-            ]
+            Callable[[IsolationSourcePromptPolicy, logging.Logger], IsolationSourceStandardizer]
             | None
         ) = None,
     ) -> None:
@@ -446,7 +443,6 @@ class DatasetBuilder:
                 if self._isolation_source_standardizer_factory is not None:
                     isolation_source_standardizer = self._isolation_source_standardizer_factory(
                         request.isolation_source_prompt_policy,
-                        request.extracted_metadata,
                         request.logger,
                     )
                 else:
@@ -458,7 +454,6 @@ class DatasetBuilder:
                         isolation_source_options["client"] = None
                     isolation_source_standardizer = IsolationSourceStandardizer(
                         request.isolation_source_prompt_policy,
-                        request.extracted_metadata,
                         **isolation_source_options,
                     )
             if isolation_source_standardizer is not None:
@@ -723,9 +718,6 @@ class DatasetBuilder:
                         isolation_source_pathogen_stats.rejected += 1
                     else:
                         isolation_source_outcome = isolation_source_result
-                        isolation_source_pathogen_stats.host_contexts += int(
-                            bool(isolation_source_result.host_context)
-                        )
                         isolation_source_pathogen_stats.standardized += 1
                         isolation_source_pathogen_stats.exact_matches += (
                             isolation_source_result.exact_matches
@@ -761,21 +753,10 @@ class DatasetBuilder:
                 ):
                     stats = isolation_source_stats[pathogen]
                     stats.processed += 1
-                    standardized_host = (
-                        host_outcome.standardized.scientific_name
-                        if host_outcome is not None and host_outcome.standardized is not None
-                        else ""
-                    )
-                    host_context = (
-                        standardized_host
-                        or str(extracted_record.get("host_val_orig", "") or "").strip()
-                    )
                     isolation_source_result = isolation_source_standardizer.standardize(
                         extracted_record,
-                        host_context=host_context,
                         overflow=(host_outcome.overflow if host_outcome is not None else None),
                     )
-                    stats.host_contexts += int(bool(host_context))
                     stats.diagnostics.update(isolation_source_result.diagnostics)
                     stats.ontology_gap_diagnostics.update(
                         isolation_source_result.ontology_gap_diagnostics
@@ -998,7 +979,6 @@ class DatasetBuilder:
                 exact_matches=stats.exact_matches,
                 cache_hits=stats.cache_hits,
                 llm_calls=stats.llm_calls,
-                host_contexts=stats.host_contexts,
                 host_recovery_passes=stats.host_recovery_passes,
                 evidence_levels=dict(sorted(stats.evidence_levels.items())),
                 diagnostics=dict(sorted(stats.diagnostics.items())),
@@ -1020,7 +1000,6 @@ class DatasetBuilder:
             exact_matches=sum(stats.exact_matches for stats in mutable_stats.values()),
             cache_hits=sum(stats.cache_hits for stats in mutable_stats.values()),
             llm_calls=sum(stats.llm_calls for stats in mutable_stats.values()),
-            host_contexts=sum(stats.host_contexts for stats in mutable_stats.values()),
             host_recovery_passes=sum(
                 stats.host_recovery_passes for stats in mutable_stats.values()
             ),
@@ -1065,7 +1044,6 @@ def _isolation_source_reasoning_json(
         "origins": [
             {"attribute": pair.attribute, "value": pair.value} for pair in outcome.supporting_pairs
         ],
-        "host_context": outcome.host_context,
         "selected_terms": selected_terms,
         "evidence_level": outcome.evidence_level.value,
         "diagnostics": [diagnostic.value for diagnostic in outcome.diagnostics],

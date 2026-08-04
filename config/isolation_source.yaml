@@ -1,5 +1,5 @@
-schema_version: 2
-prompt_version: "4"
+schema_version: 3
+prompt_version: "5"
 
 system_prompt: |
   You are an expert biology ontologist specialized in One Health surveillance,
@@ -46,24 +46,3 @@ user_prompt: |
   Classify this BioSample's isolation-source:
 
   {metadata}
-  {bioproject_context}
-
-# Appended when at least one linked BioProject resolves for a BioSample.
-# Possible relevance values: (Agricultural, Environmental, Veterinary)
-bioproject_system_prompt: |-
-  # BioProject context rules
-  Use the BioProject context only to break ties when the sample's own
-  evidence is a homonym or otherwise ambiguous; otherwise ignore it.
-
-  When there is no sample-level isolation-source evidence, classify from
-  BioProject context only when its title or description consistently supports
-  a specific source. If the resolved projects are mixed or uninformative,
-  leave every facet empty and set evidence_level to none. Relevance values alone
-  never support a source.
-
-  Do not assign a category merely because a relevance value is present,
-  and never override a specific source named by the sample.
-
-bioproject_user_prompt: |-
-  # BioProject context
-  {bioproject_context}

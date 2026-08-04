@@ -68,7 +68,6 @@ def test_performed_extraction_report_publishes_mode_paths_and_paired_provenance(
             bioproject_snapshot_id="bioproject-test",
             metadata_reference_date=date(2026, 7, 19),
             bundle_provenance_path=tmp_path / "extracted.provenance.yaml",
-            bioproject_catalog_path=tmp_path / "extracted.bioproject_context.jsonl",
         ),
         elapsed_seconds=1.0,
     )

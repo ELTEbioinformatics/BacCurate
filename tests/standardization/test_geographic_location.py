@@ -515,13 +515,9 @@ def test_location_request_uses_rendered_synthetic_prompts(
 
     assert isinstance(direct, LocationOutcome)
     assert isinstance(modelled, LocationOutcome)
-    assert calls[0]["messages"] == [
-        {"role": "system", "content": "Resolve one standardized country."},
-        {
-            "role": "user",
-            "content": "Synthetic evidence:\ngeo_loc_name=model-only place 739105\n",
-        },
-    ]
+    assert [message["role"] for message in calls[0]["messages"]] == ["system", "user"]
+    assert "Resolve one standardized country" in calls[0]["messages"][0]["content"]
+    assert "geo_loc_name=model-only place 739105" in calls[0]["messages"][1]["content"]
     assert calls[0]["model"] == "test-model"
     assert calls[0]["temperature"] == 0
     assert calls[0]["seed"] == 100

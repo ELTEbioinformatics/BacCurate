@@ -1,5 +1,5 @@
-schema_version: 2
-prompt_version: golden-v2
+schema_version: 3
+prompt_version: golden-v3
 ontology_directory: tests/fixtures/golden_run/ontology
 system_prompt: |
   Classify isolation-source evidence using this ontology:
@@ -7,9 +7,3 @@ system_prompt: |
 user_prompt: |
   Sample evidence:
   {metadata}
-  {bioproject_context}
-bioproject_system_prompt: |
-  BioProject context may resolve ambiguous sample evidence.
-bioproject_user_prompt: |
-  BioProject context:
-  {bioproject_context}

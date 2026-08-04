@@ -15,13 +15,8 @@ from baccurate.adapters.policy_yaml import PolicyConfigurationError
 from baccurate.extraction import COLUMNS, CurationSchemaError
 from baccurate.pathogen_registry.registry import Pathogen, PathogenRegistry
 from baccurate.provenance.source_snapshot import (
-    ArtifactReference,
-    DerivedArtifactReferences,
     DerivedBundleProvenance,
-    ManifestReference,
-    PairedManifestReferences,
     SourceSnapshotManifest,
-    bioproject_catalog_path_for,
     provenance_path_for,
     sha256_file,
 )
@@ -473,36 +468,16 @@ def _prepare_empty_extracted_bundle(
     extracted_metadata = tmp_path / "custom_metadata.tsv"
     rows = ["\t".join(record.get(column, "") for column in COLUMNS) for record in records or []]
     extracted_metadata.write_text("\n".join(("\t".join(COLUMNS), *rows)) + "\n", encoding="utf-8")
-    catalog = bioproject_catalog_path_for(extracted_metadata)
-    catalog.write_text("", encoding="utf-8")
     biosample_manifest_path = invocation_module.DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST
     bioproject_manifest_path = invocation_module.DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST
     biosample_manifest = SourceSnapshotManifest.load(biosample_manifest_path)
     bioproject_manifest = SourceSnapshotManifest.load(bioproject_manifest_path)
     DerivedBundleProvenance(
-        bundle_version=1,
-        source_manifests=PairedManifestReferences(
-            biosample=ManifestReference(
-                snapshot_id=biosample_manifest.snapshot_id,
-                path=str(biosample_manifest_path),
-                sha256=sha256_file(biosample_manifest_path),
-            ),
-            bioproject=ManifestReference(
-                snapshot_id=bioproject_manifest.snapshot_id,
-                path=str(bioproject_manifest_path),
-                sha256=sha256_file(bioproject_manifest_path),
-            ),
-        ),
-        artifacts=DerivedArtifactReferences(
-            extracted_metadata=ArtifactReference(
-                path=extracted_metadata.name,
-                sha256=sha256_file(extracted_metadata),
-            ),
-            bioproject_context=ArtifactReference(
-                path=catalog.name,
-                sha256=sha256_file(catalog),
-            ),
-        ),
+        biosample_snapshot_id=biosample_manifest.snapshot_id,
+        biosample_manifest_sha256=sha256_file(biosample_manifest_path),
+        bioproject_snapshot_id=bioproject_manifest.snapshot_id,
+        bioproject_manifest_sha256=sha256_file(bioproject_manifest_path),
+        extracted_metadata_sha256=sha256_file(extracted_metadata),
     ).write(provenance_path_for(extracted_metadata))
     atb_index = tmp_path / "biosample_index.tsv"
     atb_index.write_text("accession\tin_ATB\tpathogen_ATB\n", encoding="utf-8")

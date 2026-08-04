@@ -106,7 +106,6 @@ class InventedLabelStatistics:
     occurrences: int
     accessions: Mapping[str, int]
 
-
 @dataclass(frozen=True, slots=True)
 class IsolationSourceStatistics:
     """Isolation-source counts, either overall or for a single pathogen."""
@@ -117,7 +116,6 @@ class IsolationSourceStatistics:
     exact_matches: int
     cache_hits: int
     llm_calls: int
-    host_contexts: int
     host_recovery_passes: int
     evidence_levels: Mapping[IsolationSourceEvidenceLevel, int]
     diagnostics: Mapping[IsolationSourceDiagnostic, int]

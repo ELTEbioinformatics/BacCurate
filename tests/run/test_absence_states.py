@@ -19,13 +19,8 @@ from baccurate.adapters.llm.client import LLMSettings
 from baccurate.extraction import CurationDecision, CurationEvent, CurationSchema
 from baccurate.pathogen_registry.registry import load_pathogen_registry
 from baccurate.provenance.source_snapshot import (
-    ArtifactReference,
-    DerivedArtifactReferences,
     DerivedBundleProvenance,
-    ManifestReference,
-    PairedManifestReferences,
     SourceSnapshotManifest,
-    bioproject_catalog_path_for,
     provenance_path_for,
     sha256_file,
 )
@@ -129,17 +124,13 @@ def _write_source_manifest(
     sha256_fill_character: str,
 ) -> SourceSnapshotManifest:
     manifest = SourceSnapshotManifest(
-        manifest_version=1,
         snapshot_id=snapshot_id,
         provider="absence-characterization",
         retrieved_on=date(2026, 1, 1),
-        metadata_reference_date=date(2026, 1, 1),
-        files=(
-            {
-                "name": f"{snapshot_id}.xml.gz",
-                "sha256": sha256_fill_character * 64,
-            },
-        ),
+        file={
+            "name": f"{snapshot_id}.xml.gz",
+            "sha256": sha256_fill_character * 64,
+        },
     )
     path.write_text(
         yaml.safe_dump(manifest.model_dump(mode="json"), sort_keys=False),
@@ -164,8 +155,6 @@ def _write_extracted_bundle(
         writer.writeheader()
         writer.writerows(rows)
 
-    bioproject_catalog = bioproject_catalog_path_for(extracted_path)
-    bioproject_catalog.write_text("", encoding="utf-8")
     biosample_manifest_path = tmp_path / "biosample-snapshot.yaml"
     bioproject_manifest_path = tmp_path / "bioproject-snapshot.yaml"
     biosample_manifest = _write_source_manifest(
@@ -179,29 +168,11 @@ def _write_extracted_bundle(
         sha256_fill_character="1",
     )
     DerivedBundleProvenance(
-        bundle_version=1,
-        source_manifests=PairedManifestReferences(
-            biosample=ManifestReference(
-                snapshot_id=biosample_manifest.snapshot_id,
-                path=str(biosample_manifest_path),
-                sha256=sha256_file(biosample_manifest_path),
-            ),
-            bioproject=ManifestReference(
-                snapshot_id=bioproject_manifest.snapshot_id,
-                path=str(bioproject_manifest_path),
-                sha256=sha256_file(bioproject_manifest_path),
-            ),
-        ),
-        artifacts=DerivedArtifactReferences(
-            extracted_metadata=ArtifactReference(
-                path=extracted_path.name,
-                sha256=sha256_file(extracted_path),
-            ),
-            bioproject_context=ArtifactReference(
-                path=bioproject_catalog.name,
-                sha256=sha256_file(bioproject_catalog),
-            ),
-        ),
+        biosample_snapshot_id=biosample_manifest.snapshot_id,
+        biosample_manifest_sha256=sha256_file(biosample_manifest_path),
+        bioproject_snapshot_id=bioproject_manifest.snapshot_id,
+        bioproject_manifest_sha256=sha256_file(bioproject_manifest_path),
+        extracted_metadata_sha256=sha256_file(extracted_path),
     ).write(provenance_path_for(extracted_path))
     return extracted_path, biosample_manifest_path, bioproject_manifest_path
 
@@ -335,9 +306,8 @@ def _build_isolation_source_dataset(
             taxonomy_path,
         ),
         isolation_source_standardizer_factory=(
-            lambda policy, bundle_path, logger: IsolationSourceStandardizer(
+            lambda policy, logger: IsolationSourceStandardizer(
                 policy,
-                bundle_path,
                 client=None,
                 llm_settings=LLMSettings(None, None, "test-model"),
                 result_logger=logger,
@@ -371,9 +341,8 @@ def test_isolation_source_outcome_projects_eleven_columns_in_facet_order(
             taxonomy_path,
         ),
         isolation_source_standardizer_factory=(
-            lambda policy, bundle_path, logger: IsolationSourceStandardizer(
+            lambda policy, logger: IsolationSourceStandardizer(
                 policy,
-                bundle_path,
                 client=None,
                 llm_settings=LLMSettings(None, None, "test-model"),
                 result_logger=logger,
@@ -470,9 +439,8 @@ def test_equivalent_vocabulary_order_produces_byte_stable_dataset(tmp_path: Path
                     )
                 ),
                 isolation_source_standardizer_factory=(
-                    lambda policy, bundle_path, logger: IsolationSourceStandardizer(
+                    lambda policy, logger: IsolationSourceStandardizer(
                         policy,
-                        bundle_path,
                         client=None,
                         llm_settings=LLMSettings(None, None, "test-model"),
                         result_logger=logger,
@@ -611,12 +579,10 @@ def test_failed_isolation_source_classification_skips_record_and_continues(
 
     def isolation_source_factory(
         policy: IsolationSourcePromptPolicy,
-        bundle_path: Path,
         logger: object,
     ) -> IsolationSourceStandardizer:
         standardizer = IsolationSourceStandardizer(
             policy,
-            bundle_path,
             client=None,
             llm_settings=LLMSettings(None, None, "test-model"),
             result_logger=logger,

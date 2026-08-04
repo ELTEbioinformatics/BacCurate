@@ -47,7 +47,7 @@ def _write_prompt_configs(
     )
     isolation_source = tmp_path / "isolation.yaml"
     isolation_source.write_text(
-        "schema_version: 2\n"
+        "schema_version: 3\n"
         f'ontology_directory: "{(ROOT / "tests" / "fixtures" / "standardization" / "ontology").as_posix()}"\n'
         "prompt_version: isolation-v3\n"
         "system_prompt: |-\n"
@@ -55,12 +55,7 @@ def _write_prompt_configs(
         "  {ontology_tree}\n"
         "user_prompt: |-\n"
         "  Sample:\n"
-        "  {metadata}\n"
-        "  {bioproject_context}\n"
-        "bioproject_system_prompt: |-\n"
-        "  Project rules.\n"
-        "bioproject_user_prompt: |-\n"
-        "  Projects: {bioproject_context}\n",
+        "  {metadata}\n",
         encoding="utf-8",
     )
     return LocationPolicy.load(location), IsolationSourcePromptPolicy.load(isolation_source)
@@ -101,7 +96,6 @@ def test_prompt_snapshot_uses_loaded_effective_isolation_source_prompts(tmp_path
     assert "prompt_version: isolation-v3" in contents
     assert "{ontology_tree}" not in contents
     assert "environmental" in contents
-    assert "## source_type" in contents
 
 
 @pytest.mark.parametrize("include_prompt_snapshot", [False, True])
@@ -367,7 +361,6 @@ def _complete_build_statistics(tmp_path: Path) -> DatasetBuildStatistics:
         exact_matches=0,
         cache_hits=0,
         llm_calls=0,
-        host_contexts=0,
         host_recovery_passes=0,
         evidence_levels={},
         diagnostics={},

@@ -22,7 +22,6 @@ from baccurate.paths import (
     REPO_ROOT,
 )
 from baccurate.provenance.source_snapshot import (
-    SourceSnapshotError,
     SourceSnapshotManifest,
     provenance_path_for,
     sha256_file,
@@ -202,14 +201,9 @@ class RunReport:
         bioproject_manifest_path: Path = DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
     ) -> None:
         """Record what is known before extraction starts."""
-        try:
-            biosample_manifest = SourceSnapshotManifest.load(biosample_manifest_path)
-            bioproject_manifest = SourceSnapshotManifest.load(bioproject_manifest_path)
-        except SourceSnapshotError:
-            biosample_manifest = None
-            bioproject_manifest = None
-        if biosample_manifest is not None and bioproject_manifest is not None:
-            self._record_provenance(biosample_manifest, bioproject_manifest)
+        biosample_manifest = SourceSnapshotManifest.load(biosample_manifest_path)
+        bioproject_manifest = SourceSnapshotManifest.load(bioproject_manifest_path)
+        self._record_provenance(biosample_manifest, bioproject_manifest)
         self._document["extraction"] = _extraction_document(
             mode="performed",
             prepared_input_paths=(biosample_input_path, bioproject_input_path),
@@ -232,25 +226,16 @@ class RunReport:
             next(reader, None)
             extracted_record_count = sum(1 for row in reader if row)
 
-        try:
-            source_contract = validate_extracted_metadata_bundle(
-                extracted_metadata_path,
-                biosample_manifest_path,
-                bioproject_manifest_path,
-            )
-            biosample_manifest = source_contract.biosample
-            bioproject_manifest = source_contract.bioproject
-        except SourceSnapshotError:
-            # Keep both identities or neither, so a failed
-            # BioProject load never leaves a half-populated provenance document.
-            biosample_manifest = None
-            bioproject_manifest = None
-        manifests = (biosample_manifest, bioproject_manifest) if biosample_manifest else ()
-        if manifests:
-            self._record_provenance(biosample_manifest, bioproject_manifest)
-        acquired_snapshot_files = tuple(
-            snapshot_file.name for manifest in manifests for snapshot_file in manifest.files
+        source_contract = validate_extracted_metadata_bundle(
+            extracted_metadata_path,
+            biosample_manifest_path,
+            bioproject_manifest_path,
         )
+        biosample_manifest = source_contract.biosample
+        bioproject_manifest = source_contract.bioproject
+        manifests = (biosample_manifest, bioproject_manifest)
+        self._record_provenance(biosample_manifest, bioproject_manifest)
+        acquired_snapshot_files = tuple(manifest.file.name for manifest in manifests)
         self._document["extraction"] = _extraction_document(
             mode="reused",
             acquired_snapshot_files=acquired_snapshot_files,

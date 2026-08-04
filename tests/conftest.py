@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import csv
 import gzip
-import json
 import shutil
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -15,13 +14,11 @@ from typing import Protocol
 import pytest
 import yaml
 
-from baccurate.adapters.llm.client import LLMSettings
 from baccurate.extraction import COLUMNS
 from baccurate.pathogen_registry.registry import PathogenRegistry, load_pathogen_registry
 from baccurate.provenance.source_snapshot import (
     DerivedBundleProvenance,
     SourceSnapshotManifest,
-    bioproject_catalog_path_for,
     provenance_path_for,
     sha256_file,
     validate_extracted_metadata_bundle,
@@ -32,7 +29,6 @@ from baccurate.standardization.host import HostPolicy, HostStandardizer
 from baccurate.standardization.host_lineage import HostLineage
 from baccurate.standardization.isolation_source import (
     IsolationSourcePromptPolicy,
-    IsolationSourceStandardizer,
 )
 from baccurate.standardization.location import LocationPolicy
 
@@ -78,10 +74,6 @@ class StandardizationFixtureResources:
         return self.root / "extracted.tsv"
 
     @property
-    def bioproject_context(self) -> Path:
-        return self.root / "bioproject_context.jsonl"
-
-    @property
     def atb_index(self) -> Path:
         return self.root / "atb.tsv"
 
@@ -91,7 +83,6 @@ class ExtractedMetadataBundle:
     """Paths making up one validated, provenance-bound extracted metadata bundle."""
 
     extracted_metadata: Path
-    bioproject_context: Path
     biosample_snapshot_manifest: Path
     bioproject_snapshot_manifest: Path
     provenance: Path
@@ -104,7 +95,6 @@ class ExtractedMetadataBundleFactory(Protocol):
         self,
         name: str = "bundle",
         extracted_rows: Sequence[Mapping[str, object]] | None = None,
-        bioproject_context_entries: Sequence[Mapping[str, object]] | None = None,
     ) -> ExtractedMetadataBundle: ...
 
 
@@ -224,12 +214,10 @@ def extracted_metadata_bundle_factory(
     def build(
         name: str = "bundle",
         extracted_rows: Sequence[Mapping[str, object]] | None = None,
-        bioproject_context_entries: Sequence[Mapping[str, object]] | None = None,
     ) -> ExtractedMetadataBundle:
         bundle_dir = tmp_path / name
         bundle_dir.mkdir()
         extracted_metadata = bundle_dir / "extracted.tsv"
-        bioproject_context = bioproject_catalog_path_for(extracted_metadata)
 
         if extracted_rows is None:
             shutil.copyfile(
@@ -238,22 +226,6 @@ def extracted_metadata_bundle_factory(
             )
         else:
             _write_extracted_metadata(extracted_metadata, extracted_rows)
-        if bioproject_context_entries is None:
-            shutil.copyfile(
-                standardization_fixture_resources.bioproject_context,
-                bioproject_context,
-            )
-        else:
-            _write_bioproject_context(bioproject_context, bioproject_context_entries)
-
-        catalog_validator = IsolationSourceStandardizer(
-            fixture_isolation_source_prompt_policy,
-            extracted_metadata,
-            client=None,
-            llm_settings=LLMSettings(None, None, "fixture-model"),
-        )
-        catalog_validator.close()
-
         biosample_source = bundle_dir / "biosample.xml.gz"
         biosample_source.write_bytes(b"fixture BioSample source\n")
         bioproject_source = bundle_dir / "bioproject.xml.gz"
@@ -279,7 +251,6 @@ def extracted_metadata_bundle_factory(
             biosample_manifest_path=biosample_manifest,
             bioproject_manifest_path=bioproject_manifest,
             extracted_metadata_path=extracted_metadata,
-            bioproject_context_path=bioproject_context,
         ).write(provenance_path_for(extracted_metadata))
         validate_extracted_metadata_bundle(
             extracted_metadata,
@@ -288,7 +259,6 @@ def extracted_metadata_bundle_factory(
         )
         return ExtractedMetadataBundle(
             extracted_metadata=extracted_metadata,
-            bioproject_context=bioproject_context,
             biosample_snapshot_manifest=biosample_manifest,
             bioproject_snapshot_manifest=bioproject_manifest,
             provenance=provenance,
@@ -387,16 +357,6 @@ def _write_extracted_metadata(
         writer.writerows(rows)
 
 
-def _write_bioproject_context(
-    destination: Path,
-    context_entries: Sequence[Mapping[str, object]],
-) -> None:
-    with destination.open("w", encoding="utf-8", newline="") as stream:
-        for context_entry in context_entries:
-            stream.write(json.dumps(context_entry, sort_keys=True, separators=(",", ":")))
-            stream.write("\n")
-
-
 def _write_source_manifest(
     destination: Path,
     *,
@@ -405,12 +365,10 @@ def _write_source_manifest(
     snapshot_date: date = date(2026, 1, 1),
 ) -> Path:
     manifest = SourceSnapshotManifest(
-        manifest_version=1,
         snapshot_id=snapshot_id,
         provider="BacCurate test fixture",
         retrieved_on=snapshot_date,
-        metadata_reference_date=snapshot_date,
-        files=({"name": source.name, "sha256": sha256_file(source)},),
+        file={"name": source.name, "sha256": sha256_file(source)},
     )
     destination.write_text(
         yaml.safe_dump(manifest.model_dump(mode="json"), sort_keys=False),

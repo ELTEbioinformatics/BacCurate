@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 import baccurate.standardization.host_isolation_source as host_isolation_source_module
 from baccurate.adapters.llm.client import LLMSettings
-from baccurate.provenance.source_snapshot import bioproject_catalog_path_for
 from baccurate.standardization.host import HostPolicy, HostStandardizer
 from baccurate.standardization.host_isolation_source import (
     HostIsolationSourceStandardizer,
@@ -36,7 +34,6 @@ class ScriptedClient:
 
 
 def _coordinator(
-    tmp_path: Path,
     resources,
     host_policy,
     isolation_source_policy,
@@ -45,7 +42,6 @@ def _coordinator(
 ) -> HostIsolationSourceStandardizer:
     isolation_source = IsolationSourceStandardizer(
         isolation_source_policy,
-        _extracted_bundle(tmp_path),
         client=None,
     )
     isolation_source.pipeline.client = client
@@ -80,15 +76,8 @@ FIRST_ENDPOINT = "https://models.example/v1"
 SECOND_ENDPOINT = "https://models.internal/v1"
 
 
-def _extracted_bundle(tmp_path: Path) -> Path:
-    extracted = tmp_path / "extracted.tsv"
-    bioproject_catalog_path_for(extracted).write_text("", encoding="utf-8")
-    return extracted
-
-
 @pytest.fixture
 def coordinators(
-    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     standardization_fixture_resources,
     fixture_host_policy,
@@ -112,14 +101,12 @@ def coordinators(
             )
 
     monkeypatch.setattr(host_isolation_source_module, "HostStandardizer", FixtureHostStandardizer)
-    extracted_metadata = _extracted_bundle(tmp_path)
     closers: list[Callable[[], None]] = []
 
     def public(server: str) -> HostIsolationSourceStandardizer:
         coordinator = HostIsolationSourceStandardizer(
             host_policy=fixture_host_policy,
             isolation_source_prompt_policy=fixture_isolation_source_prompt_policy,
-            extracted_metadata=extracted_metadata,
             llm_adapter=None,
             llm_settings=LLMSettings("test-key", server, "test-model"),
         )
@@ -129,7 +116,6 @@ def coordinators(
     def from_components(server: str) -> HostIsolationSourceStandardizer:
         isolation_source = IsolationSourceStandardizer(
             fixture_isolation_source_prompt_policy,
-            extracted_metadata,
             client=None,
             llm_settings=LLMSettings("test-key", server, "test-model"),
         )
@@ -183,7 +169,6 @@ def test_model_endpoint_fingerprint_distinguishes_endpoints_on_both_routes(
     ],
 )
 def test_standardized_host_lineage_fills_unspecified_source_type(
-    tmp_path: Path,
     standardization_fixture_resources,
     fixture_host_policy,
     fixture_isolation_source_prompt_policy,
@@ -193,11 +178,21 @@ def test_standardized_host_lineage_fills_unspecified_source_type(
     expected_term_id: str,
     expected_label: str,
 ) -> None:
-    coordinator = _coordinator(
-        tmp_path,
-        standardization_fixture_resources,
+    host = HostStandardizer(
         fixture_host_policy,
+        standardization_fixture_resources.ncbi_taxonomy_reference_table,
+    )
+    isolation_source = IsolationSourceStandardizer(
         fixture_isolation_source_prompt_policy,
+        client=None,
+    )
+    lineage = SimpleNamespace(
+        is_descendant_or_self=lambda taxid, root: taxid == host_taxid and root == lineage_root
+    )
+    coordinator = host_isolation_source_standardizer_from_components(
+        host,
+        isolation_source,
+        lineage,
     )
     try:
         result = coordinator.standardize(
@@ -208,7 +203,7 @@ def test_standardized_host_lineage_fills_unspecified_source_type(
             }
         )
     finally:
-        coordinator.close()
+        isolation_source.close()
 
     assert result.isolation_source.selected_terms[-1].term_id == expected_term_id
     assert result.isolation_source.selected_terms[-1].label == expected_label
@@ -248,7 +243,6 @@ def test_standardized_host_lineage_fills_unspecified_source_type(
     ],
 )
 def test_host_lineage_leaves_unresolved_unrelated_and_non_host_sources_unchanged(
-    tmp_path: Path,
     standardization_fixture_resources,
     fixture_host_policy,
     fixture_isolation_source_prompt_policy,
@@ -256,7 +250,6 @@ def test_host_lineage_leaves_unresolved_unrelated_and_non_host_sources_unchanged
     expected_term_ids: tuple[str, ...],
 ) -> None:
     coordinator = _coordinator(
-        tmp_path,
         standardization_fixture_resources,
         fixture_host_policy,
         fixture_isolation_source_prompt_policy,
@@ -268,7 +261,7 @@ def test_host_lineage_leaves_unresolved_unrelated_and_non_host_sources_unchanged
 
     source_type_ids = tuple(
         term.term_id
-        for term in result.isolation_source.selected_terms
+        for term in getattr(result.isolation_source, "selected_terms", ())
         if term.facet == "source_type" and term.term_id != "BACC:0000001"
     )
     assert source_type_ids == expected_term_ids
@@ -277,7 +270,6 @@ def test_host_lineage_leaves_unresolved_unrelated_and_non_host_sources_unchanged
 
 @pytest.mark.parametrize("model_source_type", ["host-associated", "plant host"])
 def test_metazoa_lineage_refines_generic_or_conflicting_host_source_type(
-    tmp_path: Path,
     standardization_fixture_resources,
     fixture_host_policy,
     fixture_isolation_source_prompt_policy,
@@ -285,7 +277,6 @@ def test_metazoa_lineage_refines_generic_or_conflicting_host_source_type(
 ) -> None:
     client = ScriptedClient(_classifier_answer(model_source_type))
     coordinator = _coordinator(
-        tmp_path,
         standardization_fixture_resources,
         fixture_host_policy,
         fixture_isolation_source_prompt_policy,
@@ -313,14 +304,12 @@ def test_metazoa_lineage_refines_generic_or_conflicting_host_source_type(
 
 
 def test_host_only_metazoa_lineage_is_deterministic_without_classification(
-    tmp_path: Path,
     standardization_fixture_resources,
     fixture_host_policy,
     fixture_isolation_source_prompt_policy,
 ) -> None:
     client = ScriptedClient(_classifier_answer("environmental"))
     coordinator = _coordinator(
-        tmp_path,
         standardization_fixture_resources,
         fixture_host_policy,
         fixture_isolation_source_prompt_policy,
@@ -345,14 +334,12 @@ def test_host_only_metazoa_lineage_is_deterministic_without_classification(
 
 
 def test_host_lineage_refinement_applies_after_cache_hit(
-    tmp_path: Path,
     standardization_fixture_resources,
     fixture_host_policy,
     fixture_isolation_source_prompt_policy,
 ) -> None:
     client = ScriptedClient(_classifier_answer("host-associated"))
     coordinator = _coordinator(
-        tmp_path,
         standardization_fixture_resources,
         fixture_host_policy,
         fixture_isolation_source_prompt_policy,
@@ -377,13 +364,11 @@ def test_host_lineage_refinement_applies_after_cache_hit(
 
 
 def test_recovered_host_lineage_refines_host_source_but_not_food_source(
-    tmp_path: Path,
     standardization_fixture_resources,
     fixture_host_policy,
     fixture_isolation_source_prompt_policy,
 ) -> None:
     host_coordinator = _coordinator(
-        tmp_path,
         standardization_fixture_resources,
         fixture_host_policy,
         fixture_isolation_source_prompt_policy,
@@ -403,7 +388,6 @@ def test_recovered_host_lineage_refines_host_source_but_not_food_source(
         {**_classifier_answer("food or feed"), "food_type": ["meat product"]}
     )
     food_coordinator = _coordinator(
-        tmp_path,
         standardization_fixture_resources,
         fixture_host_policy,
         fixture_isolation_source_prompt_policy,

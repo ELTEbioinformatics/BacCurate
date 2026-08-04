@@ -1,4 +1,4 @@
-"""Protect BioProject evidence and cross-target dataset-build behavior."""
+"""Protect BioSample evidence and BioProject-link dataset behavior."""
 
 from __future__ import annotations
 
@@ -7,11 +7,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-from instructor.core import InstructorRetryException
-
 from baccurate.adapters.llm.client import LLMSettings
-from baccurate.provenance.source_snapshot import SourceSnapshotError
 from baccurate.run.dataset_builder import DatasetBuildRequest
 from baccurate.standardization.host import HostPolicy, HostStandardizer
 from baccurate.standardization.isolation_source import (
@@ -19,6 +15,7 @@ from baccurate.standardization.isolation_source import (
     IsolationSourceEvidenceLevel,
     IsolationSourceOutcome,
     IsolationSourcePromptPolicy,
+    IsolationSourceRejection,
     IsolationSourceStandardizer,
     SelectedTerm,
 )
@@ -93,7 +90,6 @@ def _build_isolation_source_run(
     tmp_path: Path,
     *,
     rows: list[dict[str, str]],
-    bioproject_context_entries: list[dict[str, object]],
     client: ScriptedClient,
     extracted_metadata_bundle_factory,
     fixture_dataset_builder_factory,
@@ -104,15 +100,13 @@ def _build_isolation_source_run(
     targets: tuple[StandardizationTarget, ...] = (StandardizationTarget.ISOLATION_SOURCE,),
 ):
     bundle = extracted_metadata_bundle_factory(
-        "bioproject-evidence",
+        "bioproject-linkage",
         extracted_rows=rows,
-        bioproject_context_entries=bioproject_context_entries,
     )
 
-    def isolation_source_factory(policy, extracted_metadata, result_logger):
+    def isolation_source_factory(policy, result_logger):
         standardizer = IsolationSourceStandardizer(
             policy,
-            extracted_metadata,
             result_logger=result_logger,
             client=None,
             llm_settings=LLMSettings(None, None, "fixture-model"),
@@ -156,7 +150,7 @@ def _reasoning_rows(path: Path) -> dict[str, dict[str, object]]:
     }
 
 
-def test_dataset_build_preserves_evidence_levels_artifacts_and_statistics(
+def test_dataset_build_limits_evidence_to_biosample_pairs(
     tmp_path: Path,
     extracted_metadata_bundle_factory,
     fixture_dataset_builder_factory,
@@ -166,9 +160,7 @@ def test_dataset_build_preserves_evidence_levels_artifacts_and_statistics(
     standardization_fixture_resources,
 ) -> None:
     client = ScriptedClient()
-    client.respond_with(["soil"], evidence_level="project")
-    client.respond_with(["soil"], evidence_level="project")
-    client.respond_with([], evidence_level="none")
+    client.respond_with(["soil"], evidence_level="sample")
     run = _build_isolation_source_run(
         tmp_path,
         rows=[
@@ -208,36 +200,6 @@ def test_dataset_build_preserves_evidence_levels_artifacts_and_statistics(
                 "bioproject_id": "999",
             },
         ],
-        bioproject_context_entries=[
-            {
-                "id": "1",
-                "accession": "PRJNA1",
-                "title": "Environmental surveillance",
-                "description": "A broad One Health study.",
-                "relevance": ["Environmental"],
-            },
-            {
-                "id": "2",
-                "accession": "PRJNA2",
-                "title": "Soil isolate survey",
-                "description": "Bacteria isolated from agricultural soil.",
-                "relevance": ["Agricultural", "Environmental"],
-            },
-            {
-                "id": "3",
-                "accession": "PRJNA3",
-                "title": "Farm soil survey",
-                "description": "Soil and animal sampling.",
-                "relevance": ["Agricultural", "Environmental"],
-            },
-            {
-                "id": "4",
-                "accession": "PRJNA4",
-                "title": "Genome sequencing",
-                "description": "No sample origin is reported.",
-                "relevance": [],
-            },
-        ],
         client=client,
         extracted_metadata_bundle_factory=extracted_metadata_bundle_factory,
         fixture_dataset_builder_factory=fixture_dataset_builder_factory,
@@ -249,46 +211,34 @@ def test_dataset_build_preserves_evidence_levels_artifacts_and_statistics(
 
     rows = _dataset_rows(run.dataset)
     reasoning = _reasoning_rows(run.reasoning)
-    assert len(client.calls) == 3
+    assert len(client.calls) == 1
     assert rows["SAMPLE_ONLY"]["iso_body_product"] == "feces"
     assert rows["SAMPLE_ONLY"]["iso_term_ids"] == (f"BACC:0000001||BACC:0000002||{FECES}")
-    assert rows["PROJECT_ONLY"]["iso_environmental_material"] == "soil"
-    assert rows["PROJECT_ONLY"]["iso_term_ids"] == f"BACC:0000004||{SOIL}"
     assert rows["HOST_ONLY"]["iso_source_type"] == "host-associated||animal host"
     assert rows["SAMPLE_AND_PROJECT"]["iso_term_ids"] == (
         f"BACC:0000001||BACC:0000002||{FECES}||{SOIL}"
     )
-    assert rows["UNINFORMATIVE_PROJECT"]["iso_source_type"] == "NA"
+    assert "PROJECT_ONLY" not in rows
+    assert "UNINFORMATIVE_PROJECT" not in rows
     assert "UNRESOLVED_PROJECT" not in rows
     assert {accession: record["evidence_level"] for accession, record in reasoning.items()} == {
         "SAMPLE_ONLY": "sample",
-        "PROJECT_ONLY": "project",
         "HOST_ONLY": "sample",
-        "SAMPLE_AND_PROJECT": "sample_and_project",
-        "UNINFORMATIVE_PROJECT": "none",
+        "SAMPLE_AND_PROJECT": "sample",
     }
     assert run.statistics.isolation_source.aggregate.evidence_levels == {
-        IsolationSourceEvidenceLevel.SAMPLE: 2,
-        IsolationSourceEvidenceLevel.PROJECT: 1,
-        IsolationSourceEvidenceLevel.SAMPLE_AND_PROJECT: 1,
-        IsolationSourceEvidenceLevel.NONE: 1,
+        IsolationSourceEvidenceLevel.SAMPLE: 3,
     }
-    assert run.statistics.isolation_source.aggregate.rejected == 1
-    assert (
-        run.statistics.isolation_source.aggregate.diagnostics[
-            IsolationSourceDiagnostic.UNRESOLVED_BIOPROJECT_LINK
-        ]
-        == 1
-    )
+    assert run.statistics.isolation_source.aggregate.rejected == 3
     assert (
         run.statistics.isolation_source.aggregate.diagnostics[
             IsolationSourceDiagnostic.NO_CLASSIFICATION_INPUT
         ]
-        == 1
+        == 3
     )
 
 
-def test_dataset_build_orders_resolved_bioproject_context_and_includes_it_in_request_identity(
+def test_dataset_build_request_identity_uses_only_biosample_pairs(
     tmp_path: Path,
     extracted_metadata_bundle_factory,
     fixture_dataset_builder_factory,
@@ -298,13 +248,12 @@ def test_dataset_build_orders_resolved_bioproject_context_and_includes_it_in_req
     standardization_fixture_resources,
 ) -> None:
     client = ScriptedClient()
-    client.respond_with(["wound"], evidence_level="sample_and_project")
-    client.respond_with(["wound"], evidence_level="sample_and_project")
-    _build_isolation_source_run(
+    client.respond_with(["wound"], evidence_level="sample")
+    run = _build_isolation_source_run(
         tmp_path,
         rows=[
             {
-                "accession": "ORDERED_CONTEXT",
+                "accession": "FIRST_CONTEXT",
                 "pathogen": "ecoli",
                 "bioproject_id": "3||1||999",
                 "bioproject_accession": "PRJNA300||PRJNA100",
@@ -312,35 +261,12 @@ def test_dataset_build_orders_resolved_bioproject_context_and_includes_it_in_req
                 "iso_val_orig": "wound patient 161803",
             },
             {
-                "accession": "DIFFERENT_CONTEXT",
+                "accession": "SECOND_CONTEXT",
                 "pathogen": "ecoli",
                 "bioproject_id": "2",
                 "bioproject_accession": "PRJNA200",
                 "iso_attr_orig": "isolation_source",
                 "iso_val_orig": "wound patient 161803",
-            },
-        ],
-        bioproject_context_entries=[
-            {
-                "id": "3",
-                "accession": "PRJNA300",
-                "title": "Veterinary wound survey",
-                "description": "Animal and environmental sampling.",
-                "relevance": ["Environmental", "Veterinary"],
-            },
-            {
-                "id": "1",
-                "accession": "PRJNA100",
-                "title": "Agricultural surveillance",
-                "description": "Farm sampling.",
-                "relevance": ["Agricultural"],
-            },
-            {
-                "id": "2",
-                "accession": "PRJNA200",
-                "title": "Veterinary study",
-                "description": "Animal sampling.",
-                "relevance": ["Veterinary"],
             },
         ],
         client=client,
@@ -352,14 +278,15 @@ def test_dataset_build_orders_resolved_bioproject_context_and_includes_it_in_req
         standardization_fixture_resources=standardization_fixture_resources,
     )
 
-    assert len(client.calls) == 2
-    first_context = json.loads(
-        client.calls[0]["messages"][1]["content"].split("BioProject context:\n", 1)[1]
-    )
-    assert [project["accession"] for project in first_context] == ["PRJNA100", "PRJNA300"]
+    assert len(client.calls) == 1
+    messages = json.dumps(client.calls[0]["messages"])
+    assert "BioProject" not in messages
+    assert "PRJNA" not in messages
+    assert "Veterinary" not in messages
+    assert run.statistics.isolation_source.aggregate.cache_hits == 1
 
 
-def test_dataset_build_skips_project_only_response_after_validation_retries(
+def test_dataset_build_rejects_bioproject_only_record_without_model_call(
     tmp_path: Path,
     extracted_metadata_bundle_factory,
     fixture_dataset_builder_factory,
@@ -369,13 +296,6 @@ def test_dataset_build_skips_project_only_response_after_validation_retries(
     standardization_fixture_resources,
 ) -> None:
     client = ScriptedClient()
-    client.responses.append(
-        InstructorRetryException(
-            "invalid project-only classification response",
-            n_attempts=4,
-            total_usage=0,
-        )
-    )
     run = _build_isolation_source_run(
         tmp_path,
         rows=[
@@ -383,15 +303,6 @@ def test_dataset_build_skips_project_only_response_after_validation_retries(
                 "accession": "PROJECT_ONLY",
                 "pathogen": "ecoli",
                 "bioproject_accession": "PRJNA1",
-            }
-        ],
-        bioproject_context_entries=[
-            {
-                "id": "1",
-                "accession": "PRJNA1",
-                "title": "Soil survey",
-                "description": "Soil sampling.",
-                "relevance": ["Environmental"],
             }
         ],
         client=client,
@@ -404,85 +315,14 @@ def test_dataset_build_skips_project_only_response_after_validation_retries(
     )
 
     assert _dataset_rows(run.dataset) == {}
+    assert client.calls == []
     assert run.statistics.isolation_source.aggregate.rejected == 1
     assert run.statistics.isolation_source.aggregate.diagnostics == {
-        IsolationSourceDiagnostic.CLASSIFICATION_FAILURE: 1
+        IsolationSourceDiagnostic.NO_CLASSIFICATION_INPUT: 1
     }
 
 
-@pytest.mark.parametrize(
-    ("bioproject_context_entries", "match"),
-    [
-        (
-            [{"id": "1", "accession": "PRJNA1"}],
-            "expected fields",
-        ),
-        (
-            [
-                {
-                    "id": "1",
-                    "accession": "PRJNA1",
-                    "title": "Medical study",
-                    "description": "Clinical sampling.",
-                    "relevance": ["Medical"],
-                }
-            ],
-            "relevance must contain distinct Agricultural, Environmental, or Veterinary",
-        ),
-        (
-            [
-                {
-                    "id": "1",
-                    "accession": "PRJNA1",
-                    "title": "Soil study",
-                    "description": "Soil sampling.",
-                    "relevance": ["Environmental"],
-                },
-                {
-                    "id": "1",
-                    "accession": "PRJNA2",
-                    "title": "Farm study",
-                    "description": "Farm sampling.",
-                    "relevance": ["Agricultural"],
-                },
-            ],
-            "duplicate project ID",
-        ),
-        (
-            [
-                {
-                    "id": "1",
-                    "accession": "PRJNA1",
-                    "title": "Soil study",
-                    "description": "Soil sampling.",
-                    "relevance": ["Environmental"],
-                },
-                {
-                    "id": "2",
-                    "accession": "PRJNA1",
-                    "title": "Farm study",
-                    "description": "Farm sampling.",
-                    "relevance": ["Agricultural"],
-                },
-            ],
-            "duplicate project accession",
-        ),
-    ],
-    ids=["missing-fields", "invalid-relevance", "duplicate-id", "duplicate-accession"],
-)
-def test_malformed_bioproject_context_is_rejected_before_classification(
-    extracted_metadata_bundle_factory,
-    bioproject_context_entries: list[dict[str, object]],
-    match: str,
-) -> None:
-    with pytest.raises(SourceSnapshotError, match=match):
-        extracted_metadata_bundle_factory(
-            "invalid-project-context",
-            bioproject_context_entries=bioproject_context_entries,
-        )
-
-
-def test_host_recovery_uses_record_pairs_and_not_project_only_evidence(
+def test_host_recovery_uses_biosample_pairs_not_bioproject_linkage(
     tmp_path: Path,
     extracted_metadata_bundle_factory,
     fixture_dataset_builder_factory,
@@ -507,35 +347,22 @@ def test_host_recovery_uses_record_pairs_and_not_project_only_evidence(
                 "bioproject_accession": "PRJNA2",
             },
         ],
-        bioproject_context_entries=[
-            {
-                "id": "1",
-                "accession": "PRJNA1",
-                "title": "Human microbiome project",
-                "description": "Human clinical samples.",
-                "relevance": ["Veterinary"],
-            },
-            {
-                "id": "2",
-                "accession": "PRJNA2",
-                "title": "Chicken survey",
-                "description": "Poultry meat surveillance.",
-                "relevance": ["Agricultural"],
-            },
-        ],
     )
 
-    class ProjectSupportedIsolationSourceStandardizer:
-        def standardize(self, record, *, host_context, overflow=None):
+    class BioSampleIsolationSourceStandardizer:
+        def standardize(self, record, *, overflow=None):
             supporting_pairs = (
                 (SupportingAttributeValuePair("food_source", "chicken meat"),)
                 if record["accession"] == "RECORD_EVIDENCE"
                 else ()
             )
+            if not supporting_pairs:
+                return IsolationSourceRejection(
+                    (IsolationSourceDiagnostic.NO_CLASSIFICATION_INPUT,)
+                )
             return IsolationSourceOutcome(
                 selected_terms=(SelectedTerm("BACC:0000097", "food_type", "meat product"),),
-                evidence_level=IsolationSourceEvidenceLevel.PROJECT,
-                host_context=host_context,
+                evidence_level=IsolationSourceEvidenceLevel.SAMPLE,
                 supporting_pairs=supporting_pairs,
                 host_recovery_pairs=supporting_pairs,
                 reasoning=(),
@@ -576,9 +403,7 @@ def test_host_recovery_uses_record_pairs_and_not_project_only_evidence(
     dataset = tmp_path / "host-recovery.tsv"
     statistics = fixture_dataset_builder_factory(
         host_standardizer_factory=host_factory,
-        isolation_source_standardizer_factory=lambda *_args: (
-            ProjectSupportedIsolationSourceStandardizer()
-        ),
+        isolation_source_standardizer_factory=lambda *_args: BioSampleIsolationSourceStandardizer(),
     ).build(
         DatasetBuildRequest(
             extracted_metadata=bundle.extracted_metadata,
@@ -601,6 +426,6 @@ def test_host_recovery_uses_record_pairs_and_not_project_only_evidence(
     ]
     rows = _dataset_rows(dataset)
     assert rows["RECORD_EVIDENCE"]["host_sci_name"] == "Gallus gallus"
-    assert rows["PROJECT_ONLY"]["host_sci_name"] == ""
+    assert "PROJECT_ONLY" not in rows
     assert statistics.host.aggregate.host_recovery_passes == 1
     assert statistics.isolation_source.aggregate.host_recovery_passes == 1

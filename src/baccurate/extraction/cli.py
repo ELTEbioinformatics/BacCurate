@@ -13,9 +13,7 @@ from pathlib import Path
 from baccurate import paths
 from baccurate.adapters.progress import make_progress_bar
 from baccurate.extraction.bioproject import (
-    BioProjectContext,
-    resolve_bioproject_contexts,
-    write_bioproject_catalog,
+    resolve_bioproject_accessions,
     write_unresolved_bioproject_links,
 )
 from baccurate.extraction.curation import CurationSchema
@@ -26,7 +24,6 @@ from baccurate.extraction.xml import CurationCounters, process_biosample_xml
 from baccurate.provenance.source_snapshot import (
     DerivedBundleProvenance,
     _publish_bundle,
-    bioproject_catalog_path_for,
     provenance_path_for,
     validate_paired_source_contract,
 )
@@ -51,7 +48,6 @@ class ExtractionReport:
     bioproject_snapshot_id: str
     metadata_reference_date: date
     bundle_provenance_path: Path
-    bioproject_catalog_path: Path
 
 
 def run_extraction(
@@ -70,7 +66,7 @@ def run_extraction(
 
     biosample_paths = (paths.DEFAULT_BIOSAMPLE_XML_INPUT,)
     source_contract = validate_paired_source_contract(
-        biosample_path=biosample_paths,
+        biosample_path=paths.DEFAULT_BIOSAMPLE_XML_INPUT,
         bioproject_path=paths.DEFAULT_BIOPROJECT_XML_INPUT,
         biosample_manifest_path=paths.DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
         bioproject_manifest_path=paths.DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
@@ -82,7 +78,6 @@ def run_extraction(
     pathogen_by_accession = load_pathogen_map(index_path, names)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    catalog_path = bioproject_catalog_path_for(output_path)
     bundle_provenance_path = provenance_path_for(output_path)
     extracted_record_count = 0
     linked_project_samples: dict[str, set[str]] = defaultdict(set)
@@ -93,7 +88,6 @@ def run_extraction(
         temporary_dir_path = Path(temporary_dir)
         spool_path = temporary_dir_path / "biosample_rows.tsv"
         temporary_output_path = temporary_dir_path / output_path.name
-        temporary_catalog_path = temporary_dir_path / catalog_path.name
         temporary_provenance_path = temporary_dir_path / bundle_provenance_path.name
 
         with spool_path.open("w", newline="", encoding="utf-8") as spool_stream:
@@ -126,26 +120,24 @@ def run_extraction(
                                 linked_project_samples[project_id].add(accession)
                     bar.update(1)
 
-        resolved_projects = resolve_bioproject_contexts(
+        accession_by_bioproject_id = resolve_bioproject_accessions(
             paths.DEFAULT_BIOPROJECT_XML_INPUT,
             linked_project_samples,
         )
-        _write_resolved_rows(spool_path, temporary_output_path, resolved_projects)
-        write_bioproject_catalog(resolved_projects.values(), temporary_catalog_path)
+        _write_resolved_rows(spool_path, temporary_output_path, accession_by_bioproject_id)
 
         provenance = DerivedBundleProvenance.create(
             source_contract=source_contract,
             biosample_manifest_path=paths.DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
             bioproject_manifest_path=paths.DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
             extracted_metadata_path=temporary_output_path,
-            bioproject_context_path=temporary_catalog_path,
         )
         provenance.write(temporary_provenance_path)
 
         review_worklist_paths = review_worklists.write(output_path.parent)
         unresolved_path = write_unresolved_bioproject_links(
             linked_project_samples,
-            resolved_projects.keys(),
+            accession_by_bioproject_id.keys(),
             output_path.parent / "unresolved_bioproject_links.tsv",
         )
         if unresolved_path is not None:
@@ -160,8 +152,6 @@ def run_extraction(
         _publish_bundle(
             temporary_output_path=temporary_output_path,
             output_path=output_path,
-            temporary_catalog_path=temporary_catalog_path,
-            catalog_path=catalog_path,
             temporary_provenance_path=temporary_provenance_path,
             provenance_path=bundle_provenance_path,
         )
@@ -178,14 +168,13 @@ def run_extraction(
         bioproject_snapshot_id=source_contract.bioproject.snapshot_id,
         metadata_reference_date=source_contract.metadata_reference_date,
         bundle_provenance_path=bundle_provenance_path,
-        bioproject_catalog_path=catalog_path,
     )
 
 
 def _write_resolved_rows(
     spool_path: Path,
     output_path: Path,
-    resolved_projects: dict[str, BioProjectContext],
+    accession_by_bioproject_id: dict[str, str],
 ) -> None:
     with (
         spool_path.open(newline="", encoding="utf-8") as input_stream,
@@ -203,9 +192,9 @@ def _write_resolved_rows(
             project_ids = row["bioproject_id"].split("||") if row["bioproject_id"] else ()
             row["bioproject_accession"] = "||".join(
                 sorted(
-                    resolved_projects[project_id].accession
+                    accession_by_bioproject_id[project_id]
                     for project_id in project_ids
-                    if project_id in resolved_projects
+                    if project_id in accession_by_bioproject_id
                 )
             )
             writer.writerow(row)

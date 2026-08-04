@@ -50,8 +50,6 @@ def write_prompt_snapshot(
                 (
                     ("system_prompt", prompts.system),
                     ("user_prompt_template", prompts.user_template),
-                    ("bioproject_system_prompt", prompts.bioproject_system),
-                    ("bioproject_user_prompt", prompts.bioproject_user),
                 ),
             )
         )

@@ -96,11 +96,10 @@ def test_complete_production_effective_policy_has_required_semantics() -> None:
     assert "{attr_val_pairs}" in policy.location_policy.prompts.user_template
     assert policy.location_policy.insdc_country_map["United States"] == "USA"
     assert policy.isolation_source_prompt_policy is not None
-    assert policy.isolation_source_prompt_policy.schema_version == 2
-    assert policy.isolation_source_prompt_policy.prompt_version == "4"
+    assert policy.isolation_source_prompt_policy.schema_version == 3
+    assert policy.isolation_source_prompt_policy.prompt_version == "5"
     assert "{ontology_tree}" in policy.isolation_source_prompt_policy.prompts.sample_system_template
     assert "{metadata}" in policy.isolation_source_prompt_policy.prompts.sample_user_template
-    assert "## source_type" in policy.isolation_source_prompt_policy.effective_prompts.system
     assert policy.location_policy.geo_loc_list_path == DEFAULT_GEO_LOC_LIST
     assert policy.location_policy.geo_loc_list_path.is_file()
     assert policy.location_policy.cache_db_path == DEFAULT_LOC_CACHE_DB
@@ -593,12 +592,10 @@ def _write_isolation_source_prompt_policy(
     overrides: dict[str, object] | None = None,
 ) -> Path:
     policy = {
-        "schema_version": 2,
+        "schema_version": 3,
         "prompt_version": "isolation-v1",
         "system_prompt": "Classify with:\n{ontology_tree}",
-        "user_prompt": "{metadata}\n{bioproject_context}",
-        "bioproject_system_prompt": "Use study context carefully.",
-        "bioproject_user_prompt": "Projects:\n{bioproject_context}",
+        "user_prompt": "{metadata}",
         "ontology_directory": DEFAULT_ISOLATION_SOURCE_ONTOLOGY_DIRECTORY.as_posix(),
         "cache_db_path": (tmp_path / "isolation-cache.db").as_posix(),
     }
@@ -636,26 +633,25 @@ def test_unselected_isolation_source_prompt_policy_is_not_loaded(tmp_path: Path)
         ({"system_prompt": "No ontology"}, "system_prompt"),
         ({"system_prompt": "{ontology_tree} {unsupported}"}, "system_prompt"),
         ({"system_prompt": "{ontology_tree} {unsupported.attr}"}, "system_prompt"),
-        ({"user_prompt": "{metadata}"}, "user_prompt"),
-        ({"user_prompt": "{metadata} {bioproject_context} {unsupported}"}, "user_prompt"),
+        ({"user_prompt": "No metadata"}, "user_prompt"),
+        ({"user_prompt": "{metadata} {unsupported}"}, "user_prompt"),
         (
-            {"user_prompt": "{metadata} {bioproject_context} {unsupported[0]}"},
+            {"user_prompt": "{metadata} {unsupported[0]}"},
             "user_prompt",
         ),
-        ({"user_prompt": "{metadata} {bioproject_context} {0}"}, "user_prompt"),
-        ({"user_prompt": "{metadata} {bioproject_context} {}"}, "user_prompt"),
-        ({"user_prompt": "{metadata} {bioproject_context} {!r}"}, "user_prompt"),
-        ({"user_prompt": "{metadata} {bioproject_context} {:<20}"}, "user_prompt"),
-        ({"user_prompt": "{metadata} {bioproject_context} {.attribute}"}, "user_prompt"),
-        ({"user_prompt": "{metadata} {bioproject_context} {[0]}"}, "user_prompt"),
-        ({"user_prompt": "{metadata} {bioproject_context"}, "user_prompt"),
+        ({"user_prompt": "{metadata} {0}"}, "user_prompt"),
+        ({"user_prompt": "{metadata} {}"}, "user_prompt"),
+        ({"user_prompt": "{metadata} {!r}"}, "user_prompt"),
+        ({"user_prompt": "{metadata} {:<20}"}, "user_prompt"),
+        ({"user_prompt": "{metadata} {.attribute}"}, "user_prompt"),
+        ({"user_prompt": "{metadata} {[0]}"}, "user_prompt"),
+        ({"user_prompt": "{metadata"}, "user_prompt"),
         (
-            {"user_prompt": "{metadata} {metadata!r} {bioproject_context}"},
+            {"user_prompt": "{metadata} {metadata!r}"},
             "user_prompt",
         ),
-        ({"bioproject_system_prompt": None}, "bioproject_system_prompt"),
-        ({"bioproject_system_prompt": "Rules {unsupported!r}"}, "bioproject_system_prompt"),
-        ({"bioproject_user_prompt": "No project placeholder"}, "bioproject_user_prompt"),
+        ({"bioproject_system_prompt": "obsolete"}, "top level.bioproject_system_prompt"),
+        ({"bioproject_user_prompt": "obsolete"}, "top level.bioproject_user_prompt"),
         ({"ontology_directory": 1}, "ontology_directory"),
         ({"ontology_directory": None}, "ontology_directory"),
         ({"ontology_tsv_path": "ontology.tsv"}, "top level.ontology_tsv_path"),
@@ -690,8 +686,6 @@ def test_isolation_source_prompt_policy_rejects_invalid_values_with_source_and_k
         "prompt_version",
         "system_prompt",
         "user_prompt",
-        "bioproject_system_prompt",
-        "bioproject_user_prompt",
     ],
 )
 def test_isolation_source_prompt_policy_rejects_missing_required_values(
@@ -750,11 +744,11 @@ def test_isolation_source_prompt_version_is_independent_of_schema_version(
     policy = IsolationSourcePromptPolicy.load(
         _write_isolation_source_prompt_policy(
             tmp_path,
-            {"schema_version": 2, "prompt_version": "wording-revision-17"},
+            {"schema_version": 3, "prompt_version": "wording-revision-17"},
         )
     )
 
-    assert policy.schema_version == 2
+    assert policy.schema_version == 3
     assert policy.prompt_version == "wording-revision-17"
 
 

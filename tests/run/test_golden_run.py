@@ -18,13 +18,8 @@ import baccurate.standardization.location as location_module
 from baccurate.adapters.llm.client import LLMSettings
 from baccurate.pathogen_registry.registry import load_pathogen_registry
 from baccurate.provenance.source_snapshot import (
-    ArtifactReference,
-    DerivedArtifactReferences,
     DerivedBundleProvenance,
-    ManifestReference,
-    PairedManifestReferences,
     SourceSnapshotManifest,
-    bioproject_catalog_path_for,
     provenance_path_for,
     sha256_file,
 )
@@ -81,7 +76,7 @@ class _IsolationSourceCompletions:
         return kwargs["response_model"].model_validate(
             {
                 "reasoning": "The submitted lesion is wound material.",
-                "evidence_level": "sample_and_project",
+                "evidence_level": "sample",
                 "source_type": "animal host",
                 "body_product": [],
                 "body_site": [],
@@ -119,17 +114,13 @@ def _write_manifest(
     sha256_fill_character: str,
 ) -> SourceSnapshotManifest:
     manifest = SourceSnapshotManifest(
-        manifest_version=1,
         snapshot_id=snapshot_id,
         provider="golden-run",
         retrieved_on=date(2026, 1, 1),
-        metadata_reference_date=date(2026, 1, 1),
-        files=(
-            {
-                "name": f"{snapshot_id}.xml.gz",
-                "sha256": sha256_fill_character * 64,
-            },
-        ),
+        file={
+            "name": f"{snapshot_id}.xml.gz",
+            "sha256": sha256_fill_character * 64,
+        },
     )
     path.write_text(
         yaml.safe_dump(manifest.model_dump(mode="json"), sort_keys=False),
@@ -141,8 +132,6 @@ def _write_manifest(
 def _prepare_bundle(tmp_path: Path, golden_run_fixture_dir: Path) -> tuple[Path, Path, Path]:
     extracted = tmp_path / "extracted.tsv"
     shutil.copyfile(golden_run_fixture_dir / "extracted.tsv", extracted)
-    catalog = bioproject_catalog_path_for(extracted)
-    shutil.copyfile(golden_run_fixture_dir / "bioproject_context.jsonl", catalog)
     biosample_manifest_path = tmp_path / "biosample_snapshot.yaml"
     bioproject_manifest_path = tmp_path / "bioproject_snapshot.yaml"
     biosample_manifest = _write_manifest(
@@ -156,29 +145,11 @@ def _prepare_bundle(tmp_path: Path, golden_run_fixture_dir: Path) -> tuple[Path,
         sha256_fill_character="1",
     )
     DerivedBundleProvenance(
-        bundle_version=1,
-        source_manifests=PairedManifestReferences(
-            biosample=ManifestReference(
-                snapshot_id=biosample_manifest.snapshot_id,
-                path=str(biosample_manifest_path),
-                sha256=sha256_file(biosample_manifest_path),
-            ),
-            bioproject=ManifestReference(
-                snapshot_id=bioproject_manifest.snapshot_id,
-                path=str(bioproject_manifest_path),
-                sha256=sha256_file(bioproject_manifest_path),
-            ),
-        ),
-        artifacts=DerivedArtifactReferences(
-            extracted_metadata=ArtifactReference(
-                path=extracted.name,
-                sha256=sha256_file(extracted),
-            ),
-            bioproject_context=ArtifactReference(
-                path=catalog.name,
-                sha256=sha256_file(catalog),
-            ),
-        ),
+        biosample_snapshot_id=biosample_manifest.snapshot_id,
+        biosample_manifest_sha256=sha256_file(biosample_manifest_path),
+        bioproject_snapshot_id=bioproject_manifest.snapshot_id,
+        bioproject_manifest_sha256=sha256_file(bioproject_manifest_path),
+        extracted_metadata_sha256=sha256_file(extracted),
     ).write(provenance_path_for(extracted))
     return extracted, biosample_manifest_path, bioproject_manifest_path
 
@@ -268,12 +239,10 @@ def test_all_standardization_targets_match_golden_run(
 
     def isolation_source_factory(
         policy: IsolationSourcePromptPolicy,
-        bundle_path: Path,
         logger: logging.Logger,
     ) -> IsolationSourceStandardizer:
         standardizer = IsolationSourceStandardizer(
             policy,
-            bundle_path,
             client=isolation_source_client,
             llm_settings=LLMSettings(None, None, "golden-model"),
             result_logger=logger,

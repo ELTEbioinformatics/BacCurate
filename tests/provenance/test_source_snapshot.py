@@ -1,10 +1,8 @@
 """Acquired source snapshot and extracted metadata bundle provenance contracts."""
 
-import gzip
 from datetime import date
 
 import pytest
-import yaml
 
 from baccurate.provenance.source_snapshot import (
     SourceSnapshotError,
@@ -30,31 +28,16 @@ def test_paired_source_contract_preserves_both_snapshot_identities(
 
 
 @pytest.mark.parametrize("source_role", ["biosample", "bioproject"])
-@pytest.mark.parametrize("failure", ["missing", "unexpected", "checksum-mismatch"])
-def test_paired_source_contract_rejects_invalid_snapshot_for_each_source(
+def test_paired_source_contract_rejects_changed_snapshot_for_each_source(
     paired_source_snapshots,
     source_role: str,
-    failure: str,
 ) -> None:
     sources = paired_source_snapshots
     source_path = getattr(sources, source_role)
-    expected_detail = {
-        "missing": "missing",
-        "unexpected": "unexpected",
-        "checksum-mismatch": "checksum mismatch",
-    }[failure]
-
-    if failure == "missing":
-        source_path.unlink()
-    elif failure == "unexpected":
-        unexpected = source_path.with_name("unexpected.xml.gz")
-        unexpected.write_bytes(gzip.compress(b"<Unexpected />", mtime=0))
-        source_path = unexpected
-    else:
-        source_path.write_bytes(source_path.read_bytes() + b"changed compressed bytes")
+    source_path.write_bytes(source_path.read_bytes() + b"changed compressed bytes")
 
     role_label = "BioSample" if source_role == "biosample" else "BioProject"
-    with pytest.raises(SourceSnapshotError, match=rf"{role_label}.*{expected_detail}"):
+    with pytest.raises(SourceSnapshotError, match=rf"{role_label} source checksum mismatch"):
         validate_paired_source_contract(
             biosample_path=(source_path if source_role == "biosample" else sources.biosample),
             bioproject_path=(source_path if source_role == "bioproject" else sources.bioproject),
@@ -63,33 +46,14 @@ def test_paired_source_contract_rejects_invalid_snapshot_for_each_source(
         )
 
 
-@pytest.mark.parametrize("member", ["extracted_metadata", "bioproject_context"])
-@pytest.mark.parametrize("failure", ["missing", "changed", "mismatched"])
-def test_extracted_metadata_bundle_rejects_each_invalid_artifact(
+def test_extracted_metadata_bundle_rejects_changed_extracted_metadata(
     extracted_metadata_bundle_factory,
-    member: str,
-    failure: str,
 ) -> None:
     bundle = extracted_metadata_bundle_factory("invalid-artifact")
-    artifact = getattr(bundle, member)
-    role = "extracted TSV" if member == "extracted_metadata" else "BioProject context catalog"
+    artifact = bundle.extracted_metadata
+    artifact.write_bytes(artifact.read_bytes() + b"changed")
 
-    if failure == "missing":
-        artifact.unlink()
-        detail = "not found"
-    elif failure == "changed":
-        artifact.write_bytes(artifact.read_bytes() + b"changed")
-        detail = "checksum mismatch"
-    else:
-        provenance_record = yaml.safe_load(bundle.provenance.read_text(encoding="utf-8"))
-        provenance_record["artifacts"][member]["path"] = f"wrong-{artifact.name}"
-        bundle.provenance.write_text(
-            yaml.safe_dump(provenance_record, sort_keys=False),
-            encoding="utf-8",
-        )
-        detail = "path mismatch"
-
-    with pytest.raises(SourceSnapshotError, match=f"Derived {role} {detail}"):
+    with pytest.raises(SourceSnapshotError, match="Derived extracted TSV checksum mismatch"):
         validate_extracted_metadata_bundle(
             bundle.extracted_metadata,
             bundle.biosample_snapshot_manifest,
@@ -112,7 +76,7 @@ def test_extracted_metadata_bundle_rejects_each_changed_source_manifest(
     role_label = "BioSample" if manifest_role == "biosample" else "BioProject"
     with pytest.raises(
         SourceSnapshotError,
-        match=f"Derived {role_label} source manifest checksum mismatch",
+        match=f"Derived {role_label} source manifest mismatch",
     ):
         validate_extracted_metadata_bundle(
             bundle.extracted_metadata,

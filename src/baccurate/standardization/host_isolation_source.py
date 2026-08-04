@@ -79,7 +79,6 @@ class HostIsolationSourceRouting:
     host_recovery: HostRecoveryRouting
     isolation_source: IsolationSourceRouting
     host_overflow_used: bool
-    bioproject_context_available: bool
     crosslink_applied: bool
 
 
@@ -133,7 +132,6 @@ class HostIsolationSourceStandardizer:
         *,
         host_policy: HostPolicy,
         isolation_source_prompt_policy: IsolationSourcePromptPolicy,
-        extracted_metadata: Path | str,
         result_logger: logging.Logger | None = None,
         llm_adapter: object = _LOAD_LLM_ADAPTER,
         llm_settings: LLMSettings | None = None,
@@ -147,7 +145,6 @@ class HostIsolationSourceStandardizer:
         if llm_adapter is _LOAD_LLM_ADAPTER:
             self._isolation_source = IsolationSourceStandardizer(
                 isolation_source_prompt_policy,
-                extracted_metadata,
                 result_logger=result_logger,
                 llm_settings=effective_llm_settings,
                 read_llm_cache=read_llm_cache,
@@ -155,7 +152,6 @@ class HostIsolationSourceStandardizer:
         else:
             self._isolation_source = IsolationSourceStandardizer(
                 isolation_source_prompt_policy,
-                extracted_metadata,
                 result_logger=result_logger,
                 client=None,
                 llm_settings=effective_llm_settings,
@@ -229,19 +225,8 @@ class HostIsolationSourceStandardizer:
 
         # 1st Host pass
         initial_host = self._host.standardize(extracted_record)
-        standardized_host = (
-            initial_host.standardized.scientific_name
-            if initial_host.standardized is not None
-            else ""
-        )
-        host_context = (
-            standardized_host or str(extracted_record.get("host_val_orig", "") or "").strip()
-        )
         initial_lineage_source = self._lineage_source_type(initial_host)
-        host_only = not any(
-            str(extracted_record.get(key, "") or "").strip()
-            for key in ("iso_val_orig", "bioproject_id", "bioproject_accession")
-        )
+        host_only = not str(extracted_record.get("iso_val_orig", "") or "").strip()
         lineage_applied = initial_lineage_source is not None and host_only
         if lineage_applied:
             lineage_root_taxid, source_type_term_id = initial_lineage_source
@@ -249,7 +234,6 @@ class HostIsolationSourceStandardizer:
                 IsolationSourceOutcome(
                     selected_terms=(),
                     evidence_level=IsolationSourceEvidenceLevel.NONE,
-                    host_context=host_context,
                     supporting_pairs=(),
                     host_recovery_pairs=(),
                     reasoning=(),
@@ -265,7 +249,6 @@ class HostIsolationSourceStandardizer:
         else:
             isolation_source = self._isolation_source.standardize(
                 extracted_record,
-                host_context=host_context,
                 overflow=initial_host.overflow,
             )
 
@@ -320,12 +303,10 @@ class HostIsolationSourceStandardizer:
             reasoning = isolation_source.reasoning
             evidence_level = isolation_source.evidence_level
             request_fingerprint = isolation_source.request_fingerprint
-            project_context_available = bool(isolation_source.resolved_bioproject_accessions)
         else:
             reasoning = ()
             evidence_level = IsolationSourceEvidenceLevel.NONE
             request_fingerprint = None
-            project_context_available = False
         return HostIsolationSourceResult(
             host=final_host,
             isolation_source=isolation_source,
@@ -340,7 +321,6 @@ class HostIsolationSourceStandardizer:
                 host_recovery=recovery_routing,
                 isolation_source=isolation_source_routing,
                 host_overflow_used=initial_host.overflow is not None,
-                bioproject_context_available=project_context_available,
                 crosslink_applied=any(step.node == "crosslink" for step in reasoning),
             ),
             timing=HostIsolationSourceTiming(elapsed_seconds=perf_counter() - started),
