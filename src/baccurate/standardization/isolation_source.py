@@ -20,7 +20,7 @@ from typing import Literal
 import instructor
 import openai
 from instructor.core import InstructorRetryException
-from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator
 
 from baccurate.adapters.llm.client import LLMSettings, load_llm_client, load_llm_settings
 from baccurate.adapters.llm.diagnostics import LLMFailureCategory, observe_llm_call
@@ -77,9 +77,11 @@ _BRACKETED_BARE_IDENTIFIER_PATTERN = re.compile(
 )
 
 ISOLATION_SOURCE_LLM_PARAMETERS: dict[str, object] = {"temperature": 0, "seed": 100}
+# The configured endpoint was verified to enforce JSON Schema constraints. Pinning this
+# mode makes facet enumerations generation constraints instead of retry-time validation only.
 ISOLATION_SOURCE_STRUCTURED_OUTPUT_MODE = instructor.Mode.JSON_SCHEMA
 # The value is part of existing request fingerprints and cache keys.
-ISOLATION_SOURCE_RESPONSE_SCHEMA_ID = "baccurate.isolation.classification.v4"
+ISOLATION_SOURCE_RESPONSE_SCHEMA_ID = "baccurate.isolation.classification.v5"
 
 # These submitted values explicitly state that no isolation source is available. They
 # are consumed without selecting an ontology term or invoking the classifier.
@@ -486,7 +488,6 @@ class IsolationSourceClassifierAnswer:
 
     facet_values: dict[str, str | tuple[str, ...] | None]
     reasoning: str
-    evidence_level: IsolationSourceEvidenceLevel
 
 
 class IsolationSourceDiagnostic(StrEnum):
@@ -608,8 +609,7 @@ class SQLiteCache(SQLiteKVCache):
         CREATE TABLE IF NOT EXISTS cache (
             hash_id TEXT PRIMARY KEY,
             answer TEXT NOT NULL,
-            reasoning TEXT,
-            evidence_level TEXT NOT NULL DEFAULT 'none'
+            reasoning TEXT
         )
     """
 
@@ -618,7 +618,7 @@ class SQLiteCache(SQLiteKVCache):
 
     def get(self, request_fingerprint: str) -> IsolationSourceClassifierAnswer | None:
         self.cursor.execute(
-            "SELECT answer, reasoning, evidence_level FROM cache WHERE hash_id=?",
+            "SELECT answer, reasoning FROM cache WHERE hash_id=?",
             (request_fingerprint,),
         )
         cache_entry = self.cursor.fetchone()
@@ -633,7 +633,6 @@ class SQLiteCache(SQLiteKVCache):
                 for facet, value in answer.items()
             },
             reasoning=cache_entry[1] or "",
-            evidence_level=IsolationSourceEvidenceLevel(cache_entry[2]),
         )
 
     def set(
@@ -644,14 +643,13 @@ class SQLiteCache(SQLiteKVCache):
         self.cursor.execute(
             """
             INSERT OR REPLACE INTO cache
-                (hash_id, answer, reasoning, evidence_level)
-            VALUES (?, ?, ?, ?)
+                (hash_id, answer, reasoning)
+            VALUES (?, ?, ?)
             """,
             (
                 request_fingerprint,
                 json.dumps(answer.facet_values),
                 answer.reasoning,
-                answer.evidence_level.value,
             ),
         )
         self.conn.commit()
@@ -671,21 +669,9 @@ def _build_schema(
 
         reasoning: str = Field(..., description="Brief reason for the chosen terms.")
 
-    permitted_evidence_levels = tuple(IsolationSourceEvidenceLevel)
-    evidence_description = (
-        "Evidence provenance for the selected terms: 'sample' when BioSample metadata "
-        "supports them, and 'none' only when no facet applies. Permitted values: "
-        + ", ".join(level.value for level in permitted_evidence_levels)
-        + "."
-    )
-    evidence_literal = Literal.__getitem__(
-        tuple(level.value for level in permitted_evidence_levels)
-    )
     facet_fields: dict[str, tuple[object, Field]] = {}
     validators: dict[str, object] = {}
-    facet_keys: list[str] = []
     for facet in ordered_facets(ontology):
-        facet_keys.append(facet.key)
         labels_to_terms = {
             term.label: term for term in ontology.terms.values() if term.facet == facet.key
         }
@@ -739,21 +725,10 @@ def _build_schema(
             validate_facet
         )
 
-    def validate_evidence_and_facets(model: BaseModel) -> BaseModel:
-        has_selection = any(getattr(model, facet_key) not in (None, []) for facet_key in facet_keys)
-        evidence_is_none = model.evidence_level == IsolationSourceEvidenceLevel.NONE.value
-        if has_selection == evidence_is_none:
-            raise ValueError("Every facet must be empty if and only if evidence_level is 'none'")
-        return model
-
-    validators["validate_evidence_and_facets"] = model_validator(mode="after")(
-        validate_evidence_and_facets
-    )
     return create_model(
         "IsolationSourceClassification",
         __base__=IsolationSourceClassificationBase,
         __validators__=validators,
-        evidence_level=(evidence_literal, Field(..., description=evidence_description)),
         **facet_fields,
     )
 
@@ -1248,7 +1223,6 @@ class LLMClassifier:
                             )
                         finally:
                             self._active_ontology_gap_observation.reset(observation_token)
-                    classifier_evidence_level = IsolationSourceEvidenceLevel(resp.evidence_level)
                     facet_values: dict[str, str | tuple[str, ...] | None] = {}
                     for facet in self._ordered_facets:
                         value = getattr(resp, facet.key)
@@ -1256,7 +1230,6 @@ class LLMClassifier:
                     classifier_answer = IsolationSourceClassifierAnswer(
                         facet_values=facet_values,
                         reasoning=resp.reasoning,
-                        evidence_level=classifier_evidence_level,
                     )
                     call.accepted()
                 except InstructorRetryException as e:

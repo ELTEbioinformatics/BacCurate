@@ -79,7 +79,6 @@ FACET_BY_LABEL = {
 def _classifier_answer(
     *,
     reasoning: str = "because",
-    evidence_level: str = "sample",
     source_type: str | None = None,
     body_product: list[str] | None = None,
     body_site: list[str] | None = None,
@@ -91,7 +90,6 @@ def _classifier_answer(
 ) -> dict[str, object]:
     return {
         "reasoning": reasoning,
-        "evidence_level": evidence_level,
         "source_type": source_type,
         "body_product": body_product or [],
         "body_site": body_site or [],
@@ -131,7 +129,6 @@ class FakeClient:
         self,
         terms,
         reasoning: str = "because",
-        evidence_level: str = "sample",
     ) -> None:
         terms = list(terms)
         facets: dict[str, object] = {
@@ -152,7 +149,6 @@ class FakeClient:
                 facets[facet].append(term)
         self.respond_with_facets(
             reasoning=reasoning,
-            evidence_level=evidence_level,
             **facets,
         )
 
@@ -163,7 +159,6 @@ class FakeClient:
         self,
         *,
         reasoning: str = "because",
-        evidence_level: str = "sample",
         source_type: str | None = None,
         body_product: list[str] | None = None,
         body_site: list[str] | None = None,
@@ -175,7 +170,6 @@ class FakeClient:
     ) -> None:
         self.behavior = _classifier_answer(
             reasoning=reasoning,
-            evidence_level=evidence_level,
             source_type=source_type,
             body_product=body_product,
             body_site=body_site,
@@ -840,7 +834,6 @@ def test_classifier_response_schema_enforces_the_faceted_contract(
     response_model = fake.calls[0]["response_model"]
     empty_answer = {
         "reasoning": "No origin is supported.",
-        "evidence_level": "none",
         "source_type": None,
         "body_product": [],
         "body_site": [],
@@ -853,7 +846,6 @@ def test_classifier_response_schema_enforces_the_faceted_contract(
 
     assert tuple(response_model.model_fields) == (
         "reasoning",
-        "evidence_level",
         "source_type",
         "body_product",
         "body_site",
@@ -885,31 +877,20 @@ def test_classifier_response_schema_enforces_the_faceted_contract(
             == facet_labels[facet_key]
         )
     response_model.model_validate(empty_answer)
+    response_model.model_validate({**empty_answer, "source_type": "animal host"})
 
     invalid_answers = (
-        {**empty_answer, "source_type": "animal host"},
-        {
-            **empty_answer,
-            "evidence_level": "sample",
-            "source_type": ["animal host", "environmental"],
-        },
-        {**empty_answer, "evidence_level": "sample", "body_site": ["blood"]},
+        {**empty_answer, "source_type": ["animal host", "environmental"]},
+        {**empty_answer, "body_site": ["blood"]},
     )
     for invalid_answer in invalid_answers:
         with pytest.raises(ValidationError):
             response_model.model_validate(invalid_answer)
     with pytest.raises(
         ValidationError,
-        match="Every facet must be empty if and only if evidence_level is 'none'",
-    ):
-        response_model.model_validate({**empty_answer, "evidence_level": "sample"})
-    with pytest.raises(
-        ValidationError,
         match="Unknown source_type labels: 'animal-host'",
     ):
-        response_model.model_validate(
-            {**empty_answer, "evidence_level": "sample", "source_type": "animal-host"}
-        )
+        response_model.model_validate({**empty_answer, "source_type": "animal-host"})
     with pytest.raises(
         ValidationError,
         match=("'rectum' cannot be returned with its ancestor 'digestive tract' in body_site"),
@@ -917,7 +898,6 @@ def test_classifier_response_schema_enforces_the_faceted_contract(
         response_model.model_validate(
             {
                 **empty_answer,
-                "evidence_level": "sample",
                 "body_site": ["digestive tract", "rectum"],
             }
         )
@@ -973,7 +953,7 @@ def test_empty_model_result_remains_a_typed_outcome(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake = FakeClient()
-    fake.respond_with([], reasoning="No specific source is supported.", evidence_level="none")
+    fake.respond_with([], reasoning="No specific source is supported.")
 
     result = _classify_fixture_record(
         fixture_isolation_source_prompt_policy,
@@ -989,6 +969,22 @@ def test_empty_model_result_remains_a_typed_outcome(
         IsolationSourceDiagnostic.LLM_CALL,
         IsolationSourceDiagnostic.UNSPECIFIED,
     )
+
+    cached = _classify_fixture_record(
+        fixture_isolation_source_prompt_policy,
+        tmp_path,
+        values="GENOMIC",
+        fake=fake,
+        monkeypatch=monkeypatch,
+    )
+
+    assert cached.selected_terms == ()
+    assert cached.evidence_level is IsolationSourceEvidenceLevel.NONE
+    assert cached.diagnostics == (
+        IsolationSourceDiagnostic.CACHE_HIT,
+        IsolationSourceDiagnostic.UNSPECIFIED,
+    )
+    assert len(fake.calls) == 1
 
 
 def test_partial_deterministic_result_uses_sample_evidence_when_llm_is_disabled(
@@ -1672,7 +1668,6 @@ def test_cache_round_trip_preserves_only_the_classifier_answer(cache):
             "food_type": (),
         },
         reasoning="The sample is fecal material from an animal host.",
-        evidence_level=IsolationSourceEvidenceLevel.SAMPLE,
     )
     cache.set("fingerprint", answer)
 

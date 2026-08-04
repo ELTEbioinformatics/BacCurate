@@ -97,7 +97,7 @@ def test_complete_production_effective_policy_has_required_semantics() -> None:
     assert policy.location_policy.insdc_country_map["United States"] == "USA"
     assert policy.isolation_source_prompt_policy is not None
     assert policy.isolation_source_prompt_policy.schema_version == 3
-    assert policy.isolation_source_prompt_policy.prompt_version == "5"
+    assert policy.isolation_source_prompt_policy.prompt_version == "6"
     assert "{ontology_tree}" in policy.isolation_source_prompt_policy.prompts.sample_system_template
     assert "{metadata}" in policy.isolation_source_prompt_policy.prompts.sample_user_template
     assert policy.location_policy.geo_loc_list_path == DEFAULT_GEO_LOC_LIST
