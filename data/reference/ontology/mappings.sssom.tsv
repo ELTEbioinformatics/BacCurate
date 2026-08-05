@@ -15,10 +15,10 @@ BACC:0000004	environmental	skos:narrowMatch	ENVO:01000389	semapv:ManualMappingCu
 BACC:0000004	environmental	skos:narrowMatch	ENVO:01001200	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	An anthropised terrestrial environmental zone is a type of environmental source.
 BACC:0000004	environmental	skos:narrowMatch	ENVO:01001787	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	An aquatic ecosystem is a type of environmental system.
 BACC:0000004	environmental	skos:narrowMatch	ENVO:01001829	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	A human settlement is an anthropised ecosystem.
-BACC:0000005	built environment	skos:narrowMatch	ENVO:00002272	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	A waste treatment plant is a constructed environment, but the class is broader than BacCurate's wastewater treatment plant term.
-BACC:0000005	built environment	skos:narrowMatch	ENVO:01000984	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	A grocery store is a type of constructed environment.
-BACC:0000005	built environment	skos:broadMatch	ENVO:01000313	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	ENVO's anthropogenic environment includes all systems produced by human activity; built environments are narrower.
-BACC:0000006	natural environment	skos:exactMatch	ENVO:01000951	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000004	environmental	skos:narrowMatch	ENVO:00002272	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	A waste treatment plant is an environmental setting.
+BACC:0000004	environmental	skos:narrowMatch	ENVO:01000984	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	A grocery store is an environmental setting.
+BACC:0000004	environmental	skos:narrowMatch	ENVO:01000313	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	An anthropogenic environment is a type of environmental system.
+BACC:0000004	environmental	skos:narrowMatch	ENVO:01000951	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	A natural environment is a type of environmental system.
 BACC:0000007	food or feed	skos:exactMatch	FOODON:00002403	semapv:ManualMappingCuration	obo:foodon.owl	2025-07-31	""
 BACC:0000008	laboratory	skos:narrowMatch	ENVO:02000008	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	Cell culture is in vitro growth in an artificial medium and is therefore a laboratory source.
 BACC:0000009	body fluid	skos:exactMatch	UBERON:0006314	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
@@ -27,7 +27,7 @@ BACC:0000009	body fluid	skos:narrowMatch	UBERON:0001977	semapv:ManualMappingCura
 BACC:0000009	body fluid	skos:closeMatch	ENVO:02000019	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	Bodily fluid material consists mainly of bodily fluid or secretion, but it may not be the native fluid.
 BACC:0000010	blood	skos:exactMatch	ENVO:02000020	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
 BACC:0000010	blood	skos:exactMatch	UBERON:0000178	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
-BACC:0000011	milk	skos:exactMatch	UBERON:0001913	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000011	mammalian milk	skos:exactMatch	UBERON:0001913	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
 BACC:0000012	synovial fluid	skos:exactMatch	UBERON:0001090	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
 BACC:0000013	cerebrospinal fluid	skos:exactMatch	UBERON:0001359	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
 BACC:0000014	urine	skos:exactMatch	ENVO:00002047	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
@@ -128,7 +128,7 @@ BACC:0000094	plant food product	skos:exactMatch	FOODON:00001015	semapv:ManualMap
 BACC:0000094	plant food product	skos:narrowMatch	FOODON:03309861	semapv:ManualMappingCuration	obo:foodon.owl	2025-07-31	Coconut whole or pieces is a subtype of plant food product.
 BACC:0000095	animal food product	skos:exactMatch	FOODON:00004242	semapv:ManualMappingCuration	obo:foodon.owl	2025-07-31	""
 BACC:0000095	animal food product	skos:narrowMatch	FOODON:03317170	semapv:ManualMappingCuration	obo:foodon.owl	2025-07-31	Meat whole or pieces is a subtype of animal food product. Its definition can include crustaceans, so it is not limited to BacCurate's meat-product branch.
-BACC:0000096	dairy product	skos:exactMatch	FOODON:00001256	semapv:ManualMappingCuration	obo:foodon.owl	2025-07-31	""
+BACC:0000096	dairy food product	skos:exactMatch	FOODON:00001256	semapv:ManualMappingCuration	obo:foodon.owl	2025-07-31	""
 BACC:0000097	meat product	skos:narrowMatch	FOODON:00001006	semapv:ManualMappingCuration	obo:foodon.owl	2025-07-31	Mammalian meat food product is a type of meat product.
 BACC:0000097	meat product	skos:narrowMatch	FOODON:00003363	semapv:ManualMappingCuration	obo:foodon.owl	2025-07-31	Chicken thigh with skin and bone is a type of meat product.
 BACC:0000097	meat product	skos:narrowMatch	FOODON:02020235	semapv:ManualMappingCuration	obo:foodon.owl	2025-07-31	Skinless boneless chicken breast is a type of meat product.
@@ -138,3 +138,6 @@ BACC:0000099	fermented food	skos:exactMatch	FOODON:00001258	semapv:ManualMapping
 BACC:0000100	animal feed	skos:exactMatch	FOODON:00004325	semapv:ManualMappingCuration	obo:foodon.owl	2025-07-31	""
 BACC:0000101	air	skos:exactMatch	ENVO:00002005	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
 BACC:0000102	dust	skos:exactMatch	ENVO:00002008	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000103	soft tissue	skos:exactMatch	NCIT:C12471	semapv:ManualMappingCuration	obo:ncit.owl	2026-08-05	""
+BACC:0000104	urinary system	skos:exactMatch	UBERON:0001008	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000105	human milk	skos:broadMatch	UBERON:0001913	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	Human milk is narrower than UBERON's taxon-independent milk class.

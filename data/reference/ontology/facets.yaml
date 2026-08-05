@@ -1,6 +1,8 @@
 schema_version: 1
-vocabulary_version: "1.0.0"
-retired_term_ids: []
+vocabulary_version: "2.2.0"
+retired_term_ids:
+  - BACC:0000005
+  - BACC:0000006
 
 facets:
   source_type:
@@ -16,8 +18,8 @@ facets:
         - FOODON
     meaning: The one broad kind of source the isolate came from.
     classifier_guidance: >-
-      Set this facet whenever another facet is set. If the metadata names only a host, use
-      `host-associated`. Use `laboratory` only when laboratory wording is the sole informative
+      Set this facet only when every facet except facility is empty. If the metadata names only a host,
+      use `host-associated`. Use `laboratory` only when laboratory wording is the sole informative
       content. Example: `blood culture` and `urine culture` name specimens instead.
 
   body_product:
@@ -46,6 +48,7 @@ facets:
         - anatomical part
       external_ontology_namespaces:
         - UBERON
+        - NCIT
     meaning: The anatomical location the sample came from.
     classifier_guidance: >-
       Set this facet only when the metadata names the anatomical location. Do not infer a location
@@ -92,9 +95,11 @@ facets:
         - environmental site
       external_ontology_namespaces:
         - ENVO
-    meaning: The kind of built facility the sample was taken in.
+    meaning: The kind of built facility where the sample was collected.
     classifier_guidance: >-
-      Set this facet only when the built environment itself was sampled.
+      Set this facet for the collection setting, whether a host or the built environment was
+      sampled there. It states where the isolate was collected, never what was sampled. Use
+      `environmental_material` or `sampled_object` for a sampled material, object, or surface.
   sampled_object:
     cardinality: multiple
     output_column: iso_sampled_object
@@ -108,10 +113,11 @@ facets:
       external_ontology_namespaces:
         - ENVO
         - OBI
-    meaning: The object or surface that was swabbed.
+    meaning: The object or surface of a built environment that was sampled.
     classifier_guidance: >-
-      Set this facet when the object itself was sampled. A swab used to collect material from a
-      patient describes the collection method, not a sampled object.
+      Set this facet when the object itself was sampled, which is how a sampled built environment
+      is recorded. A swab used to collect material from a patient describes the collection method,
+      not a sampled object.
 
   food_type:
     cardinality: multiple

@@ -3,27 +3,26 @@ BACC:0000001	host-associated	source_type		human-associated;clinical sample;clini
 BACC:0000002	animal host	source_type	BACC:0000001	human;homo sapiens;animal;patient;patients;hospitalized patient;hospitalised patient;hospital patient;inpatient;homo sapiens clinical;bovine;pig;cattle;cow			true
 BACC:0000003	plant host	source_type	BACC:0000001	plant			true
 BACC:0000004	environmental	source_type		environment			false
-BACC:0000005	built environment	source_type	BACC:0000004				false
-BACC:0000006	natural environment	source_type	BACC:0000004				false
 BACC:0000007	food or feed	source_type		food			false
 BACC:0000008	laboratory	source_type		lab;laboratory strain;lab strain;lab evolved;cell culture;evolution experiment;tolerance adaptive laboratory evolution experiment;synthetic			false
 BACC:0000009	body fluid	body_product		bodily fluid			false
-BACC:0000010	blood	body_product	BACC:0000009	blood culture;blood cultures;bloodstream;venous blood;human blood;bloodstream isolates;hemoculture			false
-BACC:0000011	milk	body_product	BACC:0000009	breast milk			false
-BACC:0000012	synovial fluid	body_product	BACC:0000009				false
-BACC:0000013	cerebrospinal fluid	body_product	BACC:0000009	csf			false
-BACC:0000014	urine	body_product	BACC:0000009	urine sample;urine culture;human urine			false
+BACC:0000010	blood	body_product	BACC:0000009	blood culture;blood cultures;bloodstream;venous blood;human blood;bloodstream isolates;hemoculture	BACC:0000050		false
+BACC:0000011	mammalian milk	body_product	BACC:0000009	milk			false
+BACC:0000105	human milk	body_product	BACC:0000011	breast milk;human breast milk;breast_milk;maternal milk		Use only when evidence identifies human milk.	true
+BACC:0000012	synovial fluid	body_product	BACC:0000009		BACC:0000059		false
+BACC:0000013	cerebrospinal fluid	body_product	BACC:0000009	csf	BACC:0000052		false
+BACC:0000014	urine	body_product	BACC:0000009	urine sample;urine culture;human urine	BACC:0000104		false
 BACC:0000015	peritoneal fluid	body_product	BACC:0000009	ascites			false
 BACC:0000016	bile	body_product	BACC:0000009				false
 BACC:0000017	pus	body_product	BACC:0000009				false
-BACC:0000018	respiratory secretion	body_product		respiratory secretions;tracheal secretion;airway secretion			false
-BACC:0000019	sputum	body_product	BACC:0000018				false
-BACC:0000020	tracheal aspirate	body_product	BACC:0000018	endotracheal aspirate			false
-BACC:0000021	bronchoalveolar lavage fluid	body_product	BACC:0000018	bronchoalveolar lavage;bal;bal fluid;balf			false
-BACC:0000022	digestive tract content	body_product		gut content;digestive tract contents			false
-BACC:0000023	intestinal content	body_product	BACC:0000022	intestinal contents			false
-BACC:0000024	caecal content	body_product	BACC:0000023	cecal content;cecal contents;caecal contents			false
-BACC:0000025	feces	body_product		stool;stools;faeces;fecal;faecal;stool sample;fecal sample;faecal sample;fecal samples;faecal samples;fecal material;faecal material;feces sample;feces samples;human feces;human stool;dairy calf feces;cattle feces;mouse stool;human faeces;chicken feces;cattle faeces;feces swab;mouse feces;fecal swab			false
+BACC:0000018	respiratory secretion	body_product		respiratory secretions;tracheal secretion;airway secretion	BACC:0000026		false
+BACC:0000019	sputum	body_product	BACC:0000018		BACC:0000031		false
+BACC:0000020	tracheal aspirate	body_product	BACC:0000018	endotracheal aspirate	BACC:0000026		false
+BACC:0000021	bronchoalveolar lavage fluid	body_product	BACC:0000018	bronchoalveolar lavage;bal;bal fluid;balf	BACC:0000034		false
+BACC:0000022	digestive tract content	body_product		gut content;digestive tract contents	BACC:0000035		false
+BACC:0000023	intestinal content	body_product	BACC:0000022	intestinal contents	BACC:0000039		false
+BACC:0000024	caecal content	body_product	BACC:0000023	cecal content;cecal contents;caecal contents	BACC:0000040		false
+BACC:0000025	feces	body_product		stool;stools;faeces;fecal;faecal;stool sample;fecal sample;faecal sample;fecal samples;faecal samples;fecal material;faecal material;feces sample;feces samples;human feces;human stool;dairy calf feces;cattle feces;mouse stool;human faeces;chicken feces;cattle faeces;feces swab;mouse feces;fecal swab	BACC:0000035		false
 BACC:0000026	respiratory system	body_site		respiratory;respiratory tract			false
 BACC:0000027	pleura	body_site	BACC:0000026				false
 BACC:0000028	upper respiratory tract	body_site	BACC:0000026	upper respiratory system			false
@@ -42,9 +41,10 @@ BACC:0000040	caecum	body_site	BACC:0000039	cecal;caecal;cecum			false
 BACC:0000041	rectum	body_site	BACC:0000039	rectal swab;rectal;rectum swab			false
 BACC:0000042	cloaca	body_site	BACC:0000035	cloacal swab			false
 BACC:0000043	genitourinary system	body_site		urogenital tract			false
-BACC:0000044	upper urinary tract	body_site	BACC:0000043				false
+BACC:0000104	urinary system	body_site	BACC:0000043				false
+BACC:0000044	upper urinary tract	body_site	BACC:0000104				false
 BACC:0000045	kidney	body_site	BACC:0000044				false
-BACC:0000046	lower urinary tract	body_site	BACC:0000043				false
+BACC:0000046	lower urinary tract	body_site	BACC:0000104				false
 BACC:0000047	reproductive tract	body_site	BACC:0000043	genital tract			false
 BACC:0000048	vagina	body_site	BACC:0000047	vaginal swab			false
 BACC:0000049	uterus	body_site	BACC:0000047				false
@@ -59,6 +59,7 @@ BACC:0000057	liver	body_site					false
 BACC:0000058	bone	body_site					false
 BACC:0000059	synovial joint	body_site					false
 BACC:0000060	skin	body_site		skin swab			false
+BACC:0000103	soft tissue	body_site		soft tissues		Excludes skin.	false
 BACC:0000061	wound	lesion		wound swab;swab_wound			false
 BACC:0000062	ulcer	lesion					false
 BACC:0000063	abscess	lesion			BACC:0000017		false
@@ -79,9 +80,9 @@ BACC:0000077	activated sludge	environmental_material	BACC:0000076				false
 BACC:0000078	biofilm	environmental_material					false
 BACC:0000101	air	environmental_material					false
 BACC:0000102	dust	environmental_material					false
-BACC:0000079	healthcare facility	facility		hospital environment			false
-BACC:0000080	intensive care unit	facility	BACC:0000079	icu environment			false
-BACC:0000081	laboratory facility	facility		laboratory environment			false
+BACC:0000079	healthcare facility	facility					false
+BACC:0000080	intensive care unit	facility	BACC:0000079				false
+BACC:0000081	laboratory facility	facility					false
 BACC:0000082	farm facility	facility					false
 BACC:0000083	food production facility	facility					false
 BACC:0000084	food processing plant	facility	BACC:0000083				false
@@ -96,7 +97,7 @@ BACC:0000092	catheter	sampled_object	BACC:0000091	vascular catheter;urinary cath
 BACC:0000093	surface	sampled_object		environmental surface		Use when the surface itself was sampled, not the whole object.	false
 BACC:0000094	plant food product	food_type					true
 BACC:0000095	animal food product	food_type					true
-BACC:0000096	dairy product	food_type	BACC:0000095				true
+BACC:0000096	dairy food product	food_type	BACC:0000095	dairy product			true
 BACC:0000097	meat product	food_type	BACC:0000095	meat;ground turkey;ground beef;chicken meat;pork;chicken breast;beef;pork chop;broiler meat;comminuted beef;product raw intact beef;chicken thighs			true
 BACC:0000098	seafood product	food_type	BACC:0000095				true
 BACC:0000099	fermented food	food_type					false

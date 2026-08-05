@@ -1,11 +1,11 @@
 mapping_set_id: https://github.com/ELTEbioinformatics/BacCurate/blob/main/data/reference/ontology/mappings.sssom.tsv
-mapping_set_version: "1.0.0"
+mapping_set_version: "2.2.0"
 mapping_set_title: BacCurate isolation-source ontology mappings
 mapping_set_description: This manually curated set maps BacCurate isolation-source terms to active classes in external ontologies. Exact and narrow mappings allow direct resolution. Broad and close mappings are included for documentation only.
-mapping_date: "2026-07-30"
+mapping_date: "2026-08-06"
 license: https://opensource.org/license/mit/
 subject_source: baccurate:terms.tsv
-subject_source_version: "1.0.0"
+subject_source_version: "2.2.0"
 comment: BACC is an unregistered project-local CURIE prefix.
 curie_map:
   BACC: https://github.com/ELTEbioinformatics/BacCurate/blob/main/data/reference/ontology/terms.tsv#BACC_
@@ -13,6 +13,7 @@ curie_map:
   ENVO: http://purl.obolibrary.org/obo/ENVO_
   FOODON: http://purl.obolibrary.org/obo/FOODON_
   MONDO: http://purl.obolibrary.org/obo/MONDO_
+  NCIT: http://purl.obolibrary.org/obo/NCIT_
   OBI: http://purl.obolibrary.org/obo/OBI_
   UBERON: http://purl.obolibrary.org/obo/UBERON_
   obo: http://purl.obolibrary.org/obo/
