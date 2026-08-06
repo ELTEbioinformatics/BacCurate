@@ -1,12 +1,12 @@
 schema_version: 1
-vocabulary_version: "2.2.0"
+vocabulary_version: "2.3.0"
 retired_term_ids:
   - BACC:0000005
   - BACC:0000006
 
 facets:
   source_type:
-    cardinality: single
+    cardinality: multiple
     output_column: iso_source_type
     render_order: 1
     standards_bindings:
@@ -16,11 +16,11 @@ facets:
       external_ontology_namespaces:
         - ENVO
         - FOODON
-    meaning: The one broad kind of source the isolate came from.
+    meaning: The broad source contexts the isolate came from.
     classifier_guidance: >-
-      Set this facet only when every facet except facility is empty. If the metadata names only a host,
-      use `host-associated`. Use `laboratory` only when laboratory wording is the sole informative
-      content. Example: `blood culture` and `urine culture` name specimens instead.
+      Preserve every independently supported broad source context. If the metadata names only a
+      host, use `host-associated`. A host name alone does not support `food or feed`. Use
+      `laboratory` only when laboratory wording describes the source rather than specimen culture.
 
   body_product:
     cardinality: multiple

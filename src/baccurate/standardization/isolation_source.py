@@ -15,12 +15,12 @@ from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
-from typing import Literal, Self
+from typing import Literal
 
 import instructor
 import openai
 from instructor.core import InstructorRetryException
-from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator
 
 from baccurate.adapters.llm.client import LLMSettings, load_llm_client, load_llm_settings
 from baccurate.adapters.llm.diagnostics import LLMFailureCategory, observe_llm_call
@@ -81,14 +81,13 @@ ISOLATION_SOURCE_LLM_PARAMETERS: dict[str, object] = {"temperature": 0, "seed": 
 # mode makes facet enumerations generation constraints instead of retry-time validation only.
 ISOLATION_SOURCE_STRUCTURED_OUTPUT_MODE = instructor.Mode.JSON_SCHEMA
 # The value is part of existing request fingerprints and cache keys.
-ISOLATION_SOURCE_RESPONSE_SCHEMA_ID = "baccurate.isolation.classification.v6"
+ISOLATION_SOURCE_RESPONSE_SCHEMA_ID = "baccurate.isolation.classification.v7"
 
 # These submitted values explicitly state that no isolation source is available. They
 # are consumed without selecting an ontology term or invoking the classifier.
 _NON_SOURCE_VALUES = frozenset({"no_host"})
 
 _SOURCE_TYPE_FACET = "source_type"
-_COLLECTION_SETTING_FACET = "facility"
 _HOST_ASSOCIATED_TERM_ID = "BACC:0000001"
 _ANIMAL_HOST_TERM_ID = "BACC:0000002"
 _PLANT_HOST_TERM_ID = "BACC:0000003"
@@ -664,24 +663,8 @@ def _build_schema(
 ) -> type[BaseModel]:
     """Build the ordered, facet-specific classifier response model."""
 
-    narrower_facet_keys = tuple(
-        facet.key
-        for facet in ordered_facets(ontology)
-        if facet.key not in (_SOURCE_TYPE_FACET, _COLLECTION_SETTING_FACET)
-    )
-
     class IsolationSourceClassificationBase(BaseModel):
         model_config = ConfigDict(title="IsolationClassification")
-
-        @model_validator(mode="after")
-        def require_exclusive_source_type(self) -> Self:
-            if getattr(self, _SOURCE_TYPE_FACET, None) is not None and any(
-                getattr(self, facet_key, None) for facet_key in narrower_facet_keys
-            ):
-                raise ValueError(
-                    "source_type must be empty when any narrower isolation-source facet is selected"
-                )
-            return self
 
     facet_fields: dict[str, tuple[object, Field]] = {}
     validators: dict[str, object] = {}
@@ -999,16 +982,6 @@ class LLMClassifier:
         """Add cross-linked terms, derive the source type, include facet ancestors, and order all
         terms canonically."""
         selected_ids = {term.term_id for term in classification.selected_terms}
-        original_source_ids = {
-            term_id
-            for term_id in selected_ids
-            if self.ont.terms[term_id].facet == _SOURCE_TYPE_FACET
-        }
-        classifier_source_ids = {
-            term_id
-            for term_id in classification.classifier_term_ids
-            if self.ont.terms[term_id].facet == _SOURCE_TYPE_FACET
-        }
         reasoning = list(classification.reasoning)
         vocabulary_disagreement = False
 
@@ -1024,11 +997,6 @@ class LLMClassifier:
             for term_id in crosslink_target_ids
             if self.ont.terms[term_id].facet == _SOURCE_TYPE_FACET
         }
-        if source_crosslink_ids:
-            vocabulary_disagreement |= bool(
-                classifier_source_ids and classifier_source_ids != source_crosslink_ids
-            )
-            selected_ids -= original_source_ids
         crosslink_additions = crosslink_target_ids - selected_ids
         selected_ids |= crosslink_target_ids
         if crosslink_additions:
@@ -1045,42 +1013,16 @@ class LLMClassifier:
             if any(self.ont.terms[term_id].facet == facet_key for term_id in selected_ids):
                 source_candidates.add(source_term_id)
 
-        if source_candidates:
-
-            def source_precedence(term_id: str) -> tuple[int, int, str]:
-                ancestor_id: str | None = term_id
-                while ancestor_id is not None:
-                    if ancestor_id == _HOST_ASSOCIATED_TERM_ID:
-                        return (0, int(term_id not in source_crosslink_ids), term_id)
-                    ancestor_id = self.ont.terms[ancestor_id].parent_id
-                return (
-                    {
-                        _ENVIRONMENTAL_TERM_ID: 1,
-                        _FOOD_OR_FEED_TERM_ID: 2,
-                    }.get(term_id, 3),
-                    int(term_id not in source_crosslink_ids),
-                    term_id,
-                )
-
-            derived_source_id = min(source_candidates, key=source_precedence)
-            current_source_ids = {
-                term_id
-                for term_id in selected_ids
-                if self.ont.terms[term_id].facet == _SOURCE_TYPE_FACET
-            }
-            vocabulary_disagreement |= bool(
-                classifier_source_ids and derived_source_id not in classifier_source_ids
+        source_additions = source_candidates - selected_ids
+        selected_ids |= source_candidates
+        if source_additions:
+            reasoning.append(
+                {
+                    "node": "source_type_derivation",
+                    "reasoning": "source_type derived from other facets.",
+                    "selected_terms": self._reasoning_selection(source_additions),
+                }
             )
-            selected_ids -= current_source_ids
-            selected_ids.add(derived_source_id)
-            if current_source_ids != {derived_source_id}:
-                reasoning.append(
-                    {
-                        "node": "source_type_derivation",
-                        "reasoning": "source_type derived from other facets.",
-                        "selected_terms": self._reasoning_selection({derived_source_id}),
-                    }
-                )
 
         ancestor_additions: set[str] = set()
         for term_id in tuple(selected_ids):
@@ -1103,7 +1045,14 @@ class LLMClassifier:
 
     @staticmethod
     def _format_metadata(attrs: list[str], vals: list[str]) -> str:
-        """Render selected attribute-value pairs as one line per pair."""
+        """Render selected attribute-value pairs as one line per pair.
+
+        Both sides are JSON string literals, because BioSample attribute names and
+        values are submitted free text. Line breaks, quotation marks, and equals signs
+        inside one pair would otherwise render as further `attribute = value` lines,
+        and the classifier would read attributes the sample never declared.
+        `ensure_ascii=False` keeps non-ASCII source descriptions readable to the model.
+        """
         return "Metadata:\n" + "\n".join(
             f"{json.dumps(attribute, ensure_ascii=False)} = {json.dumps(value, ensure_ascii=False)}"
             for attribute, value in zip(attrs, vals, strict=True)
@@ -1402,7 +1351,7 @@ class IsolationSourceStandardizer:
         lineage_root_taxid: int,
         source_type_term_id: str,
     ) -> IsolationSourceOutcome:
-        """Set the source type from host lineage unless the current type is non-host."""
+        """Add the host source type derived from host lineage."""
         selected_ids = {term.term_id for term in outcome.selected_terms}
         source_type_ids = {
             term_id
@@ -1418,11 +1367,10 @@ class IsolationSourceStandardizer:
                 current_term_id = self.ontology.terms[current_term_id].parent_id
             return False
 
-        if any(not is_host_associated(term_id) for term_id in source_type_ids):
-            return outcome
-
-        previous_labels = [self.ontology.terms[term_id].label for term_id in source_type_ids]
-        selected_ids -= source_type_ids
+        host_source_type_ids = {
+            term_id for term_id in source_type_ids if is_host_associated(term_id)
+        }
+        selected_ids -= host_source_type_ids
         selected_ids.add(source_type_term_id)
         parent_id = self.ontology.terms[source_type_term_id].parent_id
         while parent_id is not None:
@@ -1431,16 +1379,18 @@ class IsolationSourceStandardizer:
 
         derived_label = self.ontology.terms[source_type_term_id].label
         specific_previous_labels = [
-            label for label in previous_labels if label != "host-associated"
+            self.ontology.terms[term_id].label
+            for term_id in host_source_type_ids
+            if term_id != _HOST_ASSOCIATED_TERM_ID
         ]
         disagreement = bool(
             specific_previous_labels and derived_label not in specific_previous_labels
         )
-        reasoning = (
-            f"Derived {derived_label!r} from standardized taxid {host_taxid}"
-        )
+        reasoning = f"Derived {derived_label!r} from standardized taxid {host_taxid}"
         if disagreement:
-            reasoning += f" Replaced conflicting source-type selection {previous_labels!r}."
+            reasoning += (
+                f" Replaced conflicting host source-type selection {specific_previous_labels!r}."
+            )
         return replace(
             outcome,
             selected_terms=self.pipeline._resolved_terms(selected_ids),

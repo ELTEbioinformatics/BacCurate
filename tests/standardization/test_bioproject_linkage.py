@@ -65,7 +65,7 @@ class ScriptedClient:
         answer: dict[str, object] = {
             "reasoning": reasoning,
             "evidence_level": evidence_level,
-            "source_type": None,
+            "source_type": [],
             "body_product": [],
             "body_site": [],
             "lesion": [],
@@ -77,7 +77,7 @@ class ScriptedClient:
         for term in terms:
             facet = FACET_BY_LABEL[term]
             if facet == "source_type":
-                answer[facet] = term
+                answer[facet].append(term)
             else:
                 answer[facet].append(term)
         self.responses.append(answer)
@@ -216,7 +216,7 @@ def test_dataset_build_limits_evidence_to_biosample_pairs(
     assert rows["SAMPLE_ONLY"]["iso_term_ids"] == (f"BACC:0000001||BACC:0000002||{FECES}")
     assert rows["HOST_ONLY"]["iso_source_type"] == "host-associated||animal host"
     assert rows["SAMPLE_AND_PROJECT"]["iso_term_ids"] == (
-        f"BACC:0000001||BACC:0000002||{FECES}||{SOIL}"
+        f"BACC:0000001||BACC:0000002||BACC:0000004||{FECES}||{SOIL}"
     )
     assert "PROJECT_ONLY" not in rows
     assert "UNINFORMATIVE_PROJECT" not in rows

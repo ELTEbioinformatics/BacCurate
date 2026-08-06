@@ -83,7 +83,7 @@ FACET_BY_LABEL = {
 def _classifier_answer(
     *,
     reasoning: str = "because",
-    source_type: str | None = None,
+    source_type: str | list[str] | None = None,
     body_product: list[str] | None = None,
     body_site: list[str] | None = None,
     lesion: list[str] | None = None,
@@ -93,7 +93,7 @@ def _classifier_answer(
     food_type: list[str] | None = None,
 ) -> dict[str, object]:
     return {
-        "source_type": source_type,
+        "source_type": [source_type] if isinstance(source_type, str) else source_type or [],
         "body_product": body_product or [],
         "body_site": body_site or [],
         "lesion": lesion or [],
@@ -136,7 +136,7 @@ class FakeClient:
     ) -> None:
         terms = list(terms)
         facets: dict[str, object] = {
-            "source_type": None,
+            "source_type": [],
             "body_product": [],
             "body_site": [],
             "lesion": [],
@@ -148,7 +148,7 @@ class FakeClient:
         for term in terms:
             facet = FACET_BY_LABEL[term]
             if facet == "source_type":
-                facets[facet] = term
+                facets[facet].append(term)
             else:
                 facets[facet].append(term)
         self.respond_with_facets(
@@ -163,7 +163,7 @@ class FakeClient:
         self,
         *,
         reasoning: str = "because",
-        source_type: str | None = None,
+        source_type: str | list[str] | None = None,
         body_product: list[str] | None = None,
         body_site: list[str] | None = None,
         lesion: list[str] | None = None,
@@ -306,6 +306,7 @@ def _classify_fixture_record(
             (
                 SelectedTerm(HOST_ASSOCIATED, "source_type", "host-associated"),
                 SelectedTerm(PLANT_HOST, "source_type", "plant host"),
+                SelectedTerm(ENVIRONMENTAL, "source_type", "environmental"),
                 SelectedTerm(SOIL, "environmental_material", "soil"),
                 SelectedTerm(RHIZOSPHERE, "environmental_material", "rhizosphere soil"),
             ),
@@ -780,7 +781,7 @@ def test_classifier_response_schema_enforces_the_faceted_contract(
     )
     response_model = fake.calls[0]["response_model"]
     empty_answer = {
-        "source_type": None,
+        "source_type": [],
         "body_product": [],
         "body_site": [],
         "lesion": [],
@@ -812,15 +813,9 @@ def test_classifier_response_schema_enforces_the_faceted_contract(
         for facet in policy.ontology.facets.values()
     }
     source_type_schema = response_schema["properties"]["source_type"]
-    source_type_enum = next(
-        choice["enum"] for choice in source_type_schema["anyOf"] if "enum" in choice
-    )
+    source_type_enum = source_type_schema["items"]["enum"]
     assert set(source_type_enum) == facet_labels["source_type"]
-    assert {choice.get("type") for choice in source_type_schema["anyOf"]} == {
-        "string",
-        "null",
-    }
-    for facet_key in facet_labels.keys() - {"source_type"}:
+    for facet_key in facet_labels:
         assert (
             set(response_schema["properties"][facet_key]["items"]["enum"])
             == facet_labels[facet_key]
@@ -829,38 +824,34 @@ def test_classifier_response_schema_enforces_the_faceted_contract(
     response_model.model_validate({**empty_answer, "reasoning": "x" * 240})
     with pytest.raises(ValidationError, match="at most 240 characters"):
         response_model.model_validate({**empty_answer, "reasoning": "x" * 241})
-    response_model.model_validate({**empty_answer, "source_type": "animal host"})
+    response_model.model_validate({**empty_answer, "source_type": ["animal host"]})
     # The facility is only the collection setting, so it neither implies nor
     # suppresses the broad source kind.
     response_model.model_validate(
         {
             **empty_answer,
-            "source_type": "environmental",
+            "source_type": ["environmental"],
             "facility": ["healthcare facility"],
         }
     )
-    with pytest.raises(
-        ValidationError,
-        match="source_type must be empty when any narrower isolation-source facet is selected",
-    ):
-        response_model.model_validate(
-            {
-                **empty_answer,
-                "source_type": "environmental",
-                "facility": ["healthcare facility"],
-                "sampled_object": ["sink"],
-            }
-        )
-    with pytest.raises(
-        ValidationError,
-        match="source_type must be empty when any narrower isolation-source facet is selected",
-    ):
-        response_model.model_validate(
-            {**empty_answer, "source_type": "animal host", "body_site": ["rectum"]}
-        )
+    response_model.model_validate(
+        {
+            **empty_answer,
+            "source_type": ["environmental"],
+            "facility": ["healthcare facility"],
+            "sampled_object": ["sink"],
+        }
+    )
+    response_model.model_validate(
+        {
+            **empty_answer,
+            "source_type": ["animal host", "environmental"],
+            "body_site": ["rectum"],
+        }
+    )
 
     invalid_answers = (
-        {**empty_answer, "source_type": ["animal host", "environmental"]},
+        {**empty_answer, "source_type": ["host-associated", "animal host"]},
         {**empty_answer, "body_site": ["blood"]},
     )
     for invalid_answer in invalid_answers:
@@ -870,12 +861,12 @@ def test_classifier_response_schema_enforces_the_faceted_contract(
         ValidationError,
         match="Unknown source_type labels: 'animal-host'",
     ):
-        response_model.model_validate({**empty_answer, "source_type": "animal-host"})
+        response_model.model_validate({**empty_answer, "source_type": ["animal-host"]})
     with pytest.raises(
         ValidationError,
         match="Unknown source_type labels: 'built environment'",
     ):
-        response_model.model_validate({**empty_answer, "source_type": "built environment"})
+        response_model.model_validate({**empty_answer, "source_type": ["built environment"]})
     with pytest.raises(
         ValidationError,
         match=("'rectum' cannot be returned with its ancestor 'digestive tract' in body_site"),
@@ -1240,6 +1231,7 @@ def test_crosslink_derives_source_kind_without_classifier_disagreement(
     assert outcome.selected_terms == (
         SelectedTerm(HOST_ASSOCIATED, "source_type", "host-associated"),
         SelectedTerm(PLANT_HOST, "source_type", "plant host"),
+        SelectedTerm(ENVIRONMENTAL, "source_type", "environmental"),
         SelectedTerm(SOIL, "environmental_material", "soil"),
         SelectedTerm(RHIZOSPHERE, "environmental_material", "rhizosphere soil"),
     )
@@ -1268,7 +1260,7 @@ def test_direct_crosslink_conflict_does_not_report_classifier_disagreement(
     assert outcome.diagnostics == (IsolationSourceDiagnostic.EXACT_MATCH,)
 
 
-def test_derived_source_kind_uses_host_environment_food_precedence(tmp_path: Path) -> None:
+def test_derived_source_kinds_preserve_supported_contexts(tmp_path: Path) -> None:
     fake = FakeClient()
     fake.respond_with_facets(
         body_product=["blood"],
@@ -1296,6 +1288,8 @@ def test_derived_source_kind_uses_host_environment_food_precedence(tmp_path: Pat
     assert outcome.selected_terms == (
         SelectedTerm(HOST_ASSOCIATED, "source_type", "host-associated"),
         SelectedTerm(ANIMAL_HOST, "source_type", "animal host"),
+        SelectedTerm(ENVIRONMENTAL, "source_type", "environmental"),
+        SelectedTerm(FOOD_OR_FEED, "source_type", "food or feed"),
         SelectedTerm(BODY_FLUID, "body_product", "body fluid"),
         SelectedTerm(BLOOD, "body_product", "blood"),
         SelectedTerm(SOIL, "environmental_material", "soil"),
@@ -1619,7 +1613,7 @@ def test_isolation_source_cache_misses_when_canonical_request_changes(
 def test_cache_round_trip_preserves_only_the_classifier_answer(cache):
     answer = IsolationSourceClassifierAnswer(
         facet_values={
-            "source_type": None,
+            "source_type": (),
             "body_product": ("feces",),
             "body_site": (),
             "lesion": (),

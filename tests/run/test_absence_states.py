@@ -535,7 +535,7 @@ def test_failed_isolation_source_classification_skips_record_and_continues(
         invalid_answer = {
             "reasoning": "The sample names an unsupported anatomical site.",
             "evidence_level": "sample",
-            "source_type": "animal host",
+            "source_type": ["animal host"],
             "body_product": [],
             "body_site": ["nasal cavity"],
             "lesion": [],
@@ -559,7 +559,7 @@ def test_failed_isolation_source_classification_skips_record_and_continues(
             {
                 "reasoning": "The second response is valid.",
                 "evidence_level": "sample",
-                "source_type": "environmental",
+                "source_type": ["environmental"],
                 "body_product": [],
                 "body_site": [],
                 "lesion": [],

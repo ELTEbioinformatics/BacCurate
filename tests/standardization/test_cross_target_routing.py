@@ -62,7 +62,7 @@ def _classifier_answer(source_type: str | None) -> dict[str, object]:
     return {
         "reasoning": "scripted classification",
         "evidence_level": "sample",
-        "source_type": source_type,
+        "source_type": [source_type] if source_type is not None else [],
         "body_product": [],
         "body_site": [],
         "lesion": [],
@@ -257,7 +257,7 @@ def test_host_lineage_refinement_applies_after_cache_hit(
     assert first.reasoning[-1].node == second.reasoning[-1].node == "host_lineage_derivation"
 
 
-def test_recovered_host_lineage_refines_host_source_but_not_food_source(
+def test_recovered_host_lineage_preserves_food_source(
     standardization_fixture_resources,
     fixture_host_policy,
     fixture_isolation_source_prompt_policy,
@@ -279,7 +279,7 @@ def test_recovered_host_lineage_refines_host_source_but_not_food_source(
         host_coordinator.close()
 
     food_client = ScriptedClient(
-        {**_classifier_answer("food or feed"), "source_type": None, "food_type": ["meat product"]}
+        {**_classifier_answer("food or feed"), "source_type": [], "food_type": ["meat product"]}
     )
     food_coordinator = _coordinator(
         standardization_fixture_resources,
@@ -305,4 +305,5 @@ def test_recovered_host_lineage_refines_host_source_but_not_food_source(
     assert food_result.routing.host_recovery.value == "resolved"
     assert food_result.host.standardized.taxid == 9606
     assert FOOD_OR_FEED in {term.term_id for term in food_result.isolation_source.selected_terms}
-    assert all(step.node != "host_lineage_derivation" for step in food_result.reasoning)
+    assert ANIMAL_HOST in {term.term_id for term in food_result.isolation_source.selected_terms}
+    assert food_result.reasoning[-1].node == "host_lineage_derivation"
