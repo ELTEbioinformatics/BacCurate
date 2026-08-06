@@ -8,7 +8,7 @@ facets:
     render_order: 1
     standards_bindings: {mixs: [], pha4ge_geneepio: [], external_ontology_namespaces: []}
     meaning: The one broad kind of source the isolate came from.
-    classifier_guidance: Set this facet whenever another facet is set. Use laboratory only when laboratory wording is the sole informative content.
+    classifier_guidance: Set this facet only when every facet except facility is empty. Use laboratory only when laboratory wording is the sole informative content.
   body_product:
     cardinality: multiple
     output_column: iso_body_product
@@ -42,8 +42,8 @@ facets:
     output_column: iso_facility
     render_order: 6
     standards_bindings: {mixs: [], pha4ge_geneepio: [], external_ontology_namespaces: [ENVO]}
-    meaning: The kind of built facility the sample was taken in.
-    classifier_guidance: Set this facet only when the built environment itself was sampled.
+    meaning: The kind of built facility where the sample was collected.
+    classifier_guidance: Set this facet for the collection setting, never for what was sampled.
   sampled_object:
     cardinality: multiple
     output_column: iso_sampled_object

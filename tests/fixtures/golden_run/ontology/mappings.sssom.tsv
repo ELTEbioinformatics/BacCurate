@@ -1,5 +1,0 @@
-subject_id	subject_label	predicate_id	object_id	mapping_justification	object_source	object_source_version	comment
-BACC:0000025	feces	skos:exactMatch	ENVO:00002003	semapv:ManualMappingCuration	obo:envo.owl	fixture	Fixture mapping.
-BACC:0000061	wound	skos:exactMatch	UBERON:0001003	semapv:ManualMappingCuration	obo:uberon.owl	fixture	Fixture mapping.
-BACC:0000095	animal food product	skos:exactMatch	FOODON:00004270	semapv:ManualMappingCuration	obo:foodon.owl	fixture	Fixture mapping.
-BACC:0000097	meat product	skos:exactMatch	FOODON:00001006	semapv:ManualMappingCuration	obo:foodon.owl	fixture	Fixture mapping.

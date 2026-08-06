@@ -18,7 +18,7 @@ BACC:0000061	wound	lesion		wound swab		Wound lesion	false
 BACC:0000063	abscess	lesion			BACC:0000017	Abscess lesion	false
 BACC:0000064	soil	environmental_material				Soil material	false
 BACC:0000065	rhizosphere soil	environmental_material	BACC:0000064	rhizosphere	BACC:0000003	Root-associated soil	false
-BACC:0000079	healthcare facility	facility		hospital environment		Healthcare facility	false
+BACC:0000079	healthcare facility	facility				Healthcare facility	false
 BACC:0000087	inanimate object	sampled_object				Sampled object	false
 BACC:0000088	sink	sampled_object	BACC:0000087			Sink	false
 BACC:0000095	animal food product	food_type				Animal food	true

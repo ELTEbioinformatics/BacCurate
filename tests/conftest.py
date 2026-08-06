@@ -335,15 +335,6 @@ def fixture_dataset_builder(fixture_dataset_builder_factory) -> DatasetBuilder:
     return fixture_dataset_builder_factory()
 
 
-# --- Golden run fixture ---
-
-
-@pytest.fixture
-def golden_run_fixture_dir() -> Path:
-    """Return the fixture-only resources for the end-to-end golden run."""
-    return Path(__file__).parent / "fixtures" / "golden_run"
-
-
 # --- Artifact writers ---
 
 

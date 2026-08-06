@@ -1,9 +1,0 @@
-schema_version: 3
-prompt_version: golden-v3
-ontology_directory: tests/fixtures/golden_run/ontology
-system_prompt: |
-  Classify isolation-source evidence using this ontology:
-  {ontology_tree}
-user_prompt: |
-  Sample evidence:
-  {metadata}
