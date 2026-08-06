@@ -144,7 +144,14 @@ def _update_tsv_row(
 
 
 def test_authored_isolation_source_ontology_loads() -> None:
-    IsolationSourceOntology.load(ONTOLOGY_DIRECTORY)
+    ontology = IsolationSourceOntology.load(ONTOLOGY_DIRECTORY)
+
+    assert ontology.retired_term_ids == ("BACC:0000005", "BACC:0000006")
+    assert set(ontology.retired_term_ids).isdisjoint(ontology.terms)
+    assert {
+        ontology.resolved_mapping_terms[external_id].term_id
+        for external_id in ("ENVO:00002272", "ENVO:01000984", "ENVO:01000313", "ENVO:01000951")
+    } == {"BACC:0000004"}
 
 
 def test_authored_ontology_preserves_host_recovery_eligible_term_set() -> None:
@@ -156,9 +163,10 @@ def test_authored_ontology_preserves_host_recovery_eligible_term_set() -> None:
         "BACC:0000003",  # plant host
         "BACC:0000094",  # plant food product
         "BACC:0000095",  # animal food product
-        "BACC:0000096",  # dairy product
+        "BACC:0000096",  # dairy food product
         "BACC:0000097",  # meat product
         "BACC:0000098",  # seafood product
+        "BACC:0000105",  # human milk
     }
 
 

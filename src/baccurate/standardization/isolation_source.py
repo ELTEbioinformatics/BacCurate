@@ -15,12 +15,12 @@ from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Self
 
 import instructor
 import openai
 from instructor.core import InstructorRetryException
-from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator
+from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator, model_validator
 
 from baccurate.adapters.llm.client import LLMSettings, load_llm_client, load_llm_settings
 from baccurate.adapters.llm.diagnostics import LLMFailureCategory, observe_llm_call
@@ -81,13 +81,14 @@ ISOLATION_SOURCE_LLM_PARAMETERS: dict[str, object] = {"temperature": 0, "seed": 
 # mode makes facet enumerations generation constraints instead of retry-time validation only.
 ISOLATION_SOURCE_STRUCTURED_OUTPUT_MODE = instructor.Mode.JSON_SCHEMA
 # The value is part of existing request fingerprints and cache keys.
-ISOLATION_SOURCE_RESPONSE_SCHEMA_ID = "baccurate.isolation.classification.v5"
+ISOLATION_SOURCE_RESPONSE_SCHEMA_ID = "baccurate.isolation.classification.v6"
 
 # These submitted values explicitly state that no isolation source is available. They
 # are consumed without selecting an ontology term or invoking the classifier.
 _NON_SOURCE_VALUES = frozenset({"no_host"})
 
 _SOURCE_TYPE_FACET = "source_type"
+_COLLECTION_SETTING_FACET = "facility"
 _HOST_ASSOCIATED_TERM_ID = "BACC:0000001"
 _ANIMAL_HOST_TERM_ID = "BACC:0000002"
 _PLANT_HOST_TERM_ID = "BACC:0000003"
@@ -102,7 +103,6 @@ _SOURCE_TYPE_BY_IMPLYING_FACET = {
     "body_site": _ANIMAL_HOST_TERM_ID,
     "lesion": _ANIMAL_HOST_TERM_ID,
     "environmental_material": _ENVIRONMENTAL_TERM_ID,
-    "facility": _ENVIRONMENTAL_TERM_ID,
     "sampled_object": _ENVIRONMENTAL_TERM_ID,
     "food_type": _FOOD_OR_FEED_TERM_ID,
 }
@@ -664,10 +664,24 @@ def _build_schema(
 ) -> type[BaseModel]:
     """Build the ordered, facet-specific classifier response model."""
 
+    narrower_facet_keys = tuple(
+        facet.key
+        for facet in ordered_facets(ontology)
+        if facet.key not in (_SOURCE_TYPE_FACET, _COLLECTION_SETTING_FACET)
+    )
+
     class IsolationSourceClassificationBase(BaseModel):
         model_config = ConfigDict(title="IsolationClassification")
 
-        reasoning: str = Field(..., description="Brief reason for the chosen terms.")
+        @model_validator(mode="after")
+        def require_exclusive_source_type(self) -> Self:
+            if getattr(self, _SOURCE_TYPE_FACET, None) is not None and any(
+                getattr(self, facet_key, None) for facet_key in narrower_facet_keys
+            ):
+                raise ValueError(
+                    "source_type must be empty when any narrower isolation-source facet is selected"
+                )
+            return self
 
     facet_fields: dict[str, tuple[object, Field]] = {}
     validators: dict[str, object] = {}
@@ -724,6 +738,15 @@ def _build_schema(
         validators[f"validate_{facet.key}"] = field_validator(facet.key, mode="before")(
             validate_facet
         )
+
+    facet_fields["reasoning"] = (
+        str,
+        Field(
+            ...,
+            max_length=240,
+            description="Brief evidence statement for the selected terms.",
+        ),
+    )
 
     return create_model(
         "IsolationSourceClassification",
@@ -1054,7 +1077,7 @@ class LLMClassifier:
                 reasoning.append(
                     {
                         "node": "source_type_derivation",
-                        "reasoning": "Filled facets determined the broad source kind.",
+                        "reasoning": "source_type derived from other facets.",
                         "selected_terms": self._reasoning_selection({derived_source_id}),
                     }
                 )
@@ -1067,14 +1090,6 @@ class LLMClassifier:
                     ancestor_additions.add(parent_id)
                 parent_id = self.ont.terms[parent_id].parent_id
         selected_ids |= ancestor_additions
-        if ancestor_additions:
-            reasoning.append(
-                {
-                    "node": "ancestor_expansion",
-                    "reasoning": "Selected terms were expanded to their facet ancestors.",
-                    "selected_terms": self._reasoning_selection(ancestor_additions),
-                }
-            )
 
         return replace(
             classification,
@@ -1088,8 +1103,10 @@ class LLMClassifier:
 
     @staticmethod
     def _format_metadata(attrs: list[str], vals: list[str]) -> str:
+        """Render selected attribute-value pairs as one line per pair."""
         return "Metadata:\n" + "\n".join(
-            f"{attribute} = {value}" for attribute, value in zip(attrs, vals, strict=True)
+            f"{json.dumps(attribute, ensure_ascii=False)} = {json.dumps(value, ensure_ascii=False)}"
+            for attribute, value in zip(attrs, vals, strict=True)
         )
 
     def standardize_record(
@@ -1420,8 +1437,7 @@ class IsolationSourceStandardizer:
             specific_previous_labels and derived_label not in specific_previous_labels
         )
         reasoning = (
-            f"Standardized host taxid {host_taxid} descends from NCBI lineage root "
-            f"{lineage_root_taxid}; selected {derived_label!r}."
+            f"Derived {derived_label!r} from standardized taxid {host_taxid}"
         )
         if disagreement:
             reasoning += f" Replaced conflicting source-type selection {previous_labels!r}."

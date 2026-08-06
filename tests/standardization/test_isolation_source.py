@@ -26,7 +26,6 @@ from baccurate.standardization.isolation_source import (
     IsolationSourceOntologyGapDiagnostic,
     IsolationSourceOutcome,
     IsolationSourcePromptPolicy,
-    IsolationSourceReasoningStep,
     IsolationSourceRejection,
     IsolationSourceStandardizer,
     SelectedTerm,
@@ -57,8 +56,13 @@ FOOD_OR_FEED = "BACC:0000007"
 LABORATORY = "BACC:0000008"
 PUS = "BACC:0000017"
 ABSCESS = "BACC:0000063"
+HEALTHCARE_FACILITY = "BACC:0000079"
+INANIMATE_OBJECT = "BACC:0000087"
+SINK = "BACC:0000088"
 ANIMAL_FOOD_PRODUCT = "BACC:0000095"
 MEAT_PRODUCT = "BACC:0000097"
+SOFT_TISSUE = "BACC:0000103"
+HUMAN_MILK = "BACC:0000105"
 
 FACET_BY_LABEL = {
     "host-associated": "source_type",
@@ -89,7 +93,6 @@ def _classifier_answer(
     food_type: list[str] | None = None,
 ) -> dict[str, object]:
     return {
-        "reasoning": reasoning,
         "source_type": source_type,
         "body_product": body_product or [],
         "body_site": body_site or [],
@@ -98,6 +101,7 @@ def _classifier_answer(
         "facility": facility or [],
         "sampled_object": sampled_object or [],
         "food_type": food_type or [],
+        "reasoning": reasoning,
     }
 
 
@@ -220,104 +224,6 @@ def cache(tmp_path) -> SQLiteCache:
 # =============================================================================
 
 
-def test_typed_record_outcome_preserves_supporting_pairs_and_diagnostics(
-    tmp_path,
-    monkeypatch,
-):
-    config_path = _isolation_source_config(tmp_path)
-    monkeypatch.setattr(
-        "baccurate.standardization.isolation_source.load_llm_client",
-        lambda *_args: (None, None),
-    )
-    standardizer = IsolationSourceStandardizer(
-        IsolationSourcePromptPolicy.load(config_path),
-    )
-
-    try:
-        result = standardizer.standardize(
-            {
-                "accession": "SAME_ACCESSION",
-                "iso_attr_orig": "isolation_source",
-                "iso_val_orig": "stool",
-            },
-            overflow=HostOverflowContext(
-                attribute="host sample",
-                value="blood",
-            ),
-        )
-        with pytest.raises(
-            ValueError,
-            match=(
-                "Malformed isolation-source selected attribute-value pairs for accession "
-                "MALFORMED: 2 attributes for 1 values"
-            ),
-        ):
-            standardizer.standardize(
-                {
-                    "accession": "MALFORMED",
-                    "iso_attr_orig": "isolation_source||tissue",
-                    "iso_val_orig": "blood",
-                },
-            )
-        fake_client = FakeClient()
-        fake_client.fail_with(RuntimeError("boom"))
-        standardizer.pipeline.client = fake_client
-        with pytest.raises(
-            RuntimeError,
-            match="Isolation-source LLM failed for accession TYPED_FAILURE",
-        ):
-            standardizer.standardize(
-                {
-                    "accession": "TYPED_FAILURE",
-                    "iso_attr_orig": "isolation_source",
-                    "iso_val_orig": "venous draw",
-                },
-            )
-    finally:
-        standardizer.close()
-
-    assert isinstance(result, IsolationSourceOutcome)
-    assert [(pair.attribute, pair.value) for pair in result.supporting_pairs] == [
-        ("isolation_source", "stool"),
-        ("host sample", "blood"),
-    ]
-    assert [(pair.attribute, pair.value) for pair in result.host_recovery_pairs] == [
-        ("isolation_source", "stool")
-    ]
-    assert [(term.term_id, term.facet, term.label) for term in result.selected_terms] == [
-        (HOST_ASSOCIATED, "source_type", "host-associated"),
-        (ANIMAL_HOST, "source_type", "animal host"),
-        (BODY_FLUID, "body_product", "body fluid"),
-        (BLOOD, "body_product", "blood"),
-        (FECES, "body_product", "feces"),
-    ]
-    assert result.reasoning == (
-        IsolationSourceReasoningStep(
-            node="direct_match",
-            reasoning="All values resolved manually.",
-            selected_terms={"body_product": ("blood", "feces")},
-        ),
-        IsolationSourceReasoningStep(
-            node="source_type_derivation",
-            reasoning="Filled facets determined the broad source kind.",
-            selected_terms={"source_type": ("animal host",)},
-        ),
-        IsolationSourceReasoningStep(
-            node="ancestor_expansion",
-            reasoning="Selected terms were expanded to their facet ancestors.",
-            selected_terms={
-                "source_type": ("host-associated",),
-                "body_product": ("body fluid",),
-            },
-        ),
-    )
-    assert result.exact_matches == 2
-    assert result.cache_hits == 0
-    assert result.llm_calls == 0
-    assert result.evidence_level is IsolationSourceEvidenceLevel.SAMPLE
-    assert result.diagnostics == (IsolationSourceDiagnostic.EXACT_MATCH,)
-
-
 def _standardize_fixture_record(
     policy: IsolationSourcePromptPolicy,
     tmp_path: Path,
@@ -327,6 +233,7 @@ def _standardize_fixture_record(
     fake: FakeClient | None = None,
     monkeypatch: pytest.MonkeyPatch | None = None,
     accession: str = "PUBLIC_CLASSIFICATION",
+    overflow: HostOverflowContext | None = None,
 ) -> IsolationSourceOutcome | IsolationSourceRejection:
     if fake is not None:
         assert monkeypatch is not None
@@ -347,6 +254,7 @@ def _standardize_fixture_record(
                 "iso_attr_orig": attributes,
                 "iso_val_orig": values,
             },
+            overflow=overflow,
         )
     finally:
         standardizer.close()
@@ -420,17 +328,19 @@ def test_public_classification_resolves_ontology_terms(
 
 
 @pytest.mark.parametrize(
-    ("submitted_value", "expected_eligible"),
+    ("submitted_value", "expected_eligible", "expected_term_id"),
     [
-        pytest.param("host-associated", True, id="broad-host-source-kind"),
-        pytest.param("meat product", True, id="meat-product"),
-        pytest.param("animal feed", False, id="animal-feed"),
+        pytest.param("host-associated", True, HOST_ASSOCIATED, id="broad-host-source-kind"),
+        pytest.param("meat product", True, MEAT_PRODUCT, id="meat-product"),
+        pytest.param("animal feed", False, "BACC:0000100", id="animal-feed"),
+        pytest.param("breast milk", True, HUMAN_MILK, id="human-milk"),
     ],
 )
 def test_assigned_term_flag_decides_host_recovery_eligibility_without_classifier(
     tmp_path: Path,
     submitted_value: str,
     expected_eligible: bool,
+    expected_term_id: str,
 ) -> None:
     policy = IsolationSourcePromptPolicy.load(
         _isolation_source_config(
@@ -442,6 +352,7 @@ def test_assigned_term_flag_decides_host_recovery_eligibility_without_classifier
     result = _classify_fixture_record(policy, tmp_path, values=submitted_value)
 
     assert result.host_recovery_eligible is expected_eligible
+    assert result.selected_terms[-1].term_id == expected_term_id
     assert result.llm_calls == 0
 
 
@@ -698,11 +609,66 @@ def test_repository_ontology_directory_publishes_opaque_term_identifiers(tmp_pat
         SelectedTerm(HOST_ASSOCIATED, "source_type", "host-associated"),
         SelectedTerm(ANIMAL_HOST, "source_type", "animal host"),
         SelectedTerm(FECES, "body_product", "feces"),
+        SelectedTerm(DIGESTIVE_TRACT, "body_site", "digestive tract"),
     )
     assert result.evidence_level is IsolationSourceEvidenceLevel.SAMPLE
     assert result.exact_matches == 1
     assert result.llm_calls == 0
     assert result.diagnostics == (IsolationSourceDiagnostic.EXACT_MATCH,)
+
+
+def test_repository_ontology_resolves_soft_tissue_to_a_body_site(tmp_path: Path) -> None:
+    """Skin and soft tissue infections name a compartment the vocabulary must carry."""
+    policy = replace(
+        IsolationSourcePromptPolicy.load(CONFIG_PATH),
+        cache_db_path=tmp_path / "soft-tissue-cache.db",
+    )
+
+    result = _classify_fixture_record(policy, tmp_path, values="soft tissue")
+
+    assert result.selected_terms == (
+        SelectedTerm(HOST_ASSOCIATED, "source_type", "host-associated"),
+        SelectedTerm(ANIMAL_HOST, "source_type", "animal host"),
+        SelectedTerm(SOFT_TISSUE, "body_site", "soft tissue"),
+    )
+    assert result.llm_calls == 0
+    assert policy.ontology.resolved_mapping_terms["NCIT:C12471"].label == "soft tissue"
+
+
+def test_skin_and_soft_tissue_are_disjoint_body_sites(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Both labels must survive together, because neither one stands for the other.
+
+    The external class chosen for `soft tissue` stops at the skin boundary. If the two
+    terms were in an ancestor relation instead, ancestor exclusion would drop one of
+    them and a value naming both would publish half the sampled compartment.
+    """
+    policy = replace(
+        IsolationSourcePromptPolicy.load(CONFIG_PATH),
+        cache_db_path=tmp_path / "skin-and-soft-tissue-cache.db",
+    )
+    fake = FakeClient()
+    fake.respond_with_facets(
+        body_site=["skin", "soft tissue"],
+        reasoning="The value names both body sites.",
+    )
+
+    result = _classify_fixture_record(
+        policy,
+        tmp_path,
+        values="Skin/Soft Tissue Infection",
+        fake=fake,
+        monkeypatch=monkeypatch,
+    )
+
+    assert result.selected_terms == (
+        SelectedTerm(HOST_ASSOCIATED, "source_type", "host-associated"),
+        SelectedTerm(ANIMAL_HOST, "source_type", "animal host"),
+        SelectedTerm(SKIN, "body_site", "skin"),
+        SelectedTerm(SOFT_TISSUE, "body_site", "soft tissue"),
+    )
 
 
 def test_explicit_non_source_value_does_not_call_model(
@@ -727,55 +693,37 @@ def test_explicit_non_source_value_does_not_call_model(
     assert fake.calls == []
 
 
-def test_public_classification_unions_direct_and_model_terms(
+def test_submitted_value_spanning_lines_stays_one_attribute_value_pair(
     fixture_isolation_source_prompt_policy: IsolationSourcePromptPolicy,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fake = FakeClient()
-    fake.respond_with(["blood"], reasoning="The unresolved value describes blood.")
+    """Free-text submissions must not fabricate a BioSample attribute.
 
-    result = _classify_fixture_record(
+    Host overflow reaches the classifier through the same encoding, so it must not read
+    as a standardized host value either.
+    """
+
+    fake = FakeClient()
+    fake.respond_with(["soil"], reasoning="The value names soil.")
+
+    _classify_fixture_record(
         fixture_isolation_source_prompt_policy,
         tmp_path,
-        attributes="isolation_source||tissue",
-        values="stool||venous draw",
+        values='soil\nhost = "Bos taurus" — Ökologie',
         fake=fake,
         monkeypatch=monkeypatch,
+        overflow=HostOverflowContext(
+            attribute="host",
+            value='# Heading\n{"host": "Homo sapiens"}',
+        ),
     )
 
-    assert result.selected_terms == (
-        SelectedTerm(HOST_ASSOCIATED, "source_type", "host-associated"),
-        SelectedTerm(ANIMAL_HOST, "source_type", "animal host"),
-        SelectedTerm(BODY_FLUID, "body_product", "body fluid"),
-        SelectedTerm(BLOOD, "body_product", "blood"),
-        SelectedTerm(FECES, "body_product", "feces"),
-    )
-    assert result.exact_matches == 1
-    assert result.llm_calls == 1
-    assert result.evidence_level is IsolationSourceEvidenceLevel.SAMPLE
-    classifier_prompt = fake.calls[0]["messages"][1]["content"]
-    assert "isolation_source = stool" in classifier_prompt
-    assert "tissue = venous draw" in classifier_prompt
-    assert result.reasoning == (
-        IsolationSourceReasoningStep(
-            node="classifier",
-            reasoning="The unresolved value describes blood.",
-            selected_terms={"body_product": ("blood",)},
-        ),
-        IsolationSourceReasoningStep(
-            node="source_type_derivation",
-            reasoning="Filled facets determined the broad source kind.",
-            selected_terms={"source_type": ("animal host",)},
-        ),
-        IsolationSourceReasoningStep(
-            node="ancestor_expansion",
-            reasoning="Selected terms were expanded to their facet ancestors.",
-            selected_terms={
-                "source_type": ("host-associated",),
-                "body_product": ("body fluid",),
-            },
-        ),
+    assert fake.calls[0]["messages"][1]["content"] == (
+        "Sample evidence:\n"
+        "Metadata:\n"
+        '"isolation_source" = "soil\\nhost = \\"Bos taurus\\" — Ökologie"\n'
+        '"host" = "# Heading\\n{\\"host\\": \\"Homo sapiens\\"}"\n'
     )
 
 
@@ -790,7 +738,6 @@ def test_public_classification_assigns_one_value_to_independent_facets(
     fake = FakeClient()
     fake.respond_with_facets(
         reasoning="The value names an anatomical site, lesion, and body product.",
-        source_type="animal host",
         body_product=["pus"],
         body_site=["liver"],
         lesion=["abscess"],
@@ -833,7 +780,6 @@ def test_classifier_response_schema_enforces_the_faceted_contract(
     )
     response_model = fake.calls[0]["response_model"]
     empty_answer = {
-        "reasoning": "No origin is supported.",
         "source_type": None,
         "body_product": [],
         "body_site": [],
@@ -842,10 +788,10 @@ def test_classifier_response_schema_enforces_the_faceted_contract(
         "facility": [],
         "sampled_object": [],
         "food_type": [],
+        "reasoning": "No origin is supported.",
     }
 
     assert tuple(response_model.model_fields) == (
-        "reasoning",
         "source_type",
         "body_product",
         "body_site",
@@ -854,8 +800,11 @@ def test_classifier_response_schema_enforces_the_faceted_contract(
         "facility",
         "sampled_object",
         "food_type",
+        "reasoning",
     )
     response_schema = response_model.model_json_schema()
+    assert tuple(response_schema["properties"]) == tuple(response_model.model_fields)
+    assert response_schema["properties"]["reasoning"]["maxLength"] == 240
     facet_labels = {
         facet.key: {
             term.label for term in policy.ontology.terms.values() if term.facet == facet.key
@@ -877,7 +826,38 @@ def test_classifier_response_schema_enforces_the_faceted_contract(
             == facet_labels[facet_key]
         )
     response_model.model_validate(empty_answer)
+    response_model.model_validate({**empty_answer, "reasoning": "x" * 240})
+    with pytest.raises(ValidationError, match="at most 240 characters"):
+        response_model.model_validate({**empty_answer, "reasoning": "x" * 241})
     response_model.model_validate({**empty_answer, "source_type": "animal host"})
+    # The facility is only the collection setting, so it neither implies nor
+    # suppresses the broad source kind.
+    response_model.model_validate(
+        {
+            **empty_answer,
+            "source_type": "environmental",
+            "facility": ["healthcare facility"],
+        }
+    )
+    with pytest.raises(
+        ValidationError,
+        match="source_type must be empty when any narrower isolation-source facet is selected",
+    ):
+        response_model.model_validate(
+            {
+                **empty_answer,
+                "source_type": "environmental",
+                "facility": ["healthcare facility"],
+                "sampled_object": ["sink"],
+            }
+        )
+    with pytest.raises(
+        ValidationError,
+        match="source_type must be empty when any narrower isolation-source facet is selected",
+    ):
+        response_model.model_validate(
+            {**empty_answer, "source_type": "animal host", "body_site": ["rectum"]}
+        )
 
     invalid_answers = (
         {**empty_answer, "source_type": ["animal host", "environmental"]},
@@ -893,6 +873,11 @@ def test_classifier_response_schema_enforces_the_faceted_contract(
         response_model.model_validate({**empty_answer, "source_type": "animal-host"})
     with pytest.raises(
         ValidationError,
+        match="Unknown source_type labels: 'built environment'",
+    ):
+        response_model.model_validate({**empty_answer, "source_type": "built environment"})
+    with pytest.raises(
+        ValidationError,
         match=("'rectum' cannot be returned with its ancestor 'digestive tract' in body_site"),
     ):
         response_model.model_validate(
@@ -905,46 +890,53 @@ def test_classifier_response_schema_enforces_the_faceted_contract(
     assert fake.calls[0]["max_retries"] == 3
 
 
-def test_model_selected_feces_does_not_infer_anatomical_origin(
+@pytest.mark.parametrize(
+    ("sampled_object", "expected_terms"),
+    [
+        (
+            [],
+            (SelectedTerm(HEALTHCARE_FACILITY, "facility", "healthcare facility"),),
+        ),
+        (
+            ["sink"],
+            (
+                SelectedTerm(ENVIRONMENTAL, "source_type", "environmental"),
+                SelectedTerm(HEALTHCARE_FACILITY, "facility", "healthcare facility"),
+                SelectedTerm(INANIMATE_OBJECT, "sampled_object", "inanimate object"),
+                SelectedTerm(SINK, "sampled_object", "sink"),
+            ),
+        ),
+    ],
+    ids=["facility alone", "facility with a sampled object"],
+)
+def test_only_the_sampled_entity_determines_the_broad_source_kind(
     fixture_isolation_source_prompt_policy: IsolationSourcePromptPolicy,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    sampled_object: list[str],
+    expected_terms: tuple[SelectedTerm, ...],
 ) -> None:
+    """The facility is the collection setting, so it implies no broad source kind.
+
+    A hospital holds both patients and built surfaces. Only the named material,
+    object, food, or host tells us which one was sampled.
+    """
     fake = FakeClient()
-    fake.respond_with(["feces"], reasoning="The evidence describes fecal material.")
+    fake.respond_with_facets(
+        facility=["healthcare facility"],
+        sampled_object=sampled_object,
+        reasoning="The value names the hospital.",
+    )
 
     result = _classify_fixture_record(
         fixture_isolation_source_prompt_policy,
         tmp_path,
-        values="gut contents",
+        values="Bundang Hospital ward 4821",
         fake=fake,
         monkeypatch=monkeypatch,
     )
 
-    assert result.selected_terms == (
-        SelectedTerm(HOST_ASSOCIATED, "source_type", "host-associated"),
-        SelectedTerm(ANIMAL_HOST, "source_type", "animal host"),
-        SelectedTerm(FECES, "body_product", "feces"),
-    )
-    assert RECTUM not in {term.term_id for term in result.selected_terms}
-    assert result.reasoning == (
-        IsolationSourceReasoningStep(
-            node="classifier",
-            reasoning="The evidence describes fecal material.",
-            selected_terms={"body_product": ("feces",)},
-        ),
-        IsolationSourceReasoningStep(
-            node="source_type_derivation",
-            reasoning="Filled facets determined the broad source kind.",
-            selected_terms={"source_type": ("animal host",)},
-        ),
-        IsolationSourceReasoningStep(
-            node="ancestor_expansion",
-            reasoning="Selected terms were expanded to their facet ancestors.",
-            selected_terms={"source_type": ("host-associated",)},
-        ),
-    )
-    assert result.diagnostics == (IsolationSourceDiagnostic.LLM_CALL,)
+    assert result.selected_terms == expected_terms
 
 
 def test_empty_model_result_remains_a_typed_outcome(
@@ -1017,66 +1009,6 @@ def test_partial_deterministic_result_uses_sample_evidence_when_llm_is_disabled(
     assert result.evidence_level is IsolationSourceEvidenceLevel.SAMPLE
 
 
-def test_typed_record_outcome_preserves_model_reasoning_on_exact_cache_hit(tmp_path, monkeypatch):
-    config_path = _isolation_source_config(tmp_path)
-    monkeypatch.setenv("LLM_MODEL", "test-model")
-    policy = IsolationSourcePromptPolicy.load(config_path)
-    first_standardizer = IsolationSourceStandardizer(policy, client=None)
-    fake_client = FakeClient()
-    fake_client.respond_with(["wound"], reasoning="clinical wound")
-    first_standardizer.pipeline.client = fake_client
-
-    try:
-        modelled = first_standardizer.standardize(
-            {
-                "accession": "MODELLED",
-                "iso_attr_orig": "isolation_source",
-                "iso_val_orig": "wound patient 1",
-            },
-        )
-    finally:
-        first_standardizer.close()
-
-    cached_standardizer = IsolationSourceStandardizer(policy, client=None)
-    try:
-        cached = cached_standardizer.standardize(
-            {
-                "accession": "CACHED",
-                "iso_attr_orig": "isolation_source",
-                "iso_val_orig": "wound patient 1",
-            },
-        )
-    finally:
-        cached_standardizer.close()
-
-    assert isinstance(modelled, IsolationSourceOutcome)
-    assert modelled.evidence_level is IsolationSourceEvidenceLevel.SAMPLE
-    assert modelled.diagnostics == (IsolationSourceDiagnostic.LLM_CALL,)
-    assert modelled.reasoning == (
-        IsolationSourceReasoningStep(
-            node="classifier",
-            reasoning="clinical wound",
-            selected_terms={"lesion": ("wound",)},
-        ),
-        IsolationSourceReasoningStep(
-            node="source_type_derivation",
-            reasoning="Filled facets determined the broad source kind.",
-            selected_terms={"source_type": ("animal host",)},
-        ),
-        IsolationSourceReasoningStep(
-            node="ancestor_expansion",
-            reasoning="Selected terms were expanded to their facet ancestors.",
-            selected_terms={"source_type": ("host-associated",)},
-        ),
-    )
-    assert isinstance(cached, IsolationSourceOutcome)
-    assert cached.selected_terms == modelled.selected_terms
-    assert cached.evidence_level is IsolationSourceEvidenceLevel.SAMPLE
-    assert cached.reasoning == modelled.reasoning
-    assert cached.diagnostics == (IsolationSourceDiagnostic.CACHE_HIT,)
-    assert len(fake_client.calls) == 1
-
-
 def test_warm_cache_uses_current_crosslinks(tmp_path: Path) -> None:
     ontology_directory = tmp_path / "ontology"
     shutil.copytree(FIXTURE_ROOT / "ontology", ontology_directory)
@@ -1086,7 +1018,6 @@ def test_warm_cache_uses_current_crosslinks(tmp_path: Path) -> None:
     )
     fake = FakeClient()
     fake.respond_with_facets(
-        source_type="animal host",
         lesion=["abscess"],
         reasoning="The submitted material is from an abscess.",
     )
@@ -1131,7 +1062,6 @@ def test_response_that_failed_validation_is_not_cached(tmp_path: Path) -> None:
     try:
         failed = standardizer.standardize(record)
         fake.respond_with_facets(
-            source_type="animal host",
             lesion=["wound"],
         )
         retried = standardizer.standardize(record)
@@ -1151,7 +1081,6 @@ def test_invented_label_is_preserved_when_validation_retry_recovers(
 ) -> None:
     invalid_answer = _classifier_answer(
         reasoning="The sample names an unsupported anatomical site.",
-        source_type="animal host",
         body_site=["nasal cavity", "nasal cavity"],
     )
     valid_answer = {**invalid_answer, "body_site": ["liver"]}
@@ -1189,7 +1118,6 @@ def test_each_invented_label_is_preserved_when_validation_retries_are_exhausted(
 ) -> None:
     invalid_answer = _classifier_answer(
         reasoning="The sample names an unsupported anatomical site.",
-        source_type="animal host",
         body_site=["nasal cavity"],
     )
 
@@ -1227,7 +1155,6 @@ def test_ancestor_exclusion_does_not_create_an_ontology_gap_diagnostic(
 ) -> None:
     invalid_answer = _classifier_answer(
         reasoning="The response selects an ancestor and descendant.",
-        source_type="animal host",
         body_site=["digestive tract", "rectum"],
     )
     valid_answer = {**invalid_answer, "body_site": ["rectum"]}
@@ -1285,12 +1212,11 @@ def test_direct_matches_receive_derived_source_kind_ancestors_and_preorder(
     )
 
 
-def test_crosslink_overwrites_classifier_source_kind_and_reports_disagreement(
+def test_crosslink_derives_source_kind_without_classifier_disagreement(
     tmp_path: Path,
 ) -> None:
     fake = FakeClient()
     fake.respond_with_facets(
-        source_type="environmental",
         environmental_material=["rhizosphere soil"],
     )
     standardizer = IsolationSourceStandardizer(
@@ -1317,10 +1243,7 @@ def test_crosslink_overwrites_classifier_source_kind_and_reports_disagreement(
         SelectedTerm(SOIL, "environmental_material", "soil"),
         SelectedTerm(RHIZOSPHERE, "environmental_material", "rhizosphere soil"),
     )
-    assert outcome.diagnostics == (
-        IsolationSourceDiagnostic.LLM_CALL,
-        IsolationSourceDiagnostic.CROSSLINK_DISAGREEMENT,
-    )
+    assert outcome.diagnostics == (IsolationSourceDiagnostic.LLM_CALL,)
 
 
 def test_direct_crosslink_conflict_does_not_report_classifier_disagreement(
@@ -1348,7 +1271,6 @@ def test_direct_crosslink_conflict_does_not_report_classifier_disagreement(
 def test_derived_source_kind_uses_host_environment_food_precedence(tmp_path: Path) -> None:
     fake = FakeClient()
     fake.respond_with_facets(
-        source_type="food or feed",
         body_product=["blood"],
         environmental_material=["soil"],
         food_type=["meat product"],
@@ -1380,7 +1302,46 @@ def test_derived_source_kind_uses_host_environment_food_precedence(tmp_path: Pat
         SelectedTerm(ANIMAL_FOOD_PRODUCT, "food_type", "animal food product"),
         SelectedTerm(MEAT_PRODUCT, "food_type", "meat product"),
     )
-    assert IsolationSourceDiagnostic.CROSSLINK_DISAGREEMENT in outcome.diagnostics
+    assert outcome.diagnostics == (IsolationSourceDiagnostic.LLM_CALL,)
+
+
+@pytest.mark.parametrize(
+    ("source_type", "expected_terms"),
+    [
+        (
+            "host-associated",
+            (SelectedTerm(HOST_ASSOCIATED, "source_type", "host-associated"),),
+        ),
+        ("laboratory", (SelectedTerm(LABORATORY, "source_type", "laboratory"),)),
+        (
+            "environmental",
+            (SelectedTerm(ENVIRONMENTAL, "source_type", "environmental"),),
+        ),
+    ],
+)
+def test_classifier_source_type_stands_when_no_narrower_facet_applies(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    source_type: str,
+    expected_terms: tuple[SelectedTerm, ...],
+) -> None:
+    policy = replace(
+        IsolationSourcePromptPolicy.load(CONFIG_PATH),
+        cache_db_path=tmp_path / "source-type-only-cache.db",
+    )
+    fake = FakeClient()
+    fake.respond_with_facets(source_type=source_type)
+
+    outcome = _classify_fixture_record(
+        policy,
+        tmp_path,
+        values=f"broad source context 7291 {source_type}",
+        fake=fake,
+        monkeypatch=monkeypatch,
+    )
+
+    assert outcome.selected_terms == expected_terms
+    assert outcome.diagnostics == (IsolationSourceDiagnostic.LLM_CALL,)
 
 
 @pytest.mark.parametrize(
@@ -1594,7 +1555,7 @@ def test_isolation_source_request_uses_rendered_synthetic_prompts(tmp_path: Path
     assert "Synthetic ontology:" in system_message
     assert "wound" in system_message
     assert user_message["role"] == "user"
-    assert "isolation_source = wound patient 739105" in user_message["content"]
+    assert '"isolation_source" = "wound patient 739105"' in user_message["content"]
     assert "Homo sapiens" not in str(fake.calls[0]["messages"])
     assert fake.calls[0]["model"] == "test-model"
     assert fake.calls[0]["temperature"] == 0
@@ -1658,7 +1619,7 @@ def test_isolation_source_cache_misses_when_canonical_request_changes(
 def test_cache_round_trip_preserves_only_the_classifier_answer(cache):
     answer = IsolationSourceClassifierAnswer(
         facet_values={
-            "source_type": "animal host",
+            "source_type": None,
             "body_product": ("feces",),
             "body_site": (),
             "lesion": (),

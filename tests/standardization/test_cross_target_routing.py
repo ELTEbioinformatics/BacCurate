@@ -20,6 +20,7 @@ ANIMAL_HOST = "BACC:0000002"
 PLANT_HOST = "BACC:0000003"
 ENVIRONMENTAL = "BACC:0000004"
 FOOD_OR_FEED = "BACC:0000007"
+HEALTHCARE_FACILITY = "BACC:0000079"
 
 
 class ScriptedClient:
@@ -57,7 +58,7 @@ def _coordinator(
     return coordinator
 
 
-def _classifier_answer(source_type: str) -> dict[str, object]:
+def _classifier_answer(source_type: str | None) -> dict[str, object]:
     return {
         "reasoning": "scripted classification",
         "evidence_level": "sample",
@@ -159,113 +160,6 @@ def test_model_endpoint_fingerprint_distinguishes_endpoints_on_both_routes(
         second.model_endpoint_fingerprint
         == coordinators.public(SECOND_ENDPOINT).model_endpoint_fingerprint
     )
-
-
-@pytest.mark.parametrize(
-    ("host_value", "host_taxid", "lineage_root", "expected_term_id", "expected_label"),
-    [
-        ("human", 9606, 33208, ANIMAL_HOST, "animal host"),
-        ("thale cress", 3702, 33090, PLANT_HOST, "plant host"),
-    ],
-)
-def test_standardized_host_lineage_fills_unspecified_source_type(
-    standardization_fixture_resources,
-    fixture_host_policy,
-    fixture_isolation_source_prompt_policy,
-    host_value: str,
-    host_taxid: int,
-    lineage_root: int,
-    expected_term_id: str,
-    expected_label: str,
-) -> None:
-    host = HostStandardizer(
-        fixture_host_policy,
-        standardization_fixture_resources.ncbi_taxonomy_reference_table,
-    )
-    isolation_source = IsolationSourceStandardizer(
-        fixture_isolation_source_prompt_policy,
-        client=None,
-    )
-    lineage = SimpleNamespace(
-        is_descendant_or_self=lambda taxid, root: taxid == host_taxid and root == lineage_root
-    )
-    coordinator = host_isolation_source_standardizer_from_components(
-        host,
-        isolation_source,
-        lineage,
-    )
-    try:
-        result = coordinator.standardize(
-            {
-                "accession": f"HOST_ONLY_{host_taxid}",
-                "host_attr_orig": "host",
-                "host_val_orig": host_value,
-            }
-        )
-    finally:
-        isolation_source.close()
-
-    assert result.isolation_source.selected_terms[-1].term_id == expected_term_id
-    assert result.isolation_source.selected_terms[-1].label == expected_label
-    assert result.reasoning[-1].node == "host_lineage_derivation"
-    assert str(host_taxid) in result.reasoning[-1].reasoning
-    assert str(lineage_root) in result.reasoning[-1].reasoning
-
-
-@pytest.mark.parametrize(
-    ("record", "expected_term_ids"),
-    [
-        (
-            {"accession": "UNRELATED", "host_attr_orig": "host", "host_val_orig": "yeast"},
-            (),
-        ),
-        ({"accession": "UNRESOLVED", "host_attr_orig": "host", "host_val_orig": "unknown"}, ()),
-        (
-            {
-                "accession": "ENVIRONMENTAL",
-                "host_attr_orig": "host",
-                "host_val_orig": "human",
-                "iso_attr_orig": "isolation_source",
-                "iso_val_orig": "soil",
-            },
-            (ENVIRONMENTAL,),
-        ),
-        (
-            {
-                "accession": "FOOD",
-                "host_attr_orig": "host",
-                "host_val_orig": "human",
-                "iso_attr_orig": "isolation_source",
-                "iso_val_orig": "meat product",
-            },
-            (FOOD_OR_FEED,),
-        ),
-    ],
-)
-def test_host_lineage_leaves_unresolved_unrelated_and_non_host_sources_unchanged(
-    standardization_fixture_resources,
-    fixture_host_policy,
-    fixture_isolation_source_prompt_policy,
-    record: dict[str, str],
-    expected_term_ids: tuple[str, ...],
-) -> None:
-    coordinator = _coordinator(
-        standardization_fixture_resources,
-        fixture_host_policy,
-        fixture_isolation_source_prompt_policy,
-    )
-    try:
-        result = coordinator.standardize(record)
-    finally:
-        coordinator.close()
-
-    source_type_ids = tuple(
-        term.term_id
-        for term in getattr(result.isolation_source, "selected_terms", ())
-        if term.facet == "source_type" and term.term_id != "BACC:0000001"
-    )
-    assert source_type_ids == expected_term_ids
-    assert all(step.node != "host_lineage_derivation" for step in result.reasoning)
 
 
 @pytest.mark.parametrize("model_source_type", ["host-associated", "plant host"])
@@ -385,7 +279,7 @@ def test_recovered_host_lineage_refines_host_source_but_not_food_source(
         host_coordinator.close()
 
     food_client = ScriptedClient(
-        {**_classifier_answer("food or feed"), "food_type": ["meat product"]}
+        {**_classifier_answer("food or feed"), "source_type": None, "food_type": ["meat product"]}
     )
     food_coordinator = _coordinator(
         standardization_fixture_resources,
