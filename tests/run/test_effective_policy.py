@@ -10,10 +10,7 @@ import yaml
 from baccurate.adapters.policy_yaml import PolicyConfigurationError
 from baccurate.pathogen_registry.registry import load_pathogen_registry
 from baccurate.paths import (
-    DEFAULT_GEO_LOC_LIST,
-    DEFAULT_ISOLATION_SOURCE_CACHE_DB,
     DEFAULT_ISOLATION_SOURCE_ONTOLOGY_DIRECTORY,
-    DEFAULT_LOC_CACHE_DB,
 )
 from baccurate.run.effective_policy import load_effective_policy
 from baccurate.standardization.isolation_source import IsolationSourcePromptPolicy
