@@ -1,6 +1,6 @@
-"""Assemble ``data/raw/biosample_index.tsv.gz``.
+"""Assemble the BioSample index and its build log.
 
-Output is a union of:
+Builds the index from:
   - accessions in ``data/raw/id_lists/<pathogen_key>.tsv`` (from
     ``parse_biosample_xml.py``). Supplies ``pathogen_biosample`` and ``organism_value``.
   - accessions in the ATB metadata whose ``sylph_species`` maps to a target
@@ -10,7 +10,6 @@ Output is a union of:
 from __future__ import annotations
 
 import argparse
-import hashlib
 import logging
 import os
 import sys
@@ -27,11 +26,24 @@ from baccurate.pathogen_registry.species_label_matching import (
     build_keyword_maps,
     sylph_to_keyword,
 )
-from baccurate.paths import DEFAULT_INDEX_TSV, RAW_DIR
+from baccurate.paths import (
+    CONFIG_DIR,
+    DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
+    DEFAULT_INDEX_TSV,
+    RAW_DIR,
+)
+from baccurate.provenance.source_snapshot import SourceSnapshotManifest, sha256_file
 
 log = logging.getLogger("build_biosample_index")
 
 ID_LISTS_DIR = RAW_DIR / "id_lists"
+ATB_METADATA = RAW_DIR / "atb_2025-05.tsv"
+SEQUENCE_ACCESSIONS_DIR = RAW_DIR / "sequence_accessions"
+SEQUENCE_ACCESSION_INTERMEDIATES = (
+    ("sra_runs.tsv.gz", "sra_run_accessions"),
+    ("genbank_assemblies.tsv.gz", "genbank_assembly_accessions"),
+    ("refseq_assemblies.tsv.gz", "refseq_assembly_accessions"),
+)
 COLUMNS = [
     "accession",
     "in_ATB",
@@ -40,15 +52,10 @@ COLUMNS = [
     "taxid",
     "organism_value",
     "osf_tarball_filename",
+    "sra_run_accessions",
+    "genbank_assembly_accessions",
+    "refseq_assembly_accessions",
 ]
-
-
-def sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def load_taxonomy_branch(
@@ -86,28 +93,74 @@ def load_taxonomy_branch(
     return tax.drop_duplicates("accession", keep="first")
 
 
+def load_biosample_linked_accession_column(
+    directory: Path,
+    filename: str,
+    sequence_accession_column: str,
+) -> pd.Series:
+    """Load one filtered SRA run or genome assembly accession column.
+
+    Require the expected ordered columns, non-empty values, and one row per BioSample accession.
+    Return the accession column indexed by BioSample accession.
+    """
+    path = directory / filename
+    intermediate_table = pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False)
+    expected_columns = ["accession", sequence_accession_column]
+    if list(intermediate_table.columns) != expected_columns:
+        raise ValueError(f"{path}: expected ordered columns {expected_columns}")
+    if intermediate_table[expected_columns].eq("").any(axis=None):
+        raise ValueError(f"{path}: missing values are not allowed")
+    if intermediate_table["accession"].duplicated().any():
+        raise ValueError(f"{path}: duplicate BioSample accession")
+    log.info("sequence intermediate: %s | sha256: %s", path, sha256_file(path))
+    return intermediate_table.set_index("accession")[sequence_accession_column]
+
+
 def setup_logging(out_dir: Path) -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s",
-        handlers=[
-            logging.FileHandler(out_dir / "build_biosample_index.log", encoding="utf-8"),
-            logging.StreamHandler(sys.stdout),
-        ],
-    )
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+    for handler in log.handlers[:]:
+        handler.close()
+        log.removeHandler(handler)
+    for handler in (
+        logging.FileHandler(out_dir / "build_biosample_index.log", encoding="utf-8"),
+        logging.StreamHandler(sys.stdout),
+    ):
+        handler.setFormatter(formatter)
+        log.addHandler(handler)
+    log.setLevel(logging.INFO)
+    log.propagate = False
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
-        "atb_metadata",
-        type=Path,
-        help="ATB metadata TSV (accession, osf_tarball_filename, sylph_species)",
-    )
-    ap.add_argument(
         "--id-lists-dir", type=Path, default=ID_LISTS_DIR, help="directory of per-pathogen-key TSVs"
     )
     ap.add_argument("--output", type=Path, default=DEFAULT_INDEX_TSV, help="output index path")
+    ap.add_argument(
+        "--biosample-manifest",
+        type=Path,
+        default=DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
+        help="BioSample source snapshot manifest",
+    )
+    ap.add_argument(
+        "--sra-manifest",
+        type=Path,
+        default=CONFIG_DIR / "sra_accessions_snapshot.yaml",
+        help="SRA source snapshot manifest",
+    )
+    ap.add_argument(
+        "--genbank-manifest",
+        type=Path,
+        default=CONFIG_DIR / "assembly_summary_genbank_snapshot.yaml",
+        help="GenBank Assembly source snapshot manifest",
+    )
+    ap.add_argument(
+        "--refseq-manifest",
+        type=Path,
+        default=CONFIG_DIR / "assembly_summary_refseq_snapshot.yaml",
+        help="RefSeq Assembly source snapshot manifest",
+    )
     args = ap.parse_args()
 
     out_path: Path = args.output
@@ -117,8 +170,39 @@ def main() -> int:
 
     log.info("run date: %s", date.today().isoformat())
     log.info("id_lists dir:  %s", args.id_lists_dir)
-    log.info("atb_metadata:  %s", args.atb_metadata)
-    log.info("  sha256: %s", sha256(args.atb_metadata))
+    log.info("atb_metadata:  %s", ATB_METADATA)
+    log.info("  sha256: %s", sha256_file(ATB_METADATA))
+
+    manifests = {
+        "BioSample": SourceSnapshotManifest.load(args.biosample_manifest),
+        "SRA": SourceSnapshotManifest.load(args.sra_manifest),
+        "GenBank Assembly": SourceSnapshotManifest.load(args.genbank_manifest),
+        "RefSeq Assembly": SourceSnapshotManifest.load(args.refseq_manifest),
+    }
+    for label, snapshot_manifest in manifests.items():
+        log.info(
+            "%s manifest: snapshot_id=%s | metadata_reference_date=%s",
+            label,
+            snapshot_manifest.snapshot_id,
+            snapshot_manifest.metadata_reference_date,
+        )
+    biosample_reference_date = manifests["BioSample"].metadata_reference_date
+    for label in ("SRA", "GenBank Assembly", "RefSeq Assembly"):
+        if manifests[label].metadata_reference_date < biosample_reference_date:
+            raise ValueError(
+                f"{label} metadata reference date "
+                f"{manifests[label].metadata_reference_date} predates BioSample "
+                f"metadata reference date {biosample_reference_date}"
+            )
+
+    sequence_accessions_by_column = {
+        column: load_biosample_linked_accession_column(
+            SEQUENCE_ACCESSIONS_DIR,
+            filename,
+            column,
+        )
+        for filename, column in SEQUENCE_ACCESSION_INTERMEDIATES
+    }
 
     pathogen_registry = load_pathogen_registry()
 
@@ -151,7 +235,7 @@ def main() -> int:
                 )
 
     # ATB branch
-    atb = pd.read_csv(args.atb_metadata, sep="\t", dtype=str, keep_default_na=False)
+    atb = pd.read_csv(ATB_METADATA, sep="\t", dtype=str, keep_default_na=False)
     genus_map, species_map = build_keyword_maps(pathogen_registry)
     keyword_of = {
         s: sylph_to_keyword(s, genus_map, species_map)
@@ -186,6 +270,8 @@ def main() -> int:
     )  # NA for ATB-only records
     df["organism_value"] = df["accession"].map(org_by_acc).fillna(NA)
     df["osf_tarball_filename"] = df["accession"].map(tarball_by_acc).fillna(NA)
+    for column, accessions_by_biosample in sequence_accessions_by_column.items():
+        df[column] = df["accession"].map(accessions_by_biosample).fillna(NA)
     df = df[COLUMNS]
 
     # sanity counts
@@ -217,7 +303,7 @@ def main() -> int:
         log.info("renamed previous index -> %s", backup)
     df.to_csv(out_path, sep="\t", index=False)
     log.info("wrote index -> %s (%d rows)", out_path, len(df))
-    log.info("  sha256: %s", sha256(out_path))
+    log.info("  sha256: %s", sha256_file(out_path))
     return 0
 
 

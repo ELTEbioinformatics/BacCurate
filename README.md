@@ -77,21 +77,23 @@ LLM_MODEL="model-name"
 
 ### 4. Setting up input data
 
-The starting dataset is assembled locally from three public sources:
+The starting dataset is assembled from:
 
-- the [NCBI BioSample metadata](https://ftp.ncbi.nlm.nih.gov/biosample/) (`biosample_set.xml.gz`),
-- the [NCBI taxonomy dump](https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/) (`nodes.dmp`, `names.dmp`,
+- [NCBI BioSample metadata](https://ftp.ncbi.nlm.nih.gov/biosample/) (`biosample_set.xml.gz`),
+- [NCBI taxonomy dump](https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/) (`nodes.dmp`, `names.dmp`,
   `merged.dmp`),
-- the [AllTheBacteria](https://allthebacteria.org/) metadata (sylph/GTDB species profiling).
+- [AllTheBacteria](https://allthebacteria.org/) metadata (sylph/GTDB species profiling).
+- [NCBI Genbank metadata](https://ftp.ncbi.nlm.nih.gov/genomes/ASSEMBLY_REPORTS/assembly_summary_genbank.txt)
+- [NCBI RefSeq metadata](https://ftp.ncbi.nlm.nih.gov/genomes/ASSEMBLY_REPORTS/assembly_summary_refseq.txt)
+- [NCBI SRA metadata](https://ftp.ncbi.nlm.nih.gov/sra/reports/Metadata/SRA_Accessions.tab)
 
-With those in place, run:
+With those in `data/raw`, run:
 
 ```bash
-python scripts/parse_biosample_xml.py
-python scripts/build_biosample_index.py data/raw/atb_2025-05.tsv
+uv run python scripts/parse_biosample_xml.py
+uv run python scripts/filter_sequence_accessions.py
+uv run python scripts/build_biosample_index.py
 ```
-
-See [docs/data_acquisition.md](docs/data_acquisition.md) for more information.
 
 ## Usage
 
