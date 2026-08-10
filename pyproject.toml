@@ -15,7 +15,7 @@ authors = [
 
 dependencies = [
     "instructor~=1.15.4",
-    "openai~=2.51.0",
+    "openai~=2.53.0",
     "pydantic~=2.11",
     "pandas~=2.2.3",
     "lxml~=6.0",
