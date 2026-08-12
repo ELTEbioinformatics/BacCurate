@@ -95,7 +95,7 @@ class RunReport:
         }
         timestamp = _local_timestamp()
         self._document: dict[str, object] = {
-            "schema_version": 6,
+            "schema_version": 7,
             "status": RunStatus.RUNNING.value,
             "phase": RunPhase.STARTING.value,
             "started_at": timestamp,

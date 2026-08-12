@@ -8,8 +8,11 @@ import pytest
 
 from baccurate.standardization.collection_date import (
     DateBounds,
+    DateCategory,
     DateDiagnostic,
     DateOutcome,
+    DatePrecision,
+    DateStructure,
     RecordDateStandardizer,
 )
 from baccurate.standardization.supporting_attribute_value_pair import SupportingAttributeValuePair
@@ -103,9 +106,14 @@ def test_record_standardization_returns_typed_collection_date_outcome(standardiz
     )
 
     assert outcome == DateOutcome(
-        bounds=DateBounds(date(2020, 2, 1), date(2020, 2, 29), 0.9),
+        bounds=DateBounds(date(2020, 2, 1), date(2020, 2, 29)),
+        category=DateCategory.SAMPLE_COLLECTION,
+        structure=DateStructure.SINGLE_VALUE,
+        precision=DatePrecision.MONTH,
+        derivations=("direct",),
         supporting_pairs=(SupportingAttributeValuePair("collection_date", "2020-02"),),
     )
+
     assert standardizer.diagnostic_counts == {DateDiagnostic.COLLECTION_DATE_SELECTION: 1}
 
 
@@ -119,8 +127,12 @@ def test_record_standardization_prefers_valid_collection_date_over_all_fallback_
     )
 
     assert outcome == DateOutcome(
-        DateBounds(date(2020, 1, 1), date(2020, 12, 31), 0.8),
-        (SupportingAttributeValuePair("collection_date", "2020"),),
+        bounds=DateBounds(date(2020, 1, 1), date(2020, 12, 31)),
+        category=DateCategory.SAMPLE_COLLECTION,
+        structure=DateStructure.SINGLE_VALUE,
+        precision=DatePrecision.YEAR,
+        derivations=("direct",),
+        supporting_pairs=(SupportingAttributeValuePair("collection_date", "2020"),),
     )
 
 
@@ -136,8 +148,12 @@ def test_record_standardization_uses_oldest_fallback_date_when_collection_dates_
     )
 
     assert outcome == DateOutcome(
-        DateBounds(date(2019, 1, 1), date(2019, 12, 31), 0.1),
-        (SupportingAttributeValuePair("publication_date", "2019"),),
+        bounds=DateBounds(date(2019, 1, 1), date(2019, 12, 31)),
+        category=DateCategory.FALLBACK,
+        structure=DateStructure.SINGLE_VALUE,
+        precision=DatePrecision.YEAR,
+        derivations=("direct",),
+        supporting_pairs=(SupportingAttributeValuePair("publication_date", "2019"),),
     )
     assert standardizer.diagnostic_counts == {DateDiagnostic.FALLBACK_DATE_SELECTION: 1}
 
@@ -166,8 +182,12 @@ def test_conflicting_collection_dates_preserve_and_deduplicate_supporting_pairs(
     )
 
     assert outcome == DateOutcome(
-        DateBounds(date(1993, 1, 1), date(2009, 12, 31), 0.2),
-        (
+        bounds=DateBounds(date(1993, 1, 1), date(2009, 12, 31)),
+        category=DateCategory.SAMPLE_COLLECTION,
+        structure=DateStructure.CONFLICT_RANGE,
+        precision=DatePrecision.YEAR,
+        derivations=("direct",),
+        supporting_pairs=(
             SupportingAttributeValuePair("collection_date", "1993"),
             SupportingAttributeValuePair("sampling_date", "1993"),
             SupportingAttributeValuePair("collection_date", "2009"),
@@ -180,7 +200,7 @@ def test_conflicting_collection_dates_preserve_and_deduplicate_supporting_pairs(
     assert caplog.messages == []
 
 
-def test_equivalent_collection_date_bounds_keep_first_provenance_and_lowest_score(
+def test_equivalent_collection_date_bounds_keep_all_distinct_supporting_pairs(
     standardizer,
     caplog,
 ):
@@ -193,14 +213,55 @@ def test_equivalent_collection_date_bounds_keep_first_provenance_and_lowest_scor
     )
 
     assert outcome == DateOutcome(
-        DateBounds(date(2019, 3, 4), date(2019, 3, 4), 0.7),
-        (SupportingAttributeValuePair("collection_date", "2019-03-04"),),
+        bounds=DateBounds(date(2019, 3, 4), date(2019, 3, 4)),
+        category=DateCategory.SAMPLE_COLLECTION,
+        structure=DateStructure.SINGLE_VALUE,
+        precision=DatePrecision.DAY,
+        derivations=("direct",),
+        supporting_pairs=(
+            SupportingAttributeValuePair("collection_date", "2019-03-04"),
+            SupportingAttributeValuePair("sampling_date", "04/03/2019"),
+        ),
     )
     assert standardizer.diagnostic_counts == {
         DateDiagnostic.COLLECTION_DATE_SELECTION: 1,
         DateDiagnostic.EQUIVALENT_DATE_COLLAPSE: 1,
     }
     assert caplog.messages == []
+
+
+def test_equivalent_claims_union_exceptional_derivations_and_keep_their_evidence(
+    standardizer,
+):
+    outcome = standardize_record(
+        standardizer,
+        accession="SAMN_EQUIVALENT_DERIVATIONS",
+        attributes="collection_date||sampling_date",
+        values="2019-03-04||2019-03-04T25:99",
+        categories="c||c",
+    )
+
+    assert outcome.derivations == ("malformed_time_suffix",)
+    assert outcome.supporting_pairs == (
+        SupportingAttributeValuePair("collection_date", "2019-03-04"),
+        SupportingAttributeValuePair("sampling_date", "2019-03-04T25:99"),
+    )
+
+
+def test_equivalent_single_value_and_interval_have_single_value_structure(standardizer):
+    outcome = standardize_record(
+        standardizer,
+        accession="SAMN_EQUIVALENT_STRUCTURES",
+        attributes="collection_date||sampling_date",
+        values="2019||2019-01-01/2019-12-31",
+        categories="c||c",
+    )
+
+    assert outcome.structure is DateStructure.SINGLE_VALUE
+    assert outcome.supporting_pairs == (
+        SupportingAttributeValuePair("collection_date", "2019"),
+        SupportingAttributeValuePair("sampling_date", "2019-01-01/2019-12-31"),
+    )
 
 
 def test_explicit_interval_preserves_record_selection_and_supporting_pair(standardizer):
@@ -213,8 +274,12 @@ def test_explicit_interval_preserves_record_selection_and_supporting_pair(standa
     )
 
     assert outcome == DateOutcome(
-        DateBounds(date(2016, 11, 1), date(2017, 5, 29), 0.6),
-        (SupportingAttributeValuePair("collection_date", "Nov-2016/29-May-2017"),),
+        bounds=DateBounds(date(2016, 11, 1), date(2017, 5, 29)),
+        category=DateCategory.SAMPLE_COLLECTION,
+        structure=DateStructure.REPORTED_INTERVAL,
+        precision=DatePrecision.MONTH,
+        derivations=("direct",),
+        supporting_pairs=(SupportingAttributeValuePair("collection_date", "Nov-2016/29-May-2017"),),
     )
 
 
@@ -252,7 +317,7 @@ def test_metadata_reference_date_rejects_later_interval_endpoint_and_counts_noti
     assert standardize_date_value(standardizer, "2019 to 2027") is None
     reversed_bounds = standardize_date_value(standardizer, "2020 to 2018").bounds
 
-    assert reversed_bounds == DateBounds(date(2018, 1, 1), date(2020, 12, 31), 0.5)
+    assert reversed_bounds == DateBounds(date(2018, 1, 1), date(2020, 12, 31))
     assert standardizer.rejection_counts == {"after_metadata_reference_date": 1}
     assert standardizer.notice_counts == {"reversed_interval_normalized": 1}
     assert caplog.messages == []
@@ -273,20 +338,19 @@ def test_metadata_reference_date_rejects_later_interval_endpoint_and_counts_noti
     ],
 )
 def test_precise_dates_in_any_format_produce_a_single_day(standardizer, input_string):
-    bounds = standardize_date_value(standardizer, input_string).bounds
+    outcome = standardize_date_value(standardizer, input_string)
 
-    assert bounds.start == date(2019, 3, 15)
-    assert bounds.end == date(2019, 3, 15)
-    assert bounds.reliability_score == 1.0
+    assert outcome.bounds == DateBounds(date(2019, 3, 15), date(2019, 3, 15))
+    assert outcome.structure is DateStructure.SINGLE_VALUE
+    assert outcome.precision is DatePrecision.DAY
+    assert outcome.derivations == ("direct",)
 
 
 def test_iso_datetime_with_time_component_is_stripped_to_the_date(standardizer):
     """ISO timestamps are parsed from their date part."""
-    bounds = standardize_date_value(standardizer, "2019-03-15T12:00:00Z").bounds
+    outcome = standardize_date_value(standardizer, "2019-03-15T12:00:00Z")
 
-    assert bounds.start == date(2019, 3, 15)
-    assert bounds.end == date(2019, 3, 15)
-    assert bounds.reliability_score == 1.0
+    assert outcome.bounds == DateBounds(date(2019, 3, 15), date(2019, 3, 15))
 
 
 # =============================================================================
@@ -295,16 +359,14 @@ def test_iso_datetime_with_time_component_is_stripped_to_the_date(standardizer):
 #
 # A partial date like "2019" or "March 2019" is a range of possible
 # collection dates, not a single one. The goal is not to invent precision
-# that the source didn't provide. The reliability score reflects parse
-# confidence, the bound width reflects temporal precision. These are independent.
+# that the source didn't provide.
 
 
 def test_year_only_date_spans_the_entire_year(standardizer):
-    bounds = standardize_date_value(standardizer, "2019").bounds
+    outcome = standardize_date_value(standardizer, "2019")
 
-    assert bounds.start == date(2019, 1, 1)
-    assert bounds.end == date(2019, 12, 31)
-    assert bounds.reliability_score == 0.8
+    assert outcome.bounds == DateBounds(date(2019, 1, 1), date(2019, 12, 31))
+    assert outcome.precision is DatePrecision.YEAR
 
 
 @pytest.mark.parametrize(
@@ -317,11 +379,10 @@ def test_year_only_date_spans_the_entire_year(standardizer):
     ],
 )
 def test_year_month_date_spans_the_entire_month(standardizer, input_string):
-    bounds = standardize_date_value(standardizer, input_string).bounds
+    outcome = standardize_date_value(standardizer, input_string)
 
-    assert bounds.start == date(2019, 3, 1)
-    assert bounds.end == date(2019, 3, 31)
-    assert bounds.reliability_score == 0.9
+    assert outcome.bounds == DateBounds(date(2019, 3, 1), date(2019, 3, 31))
+    assert outcome.precision is DatePrecision.MONTH
 
 
 # =============================================================================
@@ -331,11 +392,10 @@ def test_year_month_date_spans_the_entire_month(standardizer, input_string):
 
 @pytest.mark.parametrize("input_string", ["03/03/2019", "03-03-2019"])
 def test_equal_numeric_components_resolve_without_ambiguity(standardizer, input_string):
-    bounds = standardize_date_value(standardizer, input_string).bounds
+    outcome = standardize_date_value(standardizer, input_string)
 
-    assert bounds.start == date(2019, 3, 3)
-    assert bounds.end == date(2019, 3, 3)
-    assert bounds.reliability_score == 1.0
+    assert outcome.bounds == DateBounds(date(2019, 3, 3), date(2019, 3, 3))
+    assert outcome.precision is DatePrecision.DAY
 
 
 # =============================================================================
@@ -345,68 +405,47 @@ def test_equal_numeric_components_resolve_without_ambiguity(standardizer, input_
 # E.g. "2018/2020". We expand each endpoint to its own bounds and take
 # the outer envelope: earliest possible start to latest possible end.
 
-# Interval scores are based on span width. A wider
-# possible-collection-date window means we know less about the actual
-# collection time, so the score drops accordingly:
-#     <= 1 year   -> 0.6
-#     <= 3 years  -> 0.5
-#     <= 6 years  -> 0.4
-#     <= 10 years -> 0.3
-#     >  10 years -> 0.2
-
 
 @pytest.mark.parametrize("separator", [" to ", " - "])
 def test_interval_separators_all_produce_the_same_envelope(standardizer, separator):
-    bounds = standardize_date_value(standardizer, f"2018{separator}2020").bounds
+    outcome = standardize_date_value(standardizer, f"2018{separator}2020")
 
-    assert bounds.start == date(2018, 1, 1)
-    assert bounds.end == date(2020, 12, 31)
-    assert bounds.reliability_score == 0.5
-
-
-@pytest.mark.parametrize(
-    "input_string,expected_score",
-    [
-        ("2019-06-01/2019-12-01", 0.6),  # ~6 months - within 1 year
-        ("2018/2020", 0.5),  # ~3 years
-        ("2015/2020", 0.4),  # ~6 years
-        ("2011/2020", 0.3),  # ~10 years
-        ("1990/2020", 0.2),  # > 10 years
-    ],
-)
-def test_interval_score_decreases_with_span_width(
-    standardizer,
-    input_string,
-    expected_score,
-):
-    bounds = standardize_date_value(standardizer, input_string).bounds
-    assert bounds.reliability_score == expected_score
+    assert outcome.bounds == DateBounds(date(2018, 1, 1), date(2020, 12, 31))
+    assert outcome.structure is DateStructure.REPORTED_INTERVAL
+    assert outcome.precision is DatePrecision.YEAR
 
 
-def test_interval_collapsing_to_single_date_keeps_pattern_score(standardizer):
-    """'2019/2019' is a redundant encoding of '2019', which should not be penalized."""
-    bounds = standardize_date_value(standardizer, "2019/2019").bounds
+def test_interval_collapsing_to_single_date_has_single_value_structure(standardizer):
+    outcome = standardize_date_value(standardizer, "2019/2019")
 
-    assert bounds.start == date(2019, 1, 1)
-    assert bounds.end == date(2019, 12, 31)
-    assert bounds.reliability_score == 0.8
+    assert outcome.bounds == DateBounds(date(2019, 1, 1), date(2019, 12, 31))
+    assert outcome.structure is DateStructure.SINGLE_VALUE
+    assert outcome.precision is DatePrecision.YEAR
 
 
 def test_interval_with_mixed_precision_uses_each_endpoints_bounds(standardizer):
-    bounds = standardize_date_value(standardizer, "2018/2020-06").bounds
+    outcome = standardize_date_value(standardizer, "2018/2020-06")
 
-    assert bounds.start == date(2018, 1, 1)  # full year on the left
-    assert bounds.end == date(2020, 6, 30)  # end of June on the right
-    # Span: ~2.5 years
-    assert bounds.reliability_score == 0.5
+    assert outcome.bounds.start == date(2018, 1, 1)  # full year on the left
+    assert outcome.bounds.end == date(2020, 6, 30)  # end of June on the right
+    assert outcome.precision is DatePrecision.YEAR
 
 
 def test_reversed_interval_is_widened_to_the_outer_envelope(standardizer):
     """'2020/2018' has the endpoints in the wrong order."""
-    bounds = standardize_date_value(standardizer, "2020/2018").bounds
+    outcome = standardize_date_value(standardizer, "2020/2018")
 
-    assert bounds.start == date(2018, 1, 1)
-    assert bounds.end == date(2020, 12, 31)
+    assert outcome.bounds == DateBounds(date(2018, 1, 1), date(2020, 12, 31))
+    assert outcome.derivations == ("reversed_interval",)
+
+
+def test_exceptional_derivations_have_deterministic_alphabetical_order(standardizer):
+    outcome = standardize_date_value(standardizer, "2020T25:99/2018")
+
+    assert outcome.derivations == (
+        "malformed_time_suffix",
+        "reversed_interval",
+    )
 
 
 # =============================================================================
@@ -449,5 +488,4 @@ def test_date_bounds_rejects_inverted_start_and_end():
         DateBounds(
             start=date(2020, 1, 1),
             end=date(2019, 1, 1),
-            reliability_score=1.0,
         )

@@ -61,11 +61,14 @@ TARGET_SPECS: Mapping[StandardizationTarget, TargetSpec] = MappingProxyType(
             required_policies=(),
             input_columns=("date_attr_orig", "date_val_orig", "date_category"),
             output_columns=(
-                "date_attr_orig",
-                "date_val_orig",
+                "date_category",
+                "date_structure",
+                "date_precision",
                 "date_start",
                 "date_end",
-                "date_reliability_score",
+                "date_derivations",
+                "date_attr_orig",
+                "date_val_orig",
             ),
         ),
         StandardizationTarget.LOCATION: TargetSpec(

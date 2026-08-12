@@ -50,11 +50,14 @@ LOCATION_POLICY_PATH = ROOT / "config" / "location.yaml"
 ISOLATION_SOURCE_POLICY_PATH = ROOT / "config" / "isolation_source.yaml"
 
 DATE_COLUMNS = (
-    "date_attr_orig",
-    "date_val_orig",
+    "date_category",
+    "date_structure",
+    "date_precision",
     "date_start",
     "date_end",
-    "date_reliability_score",
+    "date_derivations",
+    "date_attr_orig",
+    "date_val_orig",
 )
 LOCATION_COLUMNS = (
     "loc_attr_orig",
@@ -279,6 +282,34 @@ def _minimal_host_components(tmp_path: Path) -> tuple[HostPolicy, Path]:
     )
 
 
+def test_published_fallback_date_projects_resolved_columns_and_equal_bounds_evidence(
+    tmp_path: Path,
+) -> None:
+    built = _build_dataset(
+        tmp_path,
+        [
+            _dated_record(
+                "FALLBACK_DATE",
+                date_attr_orig="submission_date||publication_date",
+                date_val_orig="2019||2019",
+                date_category="f||f",
+            )
+        ],
+        (StandardizationTarget.DATE,),
+    )
+
+    assert tuple(built.records[0][column] for column in DATE_COLUMNS) == (
+        "fallback",
+        "single_value",
+        "year",
+        "2019-01-01",
+        "2019-12-31",
+        "direct",
+        "submission_date||publication_date",
+        "2019||2019",
+    )
+
+
 def _isolation_source_policy(tmp_path: Path) -> IsolationSourcePromptPolicy:
     tmp_path.mkdir(parents=True, exist_ok=True)
     return replace(
@@ -456,7 +487,7 @@ def test_requested_target_without_outcome_serializes_exact_empty_columns_without
     tmp_path: Path,
 ) -> None:
     date_path = tmp_path / "date"
-    date_policy = _location_policy(date_path)
+    location_policy = _location_policy(date_path)
     date_without_outcome = _build_dataset(
         date_path,
         [
@@ -468,7 +499,7 @@ def test_requested_target_without_outcome_serializes_exact_empty_columns_without
             )
         ],
         (StandardizationTarget.DATE, StandardizationTarget.LOCATION),
-        location_policy=date_policy,
+        location_policy=location_policy,
         location_standardizer_factory=_location_without_llm,
     )
 

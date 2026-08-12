@@ -1,7 +1,7 @@
 """Parse collection dates and pick the best one for a record."""
 
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
@@ -11,7 +11,8 @@ from baccurate.standardization._collection_date_interpreter import (
     DateBounds,
     DateInterpreter,
     DateRejection,
-    reliability_score_for_interval,
+    combine_date_derivations,
+    least_precise_date_precision,
 )
 from baccurate.standardization.supporting_attribute_value_pair import SupportingAttributeValuePair
 from baccurate.standardization_target.specifications import (
@@ -19,7 +20,22 @@ from baccurate.standardization_target.specifications import (
     FALLBACK_DATE_CATEGORY,
 )
 
-FALLBACK_SCORE = 0.1
+
+class DateCategory(StrEnum):
+    SAMPLE_COLLECTION = "sample_collection"
+    FALLBACK = "fallback"
+
+
+class DateStructure(StrEnum):
+    SINGLE_VALUE = "single_value"
+    REPORTED_INTERVAL = "reported_interval"
+    CONFLICT_RANGE = "conflict_range"
+
+
+class DatePrecision(StrEnum):
+    DAY = "day"
+    MONTH = "month"
+    YEAR = "year"
 
 
 class DateDiagnostic(StrEnum):
@@ -37,6 +53,9 @@ class ParsedDate:
     """A parsed date with the attribute and value it came from."""
 
     bounds: DateBounds
+    structure: DateStructure
+    precision: DatePrecision
+    derivations: tuple[str, ...]
     attribute: str
     value: str
 
@@ -46,15 +65,15 @@ class DateOutcome:
     """The chosen date and its supporting attribute-value pairs."""
 
     bounds: DateBounds
+    category: DateCategory
+    structure: DateStructure
+    precision: DatePrecision
+    derivations: tuple[str, ...]
     supporting_pairs: tuple[SupportingAttributeValuePair, ...]
 
     def __post_init__(self) -> None:
         if not self.supporting_pairs:
             raise ValueError("A date outcome requires at least one supporting attribute-value pair")
-
-    @property
-    def reliability_score(self) -> float:
-        return self.bounds.reliability_score
 
 
 class RecordDateStandardizer:
@@ -120,7 +139,14 @@ class RecordDateStandardizer:
             return None
         for notice in result.notices:
             self.notice_counts[notice] += 1
-        return ParsedDate(result.bounds, attribute, value)
+        return ParsedDate(
+            result.bounds,
+            DateStructure(result.structure),
+            DatePrecision(result.precision),
+            result.derivations,
+            attribute,
+            value,
+        )
 
     def _select_collection_date(
         self,
@@ -130,20 +156,23 @@ class RecordDateStandardizer:
         if len(parsed_dates) == 1:
             return DateOutcome(
                 first.bounds,
+                DateCategory.SAMPLE_COLLECTION,
+                first.structure,
+                first.precision,
+                first.derivations,
                 (SupportingAttributeValuePair(first.attribute, first.value),),
             )
 
         temporal_bounds = {(parsed.bounds.start, parsed.bounds.end) for parsed in parsed_dates}
         if len(temporal_bounds) == 1:
             self.diagnostic_counts[DateDiagnostic.EQUIVALENT_DATE_COLLAPSE] += 1
-            bounds = DateBounds(
-                first.bounds.start,
-                first.bounds.end,
-                min(parsed.bounds.reliability_score for parsed in parsed_dates),
-            )
             return DateOutcome(
-                bounds,
-                (SupportingAttributeValuePair(first.attribute, first.value),),
+                first.bounds,
+                DateCategory.SAMPLE_COLLECTION,
+                DateStructure.SINGLE_VALUE,
+                least_precise_date_precision(parsed.precision for parsed in parsed_dates),
+                combine_date_derivations(parsed.derivations for parsed in parsed_dates),
+                _supporting_pairs(parsed_dates),
             )
 
         combined_start = min(parsed.bounds.start for parsed in parsed_dates)
@@ -151,22 +180,39 @@ class RecordDateStandardizer:
         bounds = DateBounds(
             combined_start,
             combined_end,
-            reliability_score_for_interval(combined_start, combined_end),
-        )
-        distinct_pairs = list(
-            dict.fromkeys((parsed.attribute, parsed.value) for parsed in parsed_dates)
         )
         self.diagnostic_counts[DateDiagnostic.CONFLICTING_DATE_COMBINATION] += 1
-        supporting_pairs = tuple(
-            SupportingAttributeValuePair(attribute, value) for attribute, value in distinct_pairs
+        return DateOutcome(
+            bounds,
+            DateCategory.SAMPLE_COLLECTION,
+            DateStructure.CONFLICT_RANGE,
+            least_precise_date_precision(parsed.precision for parsed in parsed_dates),
+            combine_date_derivations(parsed.derivations for parsed in parsed_dates),
+            _supporting_pairs(parsed_dates),
         )
-        return DateOutcome(bounds, supporting_pairs)
 
     @staticmethod
     def _select_fallback_date(parsed_dates: list[ParsedDate]) -> DateOutcome:
         oldest = min(parsed_dates, key=lambda parsed: parsed.bounds.start)
-        bounds = DateBounds(oldest.bounds.start, oldest.bounds.end, FALLBACK_SCORE)
+        contributors = [parsed for parsed in parsed_dates if parsed.bounds == oldest.bounds]
         return DateOutcome(
-            bounds,
-            (SupportingAttributeValuePair(oldest.attribute, oldest.value),),
+            oldest.bounds,
+            DateCategory.FALLBACK,
+            _outcome_structure(contributors),
+            least_precise_date_precision(parsed.precision for parsed in contributors),
+            combine_date_derivations(parsed.derivations for parsed in contributors),
+            _supporting_pairs(contributors),
         )
+
+
+def _outcome_structure(parsed_dates: Sequence[ParsedDate]) -> DateStructure:
+    return parsed_dates[0].structure if len(parsed_dates) == 1 else DateStructure.SINGLE_VALUE
+
+
+def _supporting_pairs(
+    parsed_dates: Iterable[ParsedDate],
+) -> tuple[SupportingAttributeValuePair, ...]:
+    distinct_pairs = dict.fromkeys((parsed.attribute, parsed.value) for parsed in parsed_dates)
+    return tuple(
+        SupportingAttributeValuePair(attribute, value) for attribute, value in distinct_pairs
+    )

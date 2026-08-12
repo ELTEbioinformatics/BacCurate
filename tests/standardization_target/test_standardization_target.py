@@ -98,11 +98,14 @@ def test_dataset_header_keeps_its_target_order_contract() -> None:
     assert tuple(
         column for target in DATASET_COLUMN_ORDER for column in TARGET_SPECS[target].output_columns
     ) == (
-        "date_attr_orig",
-        "date_val_orig",
+        "date_category",
+        "date_structure",
+        "date_precision",
         "date_start",
         "date_end",
-        "date_reliability_score",
+        "date_derivations",
+        "date_attr_orig",
+        "date_val_orig",
         "loc_attr_orig",
         "loc_val_orig",
         "loc_UNregion",

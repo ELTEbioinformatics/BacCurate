@@ -5,7 +5,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from baccurate.standardization.collection_date import DateDiagnostic
+from baccurate.standardization.collection_date import (
+    DateCategory,
+    DateDiagnostic,
+    DatePrecision,
+    DateStructure,
+)
 from baccurate.standardization.host import HostDiagnostic
 from baccurate.standardization.isolation_source import (
     IsolationSourceDiagnostic,
@@ -31,6 +36,10 @@ class DateStatistics:
     processed: int
     standardized: int
     rejected: int
+    categories: Mapping[DateCategory, int]
+    structures: Mapping[DateStructure, int]
+    precisions: Mapping[DatePrecision, int]
+    derivations: Mapping[str, int]
     diagnostics: Mapping[DateDiagnostic, int]
     parsed_date_rejections: Mapping[str, int]
     notices: Mapping[str, int]
@@ -105,6 +114,7 @@ class InventedLabelStatistics:
 
     occurrences: int
     accessions: Mapping[str, int]
+
 
 @dataclass(frozen=True, slots=True)
 class IsolationSourceStatistics:

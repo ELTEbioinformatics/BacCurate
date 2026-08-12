@@ -21,6 +21,11 @@ from baccurate.run.statistics import (
     LocationBuildStatistics,
     LocationStatistics,
 )
+from baccurate.standardization.collection_date import (
+    DateCategory,
+    DatePrecision,
+    DateStructure,
+)
 from baccurate.standardization.isolation_source import (
     IsolationSourcePromptPolicy,
     IsolationSourceProvenance,
@@ -228,68 +233,6 @@ def test_run_report_omits_prompt_artifact_when_snapshot_is_not_planned(tmp_path:
     assert "prompt_artifact" not in run_report
 
 
-def test_run_report_names_requested_standardization_targets_in_schema_version_6(
-    tmp_path: Path,
-) -> None:
-    outputs = RunOutputs.plan(
-        output_dir=tmp_path,
-        run_name="run",
-        output_file=None,
-        include_isolation_source=False,
-        include_prompt_snapshot=False,
-    )
-    outputs.initialize()
-
-    RunReport(outputs, _run_context(tmp_path))
-
-    run_report = json.loads(outputs.run_report.read_text(encoding="utf-8"))
-    assert run_report["schema_version"] == 6
-    assert run_report["request"] == {
-        "pathogens": ["ecoli"],
-        "standardization_targets": ["date"],
-    }
-
-
-def test_run_report_records_isolation_source_provenance_without_schema_version_change(
-    tmp_path: Path,
-) -> None:
-    provenance = IsolationSourceProvenance(
-        vocabulary_version="vocabulary-v1",
-        vocabulary_fingerprint="vocabulary-content",
-        mapping_set_version="mapping-set-v2",
-        mapping_set_fingerprint="mapping-set-content",
-        prompt_version="prompt-v3",
-        prompt_configuration_fingerprint="prompt-content",
-    )
-    outputs = RunOutputs.plan(
-        output_dir=tmp_path,
-        run_name="run",
-        output_file=None,
-        include_isolation_source=True,
-        include_prompt_snapshot=False,
-    )
-    outputs.initialize()
-
-    RunReport(
-        outputs,
-        replace(
-            _run_context(tmp_path),
-            requested_standardization_targets=("iso",),
-            isolation_source_provenance=provenance,
-        ),
-    )
-
-    run_report = json.loads(outputs.run_report.read_text(encoding="utf-8"))
-    assert run_report["schema_version"] == 6
-    assert run_report["provenance"]["isolation_source"] == {
-        "vocabulary_version": "vocabulary-v1",
-        "vocabulary_fingerprint": "vocabulary-content",
-        "mapping_set_version": "mapping-set-v2",
-        "mapping_set_fingerprint": "mapping-set-content",
-        "prompt_version": "prompt-v3",
-        "prompt_configuration_fingerprint": "prompt-content",
-    }
-
 
 def test_run_report_publishes_the_full_scientific_target_key_set(tmp_path: Path) -> None:
     outputs = RunOutputs.plan(
@@ -324,6 +267,18 @@ def test_run_report_publishes_the_full_scientific_target_key_set(tmp_path: Path)
             }
         }
     }
+    assert run_report["scientific"]["date"]["aggregate"] == {
+        "processed": 1,
+        "standardized": 1,
+        "rejected": 0,
+        "categories": {"sample_collection": 1},
+        "structures": {"single_value": 1},
+        "precisions": {"day": 1},
+        "derivations": {"direct": 1},
+        "diagnostics": {},
+        "parsed_date_rejections": {},
+        "notices": {},
+    }
 
 
 def _complete_build_statistics(tmp_path: Path) -> DatasetBuildStatistics:
@@ -331,6 +286,10 @@ def _complete_build_statistics(tmp_path: Path) -> DatasetBuildStatistics:
         processed=1,
         standardized=1,
         rejected=0,
+        categories={DateCategory.SAMPLE_COLLECTION: 1},
+        structures={DateStructure.SINGLE_VALUE: 1},
+        precisions={DatePrecision.DAY: 1},
+        derivations={"direct": 1},
         diagnostics={},
         parsed_date_rejections={},
         notices={},

@@ -275,7 +275,7 @@ def test_pipeline_cli_reuses_extracted_bundle_without_curation_schema(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     extracted_metadata = _prepare_empty_extracted_bundle(tmp_path, monkeypatch)
-    missing_config_dir = tmp_path / "missing-config"
+    config_dir = tmp_path / "missing-config"
 
     pipeline_cli(
         [
@@ -283,7 +283,7 @@ def test_pipeline_cli_reuses_extracted_bundle_without_curation_schema(
             "--standardize",
             "date",
             "--config-dir",
-            str(missing_config_dir),
+            str(config_dir),
             "--extracted-metadata",
             str(extracted_metadata),
             "--output-dir",

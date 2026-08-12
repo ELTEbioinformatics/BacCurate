@@ -30,8 +30,11 @@ from baccurate.run.statistics import (
     invented_label_inventory,
 )
 from baccurate.standardization.collection_date import (
+    DateCategory,
     DateDiagnostic,
     DateOutcome,
+    DatePrecision,
+    DateStructure,
     RecordDateStandardizer,
 )
 from baccurate.standardization.host import (
@@ -75,6 +78,10 @@ from baccurate.standardization_target.specifications import (
 logger = logging.getLogger(__name__)
 
 
+def _sum_counts[Key: str](counts: Iterable[Counter[Key]]) -> dict[Key, int]:
+    return dict(sorted(sum(counts, Counter()).items()))
+
+
 @dataclass(frozen=True, slots=True)
 class DatasetBuildRequest:
     """Inputs, selection, destination, and runtime settings for one build."""
@@ -106,6 +113,10 @@ class _MutableDateStatistics:
     processed: int = 0
     standardized: int = 0
     rejected: int = 0
+    categories: Counter[DateCategory] = field(default_factory=Counter)
+    structures: Counter[DateStructure] = field(default_factory=Counter)
+    precisions: Counter[DatePrecision] = field(default_factory=Counter)
+    derivations: Counter[str] = field(default_factory=Counter)
 
 
 @dataclass(slots=True)
@@ -236,16 +247,21 @@ class _FinalRowAssembler:
         )
         if StandardizationTarget.DATE in self._selected_targets:
             if final_row.date is None:
-                values += ("", "", "", "", "")
+                values += ("",) * len(
+                    target_specifications.TARGET_SPECS[StandardizationTarget.DATE].output_columns
+                )
             else:
                 attributes = "||".join(pair.attribute for pair in final_row.date.supporting_pairs)
                 date_values = "||".join(pair.value for pair in final_row.date.supporting_pairs)
                 values += (
-                    attributes,
-                    date_values,
+                    final_row.date.category,
+                    final_row.date.structure,
+                    final_row.date.precision,
                     final_row.date.bounds.start.isoformat(),
                     final_row.date.bounds.end.isoformat(),
-                    final_row.date.reliability_score,
+                    "||".join(final_row.date.derivations),
+                    attributes,
+                    date_values,
                 )
         if StandardizationTarget.LOCATION in self._selected_targets:
             if final_row.location is None:
@@ -405,14 +421,13 @@ class DatasetBuilder:
                 request.pathogen_registry,
                 isolation_source_facets,
             )
-            date_standardizers = (
-                {
+            if StandardizationTarget.DATE in targets:
+                date_standardizers = {
                     pathogen: RecordDateStandardizer(source_contract.metadata_reference_date)
                     for pathogen in pathogens
                 }
-                if StandardizationTarget.DATE in targets
-                else {}
-            )
+            else:
+                date_standardizers = {}
             location_standardizer = None
             if StandardizationTarget.LOCATION in targets:
                 if self._location_standardizer_factory is not None:
@@ -645,6 +660,10 @@ class DatasetBuilder:
                         stats.rejected += 1
                     else:
                         stats.standardized += 1
+                        stats.categories[date_outcome.category] += 1
+                        stats.structures[date_outcome.structure] += 1
+                        stats.precisions[date_outcome.precision] += 1
+                        stats.derivations.update(date_outcome.derivations)
 
                 location_outcome = None
                 if location_standardizer is not None:
@@ -879,6 +898,10 @@ class DatasetBuilder:
                 processed=stats.processed,
                 standardized=stats.standardized,
                 rejected=stats.rejected,
+                categories=dict(sorted(stats.categories.items())),
+                structures=dict(sorted(stats.structures.items())),
+                precisions=dict(sorted(stats.precisions.items())),
+                derivations=dict(sorted(stats.derivations.items())),
                 diagnostics=dict(sorted(getattr(standardizer, "diagnostic_counts", {}).items())),
                 parsed_date_rejections=rejection_counts,
                 notices=notice_counts,
@@ -887,6 +910,10 @@ class DatasetBuilder:
             processed=sum(stats.processed for stats in mutable_stats.values()),
             standardized=sum(stats.standardized for stats in mutable_stats.values()),
             rejected=sum(stats.rejected for stats in mutable_stats.values()),
+            categories=_sum_counts(stats.categories for stats in mutable_stats.values()),
+            structures=_sum_counts(stats.structures for stats in mutable_stats.values()),
+            precisions=_sum_counts(stats.precisions for stats in mutable_stats.values()),
+            derivations=_sum_counts(stats.derivations for stats in mutable_stats.values()),
             diagnostics=dict(sorted(aggregate_diagnostics.items())),
             parsed_date_rejections=dict(sorted(aggregate_rejections.items())),
             notices=dict(sorted(aggregate_notices.items())),
@@ -921,11 +948,7 @@ class DatasetBuilder:
             direct_matches=sum(stats.direct_matches for stats in mutable_stats.values()),
             cache_hits=sum(stats.cache_hits for stats in mutable_stats.values()),
             llm_calls=sum(stats.llm_calls for stats in mutable_stats.values()),
-            diagnostics=dict(
-                sorted(
-                    sum((stats.diagnostics for stats in mutable_stats.values()), Counter()).items()
-                )
-            ),
+            diagnostics=_sum_counts(stats.diagnostics for stats in mutable_stats.values()),
         )
         return LocationBuildStatistics(aggregate=aggregate, by_pathogen=by_pathogen)
 

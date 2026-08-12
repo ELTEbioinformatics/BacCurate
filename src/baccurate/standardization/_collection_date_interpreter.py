@@ -2,7 +2,7 @@
 
 import calendar
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import date
 from typing import Literal
@@ -35,15 +35,16 @@ InterpretationFormatId = (
         "explicit_interval",
     ]
 )
+InterpretedDateStructure = Literal["single_value", "reported_interval"]
+InterpretedDatePrecision = Literal["day", "month", "year"]
 
 
 @dataclass(frozen=True, slots=True)
 class DateBounds:
-    """Earliest and latest possible collection day, with a reliability score."""
+    """The earliest and latest dates the event could have occurred."""
 
     start: date
     end: date
-    reliability_score: float
 
     def __post_init__(self) -> None:
         if self.start > self.end:
@@ -56,6 +57,9 @@ class DateInterpretation:
 
     bounds: DateBounds
     format_id: InterpretationFormatId
+    structure: InterpretedDateStructure
+    precision: InterpretedDatePrecision
+    derivations: tuple[str, ...]
     notices: tuple[Notice, ...] = ()
 
 
@@ -154,7 +158,7 @@ def _calendar_date(year: int, month: int, day: int) -> date | None:
 def _parse_year(match: re.Match[str]) -> SingleParse:
     year = int(match["year"])
     try:
-        return DateBounds(date(year, 1, 1), date(year, 12, 31), 0.8)
+        return DateBounds(date(year, 1, 1), date(year, 12, 31))
     except ValueError:
         return DateRejection("invalid_calendar_date")
 
@@ -164,7 +168,7 @@ def _parse_month(year: int, month: int) -> SingleParse:
         start, end = _month_bounds(year, month)
     except ValueError:
         return DateRejection("invalid_calendar_date")
-    return DateBounds(start, end, 0.9)
+    return DateBounds(start, end)
 
 
 def _parse_numeric_month(match: re.Match[str]) -> SingleParse:
@@ -179,7 +183,7 @@ def _parse_day(year: int, month: int, day: int) -> SingleParse:
     parsed = _calendar_date(year, month, day)
     if parsed is None:
         return DateRejection("invalid_calendar_date")
-    return DateBounds(parsed, parsed, 1.0)
+    return DateBounds(parsed, parsed)
 
 
 def _parse_year_first_day(match: re.Match[str]) -> SingleParse:
@@ -202,33 +206,38 @@ def _parse_numeric_year_last_day(match: re.Match[str]) -> SingleParse:
     month_first = _calendar_date(year, first, second)
     if day_first is None and month_first is None:
         return DateRejection("invalid_calendar_date")
-    if day_first is None:
-        chosen = month_first
-        reliability_score = 1.0
-    elif month_first is None or day_first == month_first:
-        chosen = day_first
-        reliability_score = 1.0
-    else:
-        chosen = day_first
-        reliability_score = 0.7
+    chosen = month_first if day_first is None else day_first
     assert chosen is not None
-    return DateBounds(chosen, chosen, reliability_score)
-
-
-def reliability_score_for_interval(start: date, end: date) -> float:
-    """Calculate a date reliability score from calendar-anniversary width thresholds."""
-    for years, reliability_score in ((1, 0.6), (3, 0.5), (6, 0.4), (10, 0.3)):
-        try:
-            anniversary = start.replace(year=start.year + years)
-        except ValueError:
-            anniversary = start.replace(year=start.year + years, day=28)
-        if end <= anniversary:
-            return reliability_score
-    return 0.2
+    return DateBounds(chosen, chosen)
 
 
 def _is_recognized_endpoint(result: InterpretationResult) -> bool:
     return not (isinstance(result, DateRejection) and result.reason == "unsupported_format")
+
+
+def least_precise_date_precision[DatePrecisionValue: str](
+    precisions: Iterable[DatePrecisionValue],
+) -> DatePrecisionValue:
+    """Return the least precise time unit in the given values."""
+    order = {
+        "day": 0,
+        "month": 1,
+        "year": 2,
+    }
+    return max(precisions, key=order.__getitem__)
+
+
+def combine_date_derivations(
+    derivation_groups: Iterable[Iterable[str]],
+) -> tuple[str, ...]:
+    """Sort the derivations and omit ``direct`` when others are present."""
+    exceptional_derivations = {
+        derivation
+        for derivations in derivation_groups
+        for derivation in derivations
+        if derivation != "direct"
+    }
+    return tuple(sorted(exceptional_derivations)) or ("direct",)
 
 
 def _finalize_interval(
@@ -243,22 +252,19 @@ def _finalize_interval(
 
     combined_start = min(start_result.bounds.start, end_result.bounds.start)
     combined_end = max(start_result.bounds.end, end_result.bounds.end)
-    if (
-        start_result.bounds.start == end_result.bounds.start
-        and start_result.bounds.end == end_result.bounds.end
-    ):
-        reliability_score = min(
-            start_result.bounds.reliability_score,
-            end_result.bounds.reliability_score,
-        )
-    else:
-        reliability_score = reliability_score_for_interval(combined_start, combined_end)
     notices = start_result.notices + end_result.notices
+    additional_derivations: tuple[str, ...] = ()
     if start_result.bounds.start > end_result.bounds.end:
         notices += ("reversed_interval_normalized",)
+        additional_derivations = ("reversed_interval",)
     return DateInterpretation(
-        DateBounds(combined_start, combined_end, reliability_score),
+        DateBounds(combined_start, combined_end),
         format_id,
+        ("single_value" if start_result.bounds == end_result.bounds else "reported_interval"),
+        least_precise_date_precision((start_result.precision, end_result.precision)),
+        combine_date_derivations(
+            (start_result.derivations, end_result.derivations, additional_derivations),
+        ),
         notices,
     )
 
@@ -372,7 +378,21 @@ class DateInterpreter:
             return DateRejection("before_supported_year")
         if bounds.start > self.metadata_reference_date:
             return DateRejection("after_metadata_reference_date")
-        return DateInterpretation(bounds, format_id, notices)
+        if format_id == "year":
+            precision = "year"
+        elif format_id in {"year_month", "month_year", "named_month_year"}:
+            precision = "month"
+        else:
+            precision = "day"
+        derivations = ("malformed_time_suffix",) if notices else ("direct",)
+        return DateInterpretation(
+            bounds,
+            format_id,
+            "single_value",
+            precision,
+            derivations,
+            notices,
+        )
 
     def _parse_supported_shape(
         self, value: str
