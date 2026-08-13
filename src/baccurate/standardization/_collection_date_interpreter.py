@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Literal
 
-MIN_YEAR = 1800
+MIN_YEAR = 1950
 
 Notice = Literal["malformed_time_suffix_ignored", "reversed_interval_normalized"]
 EndpointContext = Literal["start", "end"]

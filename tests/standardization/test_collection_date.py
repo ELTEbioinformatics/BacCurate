@@ -453,14 +453,14 @@ def test_exceptional_derivations_have_deterministic_alphabetical_order(standardi
 # =============================================================================
 #
 # The metadata occasionally contains malformed or typo'd dates. The
-# standardizer rejects anything outside [1800, current year], and returns no
+# standardizer rejects anything outside [1950, current year], and returns no
 # result for values it cannot parse at all.
 
 
 @pytest.mark.parametrize(
     "typo,description",
     [
-        ("1799", "year too far in the past for modern microbiological samples"),
+        ("1949", "year predates the supported One Health surveillance period"),
         ("2922-08-23", "year too far in the future. Probably typo for 2022"),
     ],
 )
@@ -470,6 +470,12 @@ def test_typo_dates_are_rejected_rather_than_returning_a_garbage_date(
     description,
 ):
     assert standardize_date_value(standardizer, typo) is None, description
+
+
+def test_minimum_supported_collection_year_is_inclusive(standardizer):
+    outcome = standardize_date_value(standardizer, "1950")
+
+    assert outcome.bounds == DateBounds(date(1950, 1, 1), date(1950, 12, 31))
 
 
 def test_unparseable_value_yields_no_result(standardizer):
