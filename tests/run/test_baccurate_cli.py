@@ -93,11 +93,11 @@ def test_pipeline_cli_discovers_pathogens_in_supplied_registry_order(
 ) -> None:
     index = tmp_path / "index.tsv"
     index.write_text(
-        "accession\tpathogen_biosample\n"
-        "SAMN1\talpha\n"
-        "SAMN2\tnot-targeted\n"
-        "SAMN3\tzeta\n"
-        "SAMN4\talpha\n",
+        "accession\tpathogen_biosample\tpathogen_ATB\n"
+        "SAMN1\talpha\tNA\n"
+        "SAMN2\tnot-targeted\tNA\n"
+        "SAMN3\tNA\tzeta\n"
+        "SAMN4\talpha\tNA\n",
         encoding="utf-8",
     )
     extracted_metadata = _prepare_empty_extracted_bundle(tmp_path, monkeypatch)

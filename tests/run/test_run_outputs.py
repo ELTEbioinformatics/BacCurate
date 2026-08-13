@@ -1,6 +1,5 @@
 import hashlib
 import json
-from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -28,7 +27,6 @@ from baccurate.standardization.collection_date import (
 )
 from baccurate.standardization.isolation_source import (
     IsolationSourcePromptPolicy,
-    IsolationSourceProvenance,
 )
 from baccurate.standardization.location import LocationPolicy
 

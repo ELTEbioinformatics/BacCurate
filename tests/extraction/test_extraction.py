@@ -142,6 +142,48 @@ def test_extraction_report_carries_both_validated_source_identities(
     assert report.prepared_input_paths == (sources.biosample, sources.bioproject)
 
 
+def test_extraction_reports_inclusion_routes_for_records_present_in_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    paired_source_snapshots,
+) -> None:
+    sources = paired_source_snapshots
+    sources.replace_contents(
+        biosample_xml=b"""\
+<BioSampleSet>
+  <BioSample accession="taxonomy"><Attributes>
+    <Attribute attribute="isolation_source">soil</Attribute>
+  </Attributes></BioSample>
+  <BioSample accession="atb"><Attributes>
+    <Attribute attribute="isolation_source">water</Attribute>
+  </Attributes></BioSample>
+</BioSampleSet>
+""",
+        bioproject_xml=b"<PackageSet />",
+    )
+    _configure_internal_paths(monkeypatch, sources)
+    index = tmp_path / "biosample_index.tsv"
+    index.write_text(
+        "accession\tpathogen_biosample\tpathogen_ATB\n"
+        "taxonomy\tecoli\tNA\n"
+        "atb\tNA\tecoli\n"
+        "absent-from-snapshot\tNA\tecoli\n",
+        encoding="utf-8",
+    )
+
+    report = run_extraction(
+        output_path=tmp_path / "extracted.tsv",
+        index_path=index,
+        disable_progress=True,
+    )
+
+    assert report.extracted_record_count == 2
+    assert report.inclusion_route_counts == {
+        "biosample_taxonomy": 1,
+        "allthebacteria": 1,
+    }
+
+
 def test_extraction_report_preserves_production_curation_review_counters(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

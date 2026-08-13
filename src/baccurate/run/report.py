@@ -95,7 +95,7 @@ class RunReport:
         }
         timestamp = _local_timestamp()
         self._document: dict[str, object] = {
-            "schema_version": 7,
+            "schema_version": 8,
             "status": RunStatus.RUNNING.value,
             "phase": RunPhase.STARTING.value,
             "started_at": timestamp,
@@ -174,6 +174,7 @@ class RunReport:
             extracted_metadata_path=report.extracted_metadata_path,
             elapsed_seconds=elapsed_seconds,
             extracted_record_count=report.extracted_record_count,
+            inclusion_route_counts=report.inclusion_route_counts,
             curation_counts={
                 "inspected_pairs": report.counters.inspected,
                 "identified_pairs": report.counters.identified,
@@ -401,6 +402,7 @@ def _extraction_document(
     acquired_snapshot_files: tuple[str, ...] | None = None,
     elapsed_seconds: float = 0.0,
     extracted_record_count: int | None = None,
+    inclusion_route_counts: Mapping[str, int] | None = None,
     curation_counts: dict[str, int] | None = None,
     automatic_rejection_counts: dict[str, dict[str, int]] | None = None,
     unreviewed_count: int | None = None,
@@ -435,6 +437,8 @@ def _extraction_document(
             "bundle_provenance_path": str(bundle_provenance_path),
         }
     )
+    if inclusion_route_counts is not None:
+        document["inclusion_route_counts"] = dict(inclusion_route_counts)
     return document
 
 

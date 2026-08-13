@@ -10,7 +10,7 @@ from pathlib import Path
 
 from baccurate.adapters.compressed_io import open_text
 from baccurate.adapters.llm.client import LLMSettings, load_llm_settings
-from baccurate.extraction import CurationSchema
+from baccurate.extraction import CurationSchema, resolve_pathogen_assignment
 from baccurate.pathogen_registry.registry import PathogenRegistry, load_pathogen_registry
 from baccurate.paths import (
     CONFIG_DIR,
@@ -78,9 +78,9 @@ def _discover_pathogens(
     with open_text(index_path, newline="") as f:
         reader = csv.DictReader(f, delimiter="\t")
         for row in reader:
-            pathogen = (row.get("pathogen_biosample") or "").strip()
-            if pathogen in keys:
-                found.add(pathogen)
+            assignment = resolve_pathogen_assignment(row, keys)
+            if assignment is not None:
+                found.add(assignment.pathogen_key)
     return [
         pathogen_key for pathogen_key in pathogen_registry.pathogen_keys if pathogen_key in found
     ]

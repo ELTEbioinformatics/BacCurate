@@ -68,15 +68,24 @@ def test_performed_extraction_report_publishes_mode_paths_and_paired_provenance(
             bioproject_snapshot_id="bioproject-test",
             metadata_reference_date=date(2026, 7, 19),
             bundle_provenance_path=tmp_path / "extracted.provenance.yaml",
+            inclusion_route_counts={
+                "biosample_taxonomy": 10,
+                "allthebacteria": 2,
+            },
         ),
         elapsed_seconds=1.0,
     )
 
     document = json.loads(outputs.run_report.read_text(encoding="utf-8"))
     extraction = document["extraction"]
+    assert document["schema_version"] == 8
     assert extraction["mode"] == "performed"
     assert extraction["prepared_input_paths"] == [str(sources.biosample), str(sources.bioproject)]
     assert extraction["bundle_provenance_path"] == str(tmp_path / "extracted.provenance.yaml")
+    assert extraction["inclusion_route_counts"] == {
+        "biosample_taxonomy": 10,
+        "allthebacteria": 2,
+    }
     assert document["provenance"] == {
         "biosample": {
             "snapshot_id": "biosample-test",
@@ -108,6 +117,7 @@ def test_reused_extraction_report_publishes_mode_and_acquired_snapshot_files(
     assert extraction["mode"] == "reused"
     assert extraction["acquired_snapshot_files"] == ["biosample.xml.gz", "bioproject.xml.gz"]
     assert extraction["bundle_provenance_path"] == str(bundle.provenance)
+    assert "inclusion_route_counts" not in extraction
     assert document["provenance"] == {
         "biosample": {
             "snapshot_id": "fixture-biosample-2026-01-01",

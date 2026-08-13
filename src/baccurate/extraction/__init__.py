@@ -7,6 +7,12 @@ from baccurate.extraction.curation import (
     CurationSchema,
     CurationSchemaError,
 )
+from baccurate.extraction.io import (
+    InclusionRoute,
+    TargetPathogenAssignment,
+    load_pathogen_map,
+    resolve_pathogen_assignment,
+)
 from baccurate.extraction.metadata_types import TargetMatch
 from baccurate.extraction.tables import COLUMNS
 from baccurate.extraction.xml import CurationCounters
@@ -19,7 +25,11 @@ __all__ = [
     "CurationSchema",
     "CurationSchemaError",
     "ExtractionReport",
+    "InclusionRoute",
     "TargetMatch",
+    "TargetPathogenAssignment",
     "cli",
+    "load_pathogen_map",
+    "resolve_pathogen_assignment",
     "run_extraction",
 ]

@@ -4,9 +4,9 @@ import argparse
 import csv
 import logging
 import tempfile
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
@@ -17,10 +17,11 @@ from baccurate.extraction.bioproject import (
     write_unresolved_bioproject_links,
 )
 from baccurate.extraction.curation import CurationSchema
-from baccurate.extraction.io import load_pathogen_map
+from baccurate.extraction.io import InclusionRoute, load_pathogen_map
 from baccurate.extraction.manual_review import ReviewWorklists
 from baccurate.extraction.tables import COLUMNS, extracted_metadata_row
 from baccurate.extraction.xml import CurationCounters, process_biosample_xml
+from baccurate.pathogen_registry.registry import PathogenRegistry, load_pathogen_registry
 from baccurate.provenance.source_snapshot import (
     DerivedBundleProvenance,
     _publish_bundle,
@@ -48,6 +49,7 @@ class ExtractionReport:
     bioproject_snapshot_id: str
     metadata_reference_date: date
     bundle_provenance_path: Path
+    inclusion_route_counts: dict[InclusionRoute, int] = field(default_factory=dict)
 
 
 def run_extraction(
@@ -58,6 +60,7 @@ def run_extraction(
     disable_progress: bool = False,
     *,
     curation_schema: CurationSchema,
+    pathogen_registry: PathogenRegistry | None = None,
 ) -> ExtractionReport:
     logging.basicConfig(
         level=log_level.upper(),
@@ -75,11 +78,15 @@ def run_extraction(
     counters = CurationCounters()
     review_worklists = ReviewWorklists()
 
-    pathogen_by_accession = load_pathogen_map(index_path, names)
+    registry = pathogen_registry or load_pathogen_registry()
+    target_pathogen_assignment_by_accession = load_pathogen_map(
+        index_path, registry.pathogen_keys, names
+    )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     bundle_provenance_path = provenance_path_for(output_path)
     extracted_record_count = 0
+    inclusion_route_counts: Counter[InclusionRoute] = Counter()
     linked_project_samples: dict[str, set[str]] = defaultdict(set)
 
     with tempfile.TemporaryDirectory(
@@ -103,12 +110,12 @@ def run_extraction(
                     ):
                         for decision in decisions:
                             review_worklists.observe(decision, accession=accession)
-                        pathogen = pathogen_by_accession.get(accession)
-                        if pathogen is None:
+                        assignment = target_pathogen_assignment_by_accession.get(accession)
+                        if assignment is None:
                             continue
                         extracted_metadata_values = extracted_metadata_row(
                             accession=accession,
-                            pathogen=pathogen,
+                            pathogen=assignment.pathogen_key,
                             bioproject_id="||".join(bioproject_ids),
                             bioproject_accession="",
                             decisions=decisions,
@@ -116,6 +123,7 @@ def run_extraction(
                         if extracted_metadata_values is not None:
                             writer.writerow(extracted_metadata_values)
                             extracted_record_count += 1
+                            inclusion_route_counts[assignment.inclusion_route] += 1
                             for project_id in bioproject_ids:
                                 linked_project_samples[project_id].add(accession)
                     bar.update(1)
@@ -168,6 +176,10 @@ def run_extraction(
         bioproject_snapshot_id=source_contract.bioproject.snapshot_id,
         metadata_reference_date=source_contract.metadata_reference_date,
         bundle_provenance_path=bundle_provenance_path,
+        inclusion_route_counts={
+            route: inclusion_route_counts[route]
+            for route in ("biosample_taxonomy", "allthebacteria")
+        },
     )
 
 

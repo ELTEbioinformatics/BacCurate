@@ -102,6 +102,7 @@ def main(
                     curation_schema=curation_schema,
                     index_path=index_path,
                     names=extraction_names,
+                    pathogen_registry=registry,
                     log_level=log_level,
                     disable_progress=disable_progress,
                 )

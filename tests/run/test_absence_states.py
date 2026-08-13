@@ -191,13 +191,17 @@ def _build_dataset(
     location_standardizer_factory: Callable[..., LocationStandardizer] | None = None,
     host_standardizer_factory: Callable[..., HostStandardizer] | None = None,
     isolation_source_standardizer_factory: Callable[..., IsolationSourceStandardizer] | None = None,
+    atb_index_rows: str = "",
 ) -> _BuiltDataset:
     extracted_path, biosample_manifest, bioproject_manifest = _write_extracted_bundle(
         tmp_path,
         rows,
     )
     atb_index = tmp_path / "atb.tsv"
-    atb_index.write_text("accession\tpathogen_ATB\tin_ATB\n", encoding="utf-8")
+    atb_index.write_text(
+        "accession\tpathogen_ATB\tin_ATB\n" + atb_index_rows,
+        encoding="utf-8",
+    )
     destination = tmp_path / "final.tsv"
     statistics = DatasetBuilder(
         location_standardizer_factory=location_standardizer_factory,
@@ -241,6 +245,17 @@ def _dated_record(accession: str, **metadata: str) -> dict[str, str]:
         "date_category": "c",
         **metadata,
     }
+
+
+def test_in_atb_is_membership_for_the_resolved_target_pathogen(tmp_path: Path) -> None:
+    built = _build_dataset(
+        tmp_path,
+        [_dated_record("MATCHING"), _dated_record("CONFLICTING")],
+        (StandardizationTarget.DATE,),
+        atb_index_rows=("MATCHING\tecoli\tTrue\nCONFLICTING\tefaecium\tTrue\n"),
+    )
+
+    assert [record["in_ATB"] for record in built.records] == ["True", "False"]
 
 
 def _location_policy(tmp_path: Path) -> LocationPolicy:
