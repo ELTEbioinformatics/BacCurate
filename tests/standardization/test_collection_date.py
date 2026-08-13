@@ -217,7 +217,7 @@ def test_equivalent_collection_date_bounds_keep_all_distinct_supporting_pairs(
         category=DateCategory.SAMPLE_COLLECTION,
         structure=DateStructure.SINGLE_VALUE,
         precision=DatePrecision.DAY,
-        derivations=("direct",),
+        derivations=("ambiguous_numeric_assumed_day_first",),
         supporting_pairs=(
             SupportingAttributeValuePair("collection_date", "2019-03-04"),
             SupportingAttributeValuePair("sampling_date", "04/03/2019"),
@@ -390,12 +390,49 @@ def test_year_month_date_spans_the_entire_month(standardizer, input_string):
 # =============================================================================
 
 
+def test_ambiguous_numeric_date_keeps_day_first_outcome_and_marks_assumption(standardizer):
+    outcome = standardize_date_value(standardizer, "04/03/2019")
+
+    assert outcome == DateOutcome(
+        bounds=DateBounds(date(2019, 3, 4), date(2019, 3, 4)),
+        category=DateCategory.SAMPLE_COLLECTION,
+        structure=DateStructure.SINGLE_VALUE,
+        precision=DatePrecision.DAY,
+        derivations=("ambiguous_numeric_assumed_day_first",),
+        supporting_pairs=(SupportingAttributeValuePair("collection_date", "04/03/2019"),),
+    )
+
+
+@pytest.mark.parametrize(
+    ("input_string", "expected_date"),
+    [
+        ("13/04/2019", date(2019, 4, 13)),
+        ("04/13/2019", date(2019, 4, 13)),
+    ],
+)
+def test_numeric_date_uses_the_only_valid_orientation(
+    standardizer,
+    input_string,
+    expected_date,
+):
+    outcome = standardize_date_value(standardizer, input_string)
+
+    assert outcome.bounds == DateBounds(expected_date, expected_date)
+    assert outcome.derivations == ("direct",)
+
+
+def test_numeric_date_with_no_valid_orientation_is_rejected(standardizer):
+    assert standardize_date_value(standardizer, "31/04/2019") is None
+    assert standardizer.rejection_counts == {"invalid_calendar_date": 1}
+
+
 @pytest.mark.parametrize("input_string", ["03/03/2019", "03-03-2019"])
 def test_equal_numeric_components_resolve_without_ambiguity(standardizer, input_string):
     outcome = standardize_date_value(standardizer, input_string)
 
     assert outcome.bounds == DateBounds(date(2019, 3, 3), date(2019, 3, 3))
     assert outcome.precision is DatePrecision.DAY
+    assert outcome.derivations == ("direct",)
 
 
 # =============================================================================

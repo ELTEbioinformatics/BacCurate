@@ -384,7 +384,18 @@ class DateInterpreter:
             precision = "month"
         else:
             precision = "day"
-        derivations = ("malformed_time_suffix",) if notices else ("direct",)
+        # If both numbers are <=12, either could be the month.
+        ambiguous_numeric_assumption = (
+            format_id == "numeric_year_last_day"
+            and bounds.start.day <= 12
+            and bounds.start.day != bounds.start.month
+        )
+        derivations = combine_date_derivations(
+            (
+                ("ambiguous_numeric_assumed_day_first",) if ambiguous_numeric_assumption else (),
+                ("malformed_time_suffix",) if notices else (),
+            )
+        )
         return DateInterpretation(
             bounds,
             format_id,
