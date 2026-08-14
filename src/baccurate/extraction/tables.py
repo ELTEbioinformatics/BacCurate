@@ -10,6 +10,7 @@ COLUMNS = [
     "bioproject_id",
     "bioproject_accession",
     "pathogen",
+    "biosample_last_update",
     "date_category",
 ] + [f"{target}_{kind}_orig" for target in EXTRACTION_TARGET_ORDER for kind in ("attr", "val")]
 
@@ -27,9 +28,12 @@ def extracted_metadata_row(
         target: ([], []) for target in EXTRACTION_TARGET_ORDER
     }
     date_categories: list[str] = []
+    biosample_last_update = ""
     found = False
 
     for decision in decisions:
+        if decision.xml_element == "biosample_root" and decision.attribute == "last_update":
+            biosample_last_update = decision.value
         for match in decision.matches:
             found = True
             attributes, values = raw_pairs[match.target]
@@ -46,6 +50,7 @@ def extracted_metadata_row(
         bioproject_id,
         bioproject_accession,
         pathogen,
+        biosample_last_update,
         "||".join(date_categories),
     ]
     for target in EXTRACTION_TARGET_ORDER:

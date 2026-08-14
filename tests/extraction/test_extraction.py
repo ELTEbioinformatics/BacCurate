@@ -207,6 +207,9 @@ def test_extraction_report_preserves_production_curation_review_counters(
   <BioSample accession="SAMN5"><Attributes>
     <Attribute attribute="host_environment">human</Attribute>
   </Attributes></BioSample>
+  <BioSample accession="SAMN6"><Attributes>
+    <Attribute attribute="collection_date">aerobic</Attribute>
+  </Attributes></BioSample>
 </BioSampleSet>
 """
     sources.replace_contents(
@@ -275,7 +278,7 @@ def test_extraction_publishes_provenance_bound_metadata_bundle(
     sources = paired_source_snapshots
     biosample_xml = b"""\
 <BioSampleSet>
-  <BioSample accession="SAMN00000001">
+  <BioSample accession="SAMN00000001" last_update="2025-06-30T12:34:56.000">
     <Attributes>
       <Attribute attribute="isolation_source">farm soil</Attribute>
     </Attributes>
@@ -334,6 +337,7 @@ def test_extraction_publishes_provenance_bound_metadata_bundle(
     assert len(rows) == 1
     assert rows[0]["bioproject_id"] == "1050647"
     assert rows[0]["bioproject_accession"] == "PRJNA1050647"
+    assert rows[0]["biosample_last_update"] == "2025-06-30T12:34:56.000"
     assert "title" not in rows[0]
     assert "description" not in rows[0]
 

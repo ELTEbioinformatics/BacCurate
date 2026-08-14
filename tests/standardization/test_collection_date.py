@@ -30,6 +30,7 @@ def standardize_record(
     attributes: str = "collection_date",
     values: str,
     categories: str = "c",
+    biosample_last_update: str = "",
 ) -> DateOutcome | None:
     return standardizer.standardize(
         {
@@ -37,6 +38,7 @@ def standardize_record(
             "date_attr_orig": attributes,
             "date_val_orig": values,
             "date_category": categories,
+            "biosample_last_update": biosample_last_update,
         }
     )
 
@@ -311,16 +313,120 @@ def test_record_standardization_reports_deduplicated_details_and_reason_totals(
     assert caplog.messages == []
 
 
-def test_metadata_reference_date_rejects_later_interval_endpoint_and_counts_notice(
+def test_metadata_reference_date_limits_later_interval_endpoint_and_counts_notice(
     standardizer, caplog
 ):
-    assert standardize_date_value(standardizer, "2019 to 2027") is None
+    limited = standardize_date_value(standardizer, "2019 to 2027")
     reversed_bounds = standardize_date_value(standardizer, "2020 to 2018").bounds
 
+    assert limited.bounds == DateBounds(date(2019, 1, 1), date(2026, 1, 1))
+    assert limited.derivations == ("reference_date_limit",)
     assert reversed_bounds == DateBounds(date(2018, 1, 1), date(2020, 12, 31))
-    assert standardizer.rejection_counts == {"after_metadata_reference_date": 1}
+    assert standardizer.rejection_counts == {}
     assert standardizer.notice_counts == {"reversed_interval_normalized": 1}
     assert caplog.messages == []
+
+
+@pytest.mark.parametrize(
+    ("value", "expected_start", "expected_precision", "expected_structure"),
+    [
+        ("2026", date(2026, 1, 1), DatePrecision.YEAR, DateStructure.SINGLE_VALUE),
+        ("2026-07", date(2026, 7, 1), DatePrecision.MONTH, DateStructure.SINGLE_VALUE),
+        (
+            "2026-07-09/2026-07-31",
+            date(2026, 7, 9),
+            DatePrecision.DAY,
+            DateStructure.REPORTED_INTERVAL,
+        ),
+    ],
+)
+def test_metadata_reference_date_limits_partially_future_claims_without_changing_contract(
+    value,
+    expected_start,
+    expected_precision,
+    expected_structure,
+):
+    standardizer = RecordDateStandardizer(metadata_reference_date=date(2026, 7, 9))
+
+    outcome = standardize_date_value(standardizer, value)
+
+    assert outcome.bounds == DateBounds(expected_start, date(2026, 7, 9))
+    assert outcome.precision is expected_precision
+    assert outcome.structure is expected_structure
+    assert outcome.derivations == ("reference_date_limit",)
+
+
+def test_metadata_reference_day_is_accepted():
+    standardizer = RecordDateStandardizer(metadata_reference_date=date(2026, 7, 9))
+
+    outcome = standardize_date_value(standardizer, "2026-07-09")
+
+    assert outcome.bounds == DateBounds(date(2026, 7, 9), date(2026, 7, 9))
+    assert outcome.derivations == ("direct",)
+
+
+def test_entirely_future_claim_is_rejected():
+    standardizer = RecordDateStandardizer(metadata_reference_date=date(2026, 7, 9))
+
+    assert standardize_date_value(standardizer, "2026-07-10/2026-07-31") is None
+    assert standardizer.rejection_counts == {"after_metadata_reference_date": 1}
+
+
+def test_collection_date_uses_biosample_last_update_as_soft_limit_on_leap_day():
+    standardizer = RecordDateStandardizer(metadata_reference_date=date(2026, 7, 9))
+
+    outcome = standardize_record(
+        standardizer,
+        values="2024",
+        biosample_last_update="2024-02-29T12:34:56.000",
+    )
+
+    assert outcome.bounds == DateBounds(date(2024, 1, 1), date(2024, 2, 29))
+    assert outcome.precision is DatePrecision.YEAR
+    assert outcome.derivations == ("last_update_limit",)
+
+
+def test_collection_date_ignores_soft_limit_before_the_claim():
+    standardizer = RecordDateStandardizer(metadata_reference_date=date(2026, 7, 9))
+
+    outcome = standardize_record(
+        standardizer,
+        values="2026",
+        biosample_last_update="2025-01-16T00:00:00",
+    )
+
+    assert outcome.bounds == DateBounds(date(2026, 1, 1), date(2026, 7, 9))
+    assert outcome.derivations == ("reference_date_limit",)
+
+
+def test_fallback_date_does_not_use_biosample_last_update_soft_limit():
+    standardizer = RecordDateStandardizer(metadata_reference_date=date(2026, 7, 9))
+
+    outcome = standardize_record(
+        standardizer,
+        attributes="submission_date",
+        values="2026",
+        categories="f",
+        biosample_last_update="2026-02-28T12:34:56",
+    )
+
+    assert outcome.bounds == DateBounds(date(2026, 1, 1), date(2026, 7, 9))
+    assert outcome.derivations == ("reference_date_limit",)
+
+
+def test_different_contributing_claim_limits_are_combined_alphabetically():
+    standardizer = RecordDateStandardizer(metadata_reference_date=date(2026, 7, 9))
+
+    outcome = standardize_record(
+        standardizer,
+        attributes="collection_date||sampling_date",
+        values="2025||2026",
+        categories="c||c",
+        biosample_last_update="2025-06-30T00:00:00",
+    )
+
+    assert outcome.bounds == DateBounds(date(2025, 1, 1), date(2026, 7, 9))
+    assert outcome.derivations == ("last_update_limit", "reference_date_limit")
 
 
 # =============================================================================

@@ -3,7 +3,7 @@
 import calendar
 import re
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from typing import Literal
 
@@ -304,13 +304,42 @@ class DateInterpreter:
     Recognizes single dates and intervals (abbreviated year ranges,
     "to"/hyphen ranges, and slash-separated pairs).
 
-    Values after metadata_reference_date are rejected.
+    Date ranges cannot occur entirely after metadata_reference_date.
+    Dates that extend beyond it are shortened to end on that date.
     """
 
     def __init__(self, metadata_reference_date: date):
         self.metadata_reference_date = metadata_reference_date
 
-    def interpret(self, raw_value: str) -> InterpretationResult:
+    def interpret(
+        self,
+        raw_value: str,
+        *,
+        last_update: date | None = None,
+    ) -> InterpretationResult:
+        """Interpret a date range and apply its latest allowed date."""
+        result = self._interpret_nominal(raw_value)
+        if isinstance(result, DateRejection):
+            return result
+        if result.bounds.start > self.metadata_reference_date:
+            return DateRejection("after_metadata_reference_date")
+
+        effective_limit = self.metadata_reference_date
+        limit_derivation = "reference_date_limit"
+        if last_update is not None and result.bounds.start <= last_update <= effective_limit:
+            effective_limit = last_update
+            limit_derivation = "last_update_limit"
+        if result.bounds.end <= effective_limit:
+            return result
+        return replace(
+            result,
+            bounds=DateBounds(result.bounds.start, effective_limit),
+            derivations=combine_date_derivations(
+                (result.derivations, (limit_derivation,)),
+            ),
+        )
+
+    def _interpret_nominal(self, raw_value: str) -> InterpretationResult:
         value = raw_value.strip()
         single_result = self.interpret_single(value)
         if isinstance(single_result, DateInterpretation):
@@ -404,8 +433,6 @@ class DateInterpreter:
         bounds, format_id = parsed
         if bounds.end.year < MIN_YEAR:
             return DateRejection("before_supported_year")
-        if bounds.start > self.metadata_reference_date:
-            return DateRejection("after_metadata_reference_date")
         if format_id in {"year", "decade"}:
             precision = "year"
         elif format_id in {"year_month", "month_year", "named_month_year"}:

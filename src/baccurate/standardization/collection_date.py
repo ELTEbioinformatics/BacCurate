@@ -109,10 +109,15 @@ class RecordDateStandardizer:
                     f"{COLLECTION_DATE_CATEGORY!r} or {FALLBACK_DATE_CATEGORY!r}"
                 )
 
+        last_update = _biosample_last_update(extracted_record)
         collection_dates: list[ParsedDate] = []
         fallback_dates: list[ParsedDate] = []
         for attribute, value, category in zip(attributes, values, categories, strict=False):
-            parsed = self._parse_date(attribute, value)
+            parsed = self._parse_date(
+                attribute,
+                value,
+                last_update if category == COLLECTION_DATE_CATEGORY else None,
+            )
             if parsed is None:
                 continue
             (collection_dates if category == COLLECTION_DATE_CATEGORY else fallback_dates).append(
@@ -132,8 +137,9 @@ class RecordDateStandardizer:
         self,
         attribute: str,
         value: str,
+        last_update: date | None,
     ) -> ParsedDate | None:
-        result = self.interpreter.interpret(value)
+        result = self.interpreter.interpret(value, last_update=last_update)
         if isinstance(result, DateRejection):
             self.rejection_counts[result.reason] += 1
             return None
@@ -207,6 +213,15 @@ class RecordDateStandardizer:
 
 def _outcome_structure(parsed_dates: Sequence[ParsedDate]) -> DateStructure:
     return parsed_dates[0].structure if len(parsed_dates) == 1 else DateStructure.SINGLE_VALUE
+
+
+def _biosample_last_update(
+    extracted_record: Mapping[str, str],
+) -> date | None:
+    value = (extracted_record.get("biosample_last_update") or "").strip()
+    if not value:
+        return None
+    return date.fromisoformat(value[:10])
 
 
 def _supporting_pairs(

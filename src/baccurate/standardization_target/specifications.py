@@ -59,7 +59,12 @@ TARGET_SPECS: Mapping[StandardizationTarget, TargetSpec] = MappingProxyType(
             published_key="date",
             uses_llm=False,
             required_policies=(),
-            input_columns=("date_attr_orig", "date_val_orig", "date_category"),
+            input_columns=(
+                "biosample_last_update",
+                "date_attr_orig",
+                "date_val_orig",
+                "date_category",
+            ),
             output_columns=(
                 "date_category",
                 "date_structure",

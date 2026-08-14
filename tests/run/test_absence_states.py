@@ -95,6 +95,7 @@ EXTRACTED_COLUMNS = (
     "pathogen",
     "bioproject_id",
     "bioproject_accession",
+    "biosample_last_update",
     "date_attr_orig",
     "date_val_orig",
     "date_category",

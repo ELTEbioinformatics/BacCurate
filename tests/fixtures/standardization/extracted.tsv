@@ -1,2 +1,2 @@
-accession	bioproject_id	bioproject_accession	pathogen	date_category	date_attr_orig	date_val_orig	loc_attr_orig	loc_val_orig	host_attr_orig	host_val_orig	iso_attr_orig	iso_val_orig
-FIXTURE_HUMAN	1	PRJNA1	ecoli	c	collection_date	2020-02	geo_loc_name	Germany: Berlin	host	human	isolation_source	stool
+accession	bioproject_id	bioproject_accession	pathogen	biosample_last_update	date_category	date_attr_orig	date_val_orig	loc_attr_orig	loc_val_orig	host_attr_orig	host_val_orig	iso_attr_orig	iso_val_orig
+FIXTURE_HUMAN	1	PRJNA1	ecoli	2020-02-29T00:00:00	c	collection_date	2020-02	geo_loc_name	Germany: Berlin	host	human	isolation_source	stool
