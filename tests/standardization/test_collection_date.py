@@ -370,6 +370,114 @@ def test_year_only_date_spans_the_entire_year(standardizer):
 
 
 @pytest.mark.parametrize(
+    ("input_string", "expected_bounds", "expected_precision", "expected_derivations"),
+    [
+        (
+            "1970s",
+            DateBounds(date(1970, 1, 1), date(1979, 12, 31)),
+            DatePrecision.YEAR,
+            ("direct",),
+        ),
+        (
+            "1980's",
+            DateBounds(date(1980, 1, 1), date(1989, 12, 31)),
+            DatePrecision.YEAR,
+            ("direct",),
+        ),
+        (
+            "Aug-Oct 2001",
+            DateBounds(date(2001, 8, 1), date(2001, 10, 31)),
+            DatePrecision.MONTH,
+            ("direct",),
+        ),
+        (
+            "july-Dec 2004",
+            DateBounds(date(2004, 7, 1), date(2004, 12, 31)),
+            DatePrecision.MONTH,
+            ("direct",),
+        ),
+        (
+            "Between 2002 and 2005",
+            DateBounds(date(2002, 1, 1), date(2005, 12, 31)),
+            DatePrecision.YEAR,
+            ("direct",),
+        ),
+        (
+            "Dec-July 2004",
+            DateBounds(date(2004, 7, 1), date(2004, 12, 31)),
+            DatePrecision.MONTH,
+            ("reversed_interval",),
+        ),
+        (
+            "Between 2005 and 2002",
+            DateBounds(date(2002, 1, 1), date(2005, 12, 31)),
+            DatePrecision.YEAR,
+            ("reversed_interval",),
+        ),
+        (
+            "1994-03-01 T00:00:00",
+            DateBounds(date(1994, 3, 1), date(1994, 3, 1)),
+            DatePrecision.DAY,
+            ("malformed_time_suffix",),
+        ),
+        (
+            "09.04.2010",
+            DateBounds(date(2010, 4, 9), date(2010, 4, 9)),
+            DatePrecision.DAY,
+            ("ambiguous_numeric_assumed_day_first",),
+        ),
+        (
+            "13.04.2010",
+            DateBounds(date(2010, 4, 13), date(2010, 4, 13)),
+            DatePrecision.DAY,
+            ("direct",),
+        ),
+    ],
+)
+def test_safe_date_coverage_grammars_preserve_bounds_precision_and_derivation(
+    standardizer,
+    input_string,
+    expected_bounds,
+    expected_precision,
+    expected_derivations,
+):
+    outcome = standardize_date_value(standardizer, input_string)
+
+    assert outcome.bounds == expected_bounds
+    assert outcome.precision is expected_precision
+    assert outcome.derivations == expected_derivations
+
+
+@pytest.mark.parametrize(
+    ("input_string", "expected_reason"),
+    [
+        ("1940s", "before_supported_year"),
+        ("2030s", "after_metadata_reference_date"),
+        ("13.13.2010", "invalid_calendar_date"),
+        ("1975s", "unsupported_format"),
+        ("1970S", "unsupported_format"),
+        ("70s", "unsupported_format"),
+        ("Aug - Oct 2001", "unsupported_format"),
+        ("Aug-Oct 01", "unsupported_format"),
+        ("between 2002 and 2005", "unsupported_format"),
+        ("Between  2002 and 2005", "unsupported_format"),
+        ("1994-03-01  T00:00:00", "unsupported_format"),
+        ("1994-03-01 t00:00:00", "unsupported_format"),
+        ("1994-03-01 T25:00:00", "unsupported_format"),
+        ("09 . 04 . 2010", "unsupported_format"),
+        ("09.04.10", "unsupported_format"),
+    ],
+)
+def test_safe_date_coverage_grammars_reject_out_of_bounds_and_near_misses(
+    standardizer,
+    input_string,
+    expected_reason,
+):
+    assert standardize_date_value(standardizer, input_string) is None
+    assert standardizer.rejection_counts == {expected_reason: 1}
+
+
+@pytest.mark.parametrize(
     "input_string",
     [
         "2019/03",

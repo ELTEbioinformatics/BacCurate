@@ -227,10 +227,44 @@ def test_extraction_report_preserves_production_curation_review_counters(
     assert report.unreviewed_count == 2
     assert report.uncertain_count == 1
     assert report.automatic_rejection_counts == {
-        "date": {"universal_missing": 1},
+        "date": {"non_date_evidence": 1, "universal_missing": 1},
         "host": {"universal_missing": 1},
         "iso": {"non_discriminative_process": 1},
     }
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "missing:",
+        "missing: control sample",
+        ' " MISSING: unavailable from submitter " ',
+    ],
+)
+def test_universal_missing_marker_rejects_the_whole_value(value: str) -> None:
+    schema = CurationSchema.load(ROOT / "config" / "curation_schema.yaml")
+
+    decision = schema.evaluate(attribute="collection_date", value=value)
+
+    assert decision.matches == ()
+    assert decision.events[0].family == "universal_missing"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "missingness: control sample",
+        "missing-control sample",
+        "record missing: control sample",
+    ],
+)
+def test_universal_missing_marker_does_not_match_nearby_syntax(value: str) -> None:
+    schema = CurationSchema.load(ROOT / "config" / "curation_schema.yaml")
+
+    decision = schema.evaluate(attribute="collection_date", value=value)
+
+    assert [match.target for match in decision.matches] == ["date"]
+    assert decision.events == ()
 
 
 def test_extraction_publishes_provenance_bound_metadata_bundle(

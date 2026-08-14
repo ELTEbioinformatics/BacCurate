@@ -20,6 +20,7 @@ RejectionReason = Literal[
 ]
 SingleDateFormatId = Literal[
     "year",
+    "decade",
     "year_month",
     "month_year",
     "named_month_year",
@@ -113,6 +114,7 @@ MONTHS = {
 MONTH_TOKEN = "(?:" + "|".join(sorted(MONTHS, key=len, reverse=True)) + ")"
 
 YEAR = re.compile(r"^(?P<year>\d{4})$")
+DECADE = re.compile(r"^(?P<year>[0-9]{3}0)(?:s|'s)$")
 YEAR_MONTH = re.compile(r"^(?P<year>\d{4})[-/](?P<month>\d{2})$")
 MONTH_YEAR = re.compile(r"^(?P<month>\d{2})[-/](?P<year>\d{4})$")
 NAMED_MONTH_YEAR = re.compile(
@@ -132,9 +134,15 @@ DAY_NAMED_MONTH = re.compile(
     re.IGNORECASE | re.ASCII,
 )
 NUMERIC_YEAR_LAST_DAY = re.compile(
-    r"^(?P<first>\d{1,2})(?P<separator>[-/])(?P<second>\d{1,2})"
+    r"^(?P<first>\d{1,2})(?P<separator>[-/.])(?P<second>\d{1,2})"
     r"(?P=separator)(?P<year>\d{4})$"
 )
+SHARED_YEAR_NAMED_MONTH_INTERVAL = re.compile(
+    rf"^(?P<start_month>{MONTH_TOKEN})-(?P<end_month>{MONTH_TOKEN}) "
+    r"(?P<year>[0-9]{4})$",
+    re.IGNORECASE | re.ASCII,
+)
+BETWEEN_YEAR_INTERVAL = re.compile(r"^Between (?P<start_year>[0-9]{4}) and (?P<end_year>[0-9]{4})$")
 VALID_TIME_SUFFIX = re.compile(
     r"^T(?:(?:[01]\d|2[0-3]):[0-5]\d(?:[:][0-5]\d(?:\.\d+)?)?"
     r"|(?:[01]\d|2[0-3])\.[0-5]\d\.[0-5]\d(?:\.\d+)?)"
@@ -159,6 +167,14 @@ def _parse_year(match: re.Match[str]) -> SingleParse:
     year = int(match["year"])
     try:
         return DateBounds(date(year, 1, 1), date(year, 12, 31))
+    except ValueError:
+        return DateRejection("invalid_calendar_date")
+
+
+def _parse_decade(match: re.Match[str]) -> SingleParse:
+    start_year = int(match["year"])
+    try:
+        return DateBounds(date(start_year, 1, 1), date(start_year + 9, 12, 31))
     except ValueError:
         return DateRejection("invalid_calendar_date")
 
@@ -271,6 +287,7 @@ def _finalize_interval(
 
 SINGLE_DATE_FORMATS = (
     FormatSpec("year", YEAR, _parse_year),
+    FormatSpec("decade", DECADE, _parse_decade),
     FormatSpec("year_month", YEAR_MONTH, _parse_numeric_month),
     FormatSpec("month_year", MONTH_YEAR, _parse_numeric_month),
     FormatSpec("named_month_year", NAMED_MONTH_YEAR, _parse_named_month),
@@ -298,6 +315,11 @@ class DateInterpreter:
         single_result = self.interpret_single(value)
         if isinstance(single_result, DateInterpretation):
             return single_result
+
+        value = SHARED_YEAR_NAMED_MONTH_INTERVAL.sub(
+            r"\g<start_month> \g<year> - \g<end_month> \g<year>", value
+        )
+        value = BETWEEN_YEAR_INTERVAL.sub(r"\g<start_year> - \g<end_year>", value)
 
         abbreviated = re.fullmatch(r"(?P<start>\d{4})-(?P<end>\d{2})", value)
         if abbreviated is not None:
@@ -360,15 +382,21 @@ class DateInterpreter:
             and "T" in value
         ):
             base, suffix = value.split("T", 1)
-            if "/" in suffix or WORD_OR_HYPHEN_INTERVAL_CLAIM.search(suffix):
+            spaced_timestamp = re.fullmatch(r"\d{4}-\d{2}-\d{2} ", base) is not None
+            valid_time_suffix = VALID_TIME_SUFFIX.fullmatch(f"T{suffix}") is not None
+            if (
+                "/" in suffix
+                or WORD_OR_HYPHEN_INTERVAL_CLAIM.search(suffix)
+                or (spaced_timestamp and not valid_time_suffix)
+            ):
                 return parsed
-            prefix_result = self._parse_supported_shape(base)
+            prefix_result = self._parse_supported_shape(base[:-1] if spaced_timestamp else base)
             if not (
                 isinstance(prefix_result, DateRejection)
                 and prefix_result.reason == "unsupported_format"
             ):
                 parsed = prefix_result
-                if not VALID_TIME_SUFFIX.fullmatch(f"T{suffix}"):
+                if spaced_timestamp or not valid_time_suffix:
                     notices = ("malformed_time_suffix_ignored",)
         if isinstance(parsed, DateRejection):
             return parsed
@@ -378,7 +406,7 @@ class DateInterpreter:
             return DateRejection("before_supported_year")
         if bounds.start > self.metadata_reference_date:
             return DateRejection("after_metadata_reference_date")
-        if format_id == "year":
+        if format_id in {"year", "decade"}:
             precision = "year"
         elif format_id in {"year_month", "month_year", "named_month_year"}:
             precision = "month"

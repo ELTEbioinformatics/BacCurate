@@ -60,12 +60,15 @@ class _TargetRules:
 class _ValueRejectionRule:
     family: str
     exact: frozenset[str]
+    whole_value_prefixes: tuple[str, ...] = ()
     explanation_prefixes: tuple[str, ...] = ()
     explanation_suffixes: frozenset[str] = frozenset()
     fuzzy_references: frozenset[str] = frozenset()
 
     def classify(self, normalized_value: str, presentation_value: str) -> str | None:
         if self.family == "universal_missing" and not normalized_value:
+            return "rejected_value"
+        if any(presentation_value.startswith(f"{prefix}:") for prefix in self.whole_value_prefixes):
             return "rejected_value"
         if normalized_value in self.exact or self._matches_explanation(
             normalized_value, presentation_value
@@ -317,6 +320,7 @@ def _serialize_value_rejection(rule: _ValueRejectionRule) -> dict[str, object]:
     return {
         "family": rule.family,
         "exact": sorted(rule.exact),
+        "whole_value_prefixes": list(rule.whole_value_prefixes),
         "explanation_prefixes": list(rule.explanation_prefixes),
         "explanation_suffixes": sorted(rule.explanation_suffixes),
         "fuzzy_references": sorted(rule.fuzzy_references),
@@ -439,6 +443,7 @@ def _compile_value_rejection_rule(
         {
             "exact",
             "observed_variants",
+            "whole_value_prefixes",
             "explanation_prefixes",
             "explanation_suffixes",
             "fuzzy",
@@ -455,6 +460,12 @@ def _compile_value_rejection_rule(
             path,
             f"{prefix}.observed_variants",
             rule.get("observed_variants", []),
+        )
+    )
+    whole_value_prefixes = tuple(
+        _presentation_normalize(value)
+        for value in _normalized_nonempty_string_list(
+            path, f"{prefix}.whole_value_prefixes", rule.get("whole_value_prefixes", [])
         )
     )
     explanation_prefixes = tuple(
@@ -477,6 +488,7 @@ def _compile_value_rejection_rule(
     return _ValueRejectionRule(
         family,
         canonical_exact | observed_variants,
+        whole_value_prefixes,
         explanation_prefixes,
         explanation_suffixes,
         canonical_exact if fuzzy_setting == "one_edit_unique" else frozenset(),
