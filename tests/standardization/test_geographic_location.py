@@ -521,6 +521,7 @@ def test_location_request_uses_rendered_synthetic_prompts(
     assert calls[0]["model"] == "test-model"
     assert calls[0]["temperature"] == 0
     assert calls[0]["seed"] == 100
+    assert calls[0]["response_format"] == {"type": "json_object"}
 
 
 @pytest.mark.parametrize("changed_component", ["message", "model", "parameter", "schema"])

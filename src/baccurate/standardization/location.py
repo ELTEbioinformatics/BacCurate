@@ -36,7 +36,11 @@ from baccurate.standardization.supporting_attribute_value_pair import Supporting
 logger = logging.getLogger(__name__)
 _LOAD_CONFIGURED_CLIENT = object()
 
-LOCATION_LLM_PARAMETERS: dict[str, object] = {"temperature": 0, "seed": 100}
+LOCATION_LLM_PARAMETERS: dict[str, object] = {
+    "temperature": 0,
+    "seed": 100,
+    "response_format": {"type": "json_object"},
+}
 # This needs to be bumped by hand whenever parsing/response changes
 LOCATION_RESPONSE_SCHEMA_ID = "baccurate.location.country.v1"
 
