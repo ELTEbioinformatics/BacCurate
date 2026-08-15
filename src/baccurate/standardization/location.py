@@ -1,16 +1,15 @@
 """
-Map location annotations from sample metadata to standardized country names. Falls back to an LLM
-for values that country_converter and reverse_geocode cannot resolve.
+Standardize submitted geographic-location values to INSDC geographical locations.
 
-See location.md for the documentation.
+Two routes: ``reverse_geocode`` for coordinates and ``country_converter`` for place names.
+When neither resolves a record, the reviewed mappings loaded from `config/location.yaml˙are
+tried by whole-key match on normalized values. Values that remain unresolved go to the review
+worklist (`location_review_worklist.tsv`).
 """
 
-import json
 import logging
-import os
 import re
-import string
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from functools import lru_cache
@@ -18,39 +17,27 @@ from pathlib import Path
 from types import MappingProxyType
 
 import country_converter as coco
-import openai
 import reverse_geocode
 
-from baccurate.adapters.llm.client import LLMSettings, load_llm_client
-from baccurate.adapters.llm.diagnostics import (
-    LLMFailureCategory,
-    observe_llm_call,
-)
-from baccurate.adapters.llm.request import CanonicalLLMRequest
 from baccurate.adapters.policy_yaml import PolicyConfigurationError, load_policy_mapping
-from baccurate.paths import DEFAULT_GEO_LOC_LIST, DEFAULT_LOC_CACHE_DB
+from baccurate.paths import DEFAULT_GEO_LOC_LIST
 from baccurate.standardization._attribute_value_text import split_pipe_separated
-from baccurate.standardization._cache import SQLiteKVCache
 from baccurate.standardization.supporting_attribute_value_pair import SupportingAttributeValuePair
 
 logger = logging.getLogger(__name__)
-_LOAD_CONFIGURED_CLIENT = object()
-
-LOCATION_LLM_PARAMETERS: dict[str, object] = {
-    "temperature": 0,
-    "seed": 100,
-    "response_format": {"type": "json_object"},
-}
-# This needs to be bumped by hand whenever parsing/response changes
-LOCATION_RESPONSE_SCHEMA_ID = "baccurate.location.country.v1"
 
 
-@dataclass(frozen=True, slots=True)
-class LocationPrompts:
-    """The geographic location prompt text used in canonical LLM requests."""
+def normalize_submitted_location_value(value: str) -> str:
+    """
+    Normalize a submitted value to its reviewed lookup key.
 
-    system: str
-    user_template: str
+    Trims whitespace, collapses runs to a single space, and lowercases. Punctuation,
+    accents, and word order are kept so that reviewed matching stays exact.
+    """
+    return re.sub(r"\s+", " ", value).strip().lower()
+
+
+# --- Policy ---
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,12 +45,11 @@ class LocationPolicy:
     """Validated geographic-location standardization policy."""
 
     schema_version: int
-    prompt_version: str
     coordinate_attributes: tuple[str, ...]
-    prompts: LocationPrompts
     insdc_country_map: Mapping[str, str]
+    reviewed_mappings: Mapping[str, str]
+    reviewed_unmapped: frozenset[str]
     geo_loc_list_path: Path
-    cache_db_path: Path
 
     @classmethod
     def load(cls, path: Path | str) -> "LocationPolicy":
@@ -71,58 +57,31 @@ class LocationPolicy:
         source = Path(path)
         return _parse_location_policy(load_policy_mapping(source), source)
 
-    def serialize(self) -> str:
-        """Return deterministic canonical JSON without changing legacy identities."""
-        return json.dumps(
-            {
-                "schema_version": self.schema_version,
-                "prompt_version": self.prompt_version,
-                "coordinate_attributes": list(self.coordinate_attributes),
-                "llm_system_prompt": self.prompts.system,
-                "llm_user_prompt_template": self.prompts.user_template,
-                "insdc_country_map": dict(self.insdc_country_map),
-                "geo_loc_list_path": self.geo_loc_list_path.as_posix(),
-                "cache_db_path": self.cache_db_path.as_posix(),
-            },
-            ensure_ascii=False,
-            allow_nan=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-
 
 def _location_policy_error(source: Path, key: str, message: str) -> PolicyConfigurationError:
     return PolicyConfigurationError(f"{source}: {key}: {message}")
 
 
-def _require_location_string(
+def _require_string_mapping(
     config: Mapping[object, object],
     key: str,
     source: Path,
-) -> str:
-    value = config.get(key)
-    if not isinstance(value, str) or not value.strip():
-        raise _location_policy_error(source, key, "must be a non-empty string")
-    return value
-
-
-def _validate_location_user_prompt(template: str, source: Path) -> None:
-    try:
-        fields = [
-            (field_name, format_spec, conversion)
-            for _, field_name, format_spec, conversion in string.Formatter().parse(template)
-            if field_name is not None
-        ]
-    except ValueError as error:
-        raise _location_policy_error(
-            source, "llm_user_prompt_template", f"malformed format string: {error}"
-        ) from error
-    if fields != [("attr_val_pairs", "", None)]:
-        raise _location_policy_error(
-            source,
-            "llm_user_prompt_template",
-            "must contain exactly one {attr_val_pairs} placeholder and no other placeholders",
-        )
+) -> dict[str, str]:
+    raw = config.get(key)
+    if not isinstance(raw, Mapping):
+        raise _location_policy_error(source, key, "must be a mapping")
+    mapping: dict[str, str] = {}
+    for submitted, standardized in raw.items():
+        if not isinstance(submitted, str) or not submitted.strip():
+            raise _location_policy_error(source, key, "keys must be non-empty strings")
+        if not isinstance(standardized, str) or not standardized.strip():
+            raise _location_policy_error(
+                source,
+                f"{key}.{submitted}",
+                "must be a non-empty string",
+            )
+        mapping[submitted] = standardized
+    return mapping
 
 
 def _parse_location_policy(
@@ -131,13 +90,11 @@ def _parse_location_policy(
 ) -> LocationPolicy:
     allowed = {
         "schema_version",
-        "prompt_version",
         "coordinate_attributes",
-        "llm_system_prompt",
-        "llm_user_prompt_template",
         "insdc_country_map",
+        "reviewed_mappings",
+        "reviewed_unmapped",
         "geo_loc_list_path",
-        "cache_db_path",
     }
     unknown = set(config) - allowed
     if unknown:
@@ -146,15 +103,14 @@ def _parse_location_policy(
 
     schema_version = config.get("schema_version")
     if type(schema_version) is not int:
-        raise _location_policy_error(source, "schema_version", "must be integer version 1")
-    if schema_version != 1:
+        raise _location_policy_error(source, "schema_version", "must be integer version 2")
+    if schema_version != 2:
         raise _location_policy_error(
             source,
             "schema_version",
-            f"unsupported schema version {schema_version}; supported schema version is 1; "
+            f"unsupported schema version {schema_version}; supported schema version is 2; "
             "migrate this location policy before retrying",
         )
-    prompt_version = _require_location_string(config, "prompt_version", source)
 
     coordinate_attributes = config.get("coordinate_attributes")
     if not isinstance(coordinate_attributes, list):
@@ -167,33 +123,23 @@ def _parse_location_policy(
                 "must be a non-empty string",
             )
 
-    system_prompt = _require_location_string(config, "llm_system_prompt", source)
-    user_prompt = _require_location_string(config, "llm_user_prompt_template", source)
-    _validate_location_user_prompt(user_prompt, source)
+    insdc_map = _require_string_mapping(config, "insdc_country_map", source)
+    reviewed_mappings = _require_string_mapping(config, "reviewed_mappings", source)
 
-    raw_insdc_map = config.get("insdc_country_map")
-    if not isinstance(raw_insdc_map, Mapping):
-        raise _location_policy_error(source, "insdc_country_map", "must be a mapping")
-    insdc_map: dict[str, str] = {}
-    for submitted_name, standardized_name in raw_insdc_map.items():
-        if not isinstance(submitted_name, str) or not submitted_name.strip():
-            raise _location_policy_error(
-                source, "insdc_country_map", "keys must be non-empty strings"
-            )
-        if not isinstance(standardized_name, str) or not standardized_name.strip():
+    reviewed_unmapped = config.get("reviewed_unmapped")
+    if not isinstance(reviewed_unmapped, list):
+        raise _location_policy_error(source, "reviewed_unmapped", "must be a list of strings")
+    for index, value in enumerate(reviewed_unmapped):
+        if not isinstance(value, str) or not value.strip():
             raise _location_policy_error(
                 source,
-                f"insdc_country_map.{submitted_name}",
+                f"reviewed_unmapped.{index}",
                 "must be a non-empty string",
             )
-        insdc_map[submitted_name] = standardized_name
 
     geo_loc_list_path = config.get("geo_loc_list_path", str(DEFAULT_GEO_LOC_LIST))
     if not isinstance(geo_loc_list_path, str) or not geo_loc_list_path.strip():
         raise _location_policy_error(source, "geo_loc_list_path", "must be a non-empty string")
-    cache_db_path = config.get("cache_db_path", str(DEFAULT_LOC_CACHE_DB))
-    if not isinstance(cache_db_path, str) or not cache_db_path.strip():
-        raise _location_policy_error(source, "cache_db_path", "must be a non-empty string")
     geo_loc_path = Path(geo_loc_list_path)
     try:
         with geo_loc_path.open("r", encoding="utf-8"):
@@ -204,32 +150,14 @@ def _parse_location_policy(
             "geo_loc_list_path",
             f"must select a readable file: {error}",
         ) from error
-    cache_path = Path(cache_db_path)
-    cache_parent = cache_path.parent
-    if not cache_parent.is_dir():
-        raise _location_policy_error(
-            source,
-            "cache_db_path",
-            f"parent directory does not exist: {cache_parent}",
-        )
-    writable_cache_target = cache_path if cache_path.exists() else cache_parent
-    if (cache_path.exists() and not cache_path.is_file()) or not os.access(
-        writable_cache_target, os.W_OK
-    ):
-        raise _location_policy_error(
-            source,
-            "cache_db_path",
-            "must select a writable database file",
-        )
 
     return LocationPolicy(
-        schema_version=1,
-        prompt_version=prompt_version,
+        schema_version=2,
         coordinate_attributes=tuple(coordinate_attributes),
-        prompts=LocationPrompts(system=system_prompt, user_template=user_prompt),
         insdc_country_map=MappingProxyType(insdc_map),
+        reviewed_mappings=MappingProxyType(reviewed_mappings),
+        reviewed_unmapped=frozenset(reviewed_unmapped),
         geo_loc_list_path=geo_loc_path,
-        cache_db_path=cache_path,
     )
 
 
@@ -307,7 +235,7 @@ def _extract_string(value) -> str | None:
     return s if s else None
 
 
-# --- Data structure ---
+# --- Data structures ---
 
 
 class LocationDiagnostic(StrEnum):
@@ -315,31 +243,35 @@ class LocationDiagnostic(StrEnum):
 
     ABSENT_VALUES = "absent_values"
     UNRESOLVED_PLACE = "unresolved_place"
-    LLM_DISABLED = "llm_disabled"
-    RECOVERABLE_LLM_FAILURE = "recoverable_llm_failure"
     RECOVERABLE_COORDINATE_FAILURE = "recoverable_coordinate_failure"
-    INVALID_LLM_RESPONSE = "invalid_llm_response"
     UNMAPPABLE_RESULT = "unmappable_result"
     COORDINATE_RESOLUTION = "coordinate_resolution"
     DIRECT_RESOLUTION = "direct_resolution"
-    CACHE_RESOLUTION = "cache_resolution"
-    LLM_RESOLUTION = "llm_resolution"
+    REVIEWED_MAPPING_RESOLUTION = "reviewed_mapping_resolution"
+    REVIEWED_UNMAPPED = "reviewed_unmapped"
+    REVIEWED_MAPPING_CONFLICT = "reviewed_mapping_conflict"
 
 
 @dataclass(frozen=True, slots=True)
 class LocationMatch:
-    """Standardization result for one extracted metadata record."""
+    """Result of matching one submitted attribute-value pair."""
 
     country: str
     sublocation: str | None
-    used_llm: bool = False
     diagnostics: tuple[LocationDiagnostic, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
-class _LLMResponse:
-    country: str | None
-    diagnostic: LocationDiagnostic | None = None
+class UnresolvedLocationInput:
+    """
+    One submitted pair that produced no usable INSDC geographical location.
+
+    A standardized record can still contribute unresolved inputs to the review worklist.
+    Values already covered by a reviewed section are excluded.
+    """
+
+    attribute: str
+    value: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -350,10 +282,10 @@ class LocationOutcome:
     country: str
     sublocation: str | None
     supporting_pairs: tuple[SupportingAttributeValuePair, ...]
+    unresolved_inputs: tuple[UnresolvedLocationInput, ...] = ()
     coordinate_decodes: int = 0
     direct_matches: int = 0
-    cache_hits: int = 0
-    llm_calls: int = 0
+    reviewed_mapping_matches: int = 0
     diagnostics: tuple[LocationDiagnostic, ...] = ()
 
 
@@ -361,41 +293,22 @@ class LocationOutcome:
 class LocationRejection:
     """An extracted metadata record with no usable location, plus diagnostics."""
 
+    unresolved_inputs: tuple[UnresolvedLocationInput, ...] = ()
     coordinate_decodes: int = 0
     direct_matches: int = 0
-    cache_hits: int = 0
-    llm_calls: int = 0
+    reviewed_mapping_matches: int = 0
     diagnostics: tuple[LocationDiagnostic, ...] = ()
 
 
-# --- Cache ---
+@dataclass(frozen=True, slots=True)
+class _RecordResolution:
+    """Internal record-level result before it becomes an outcome or a rejection."""
 
-
-class SQLiteCache(SQLiteKVCache):
-    _CREATE_TABLE_SQL = """
-        CREATE TABLE IF NOT EXISTS cache (
-            hash_id TEXT PRIMARY KEY,
-            country TEXT
-        )
-    """
-
-    def __init__(self, db_path: Path | str = DEFAULT_LOC_CACHE_DB) -> None:
-        super().__init__(db_path)
-
-    def get(self, request_fingerprint: str) -> str | None:
-        self.cursor.execute(
-            "SELECT country FROM cache WHERE hash_id=?",
-            (request_fingerprint,),
-        )
-        cache_entry = self.cursor.fetchone()
-        return cache_entry[0] if cache_entry else None
-
-    def set(self, request_fingerprint: str, country: str) -> None:
-        self.cursor.execute(
-            "INSERT OR REPLACE INTO cache (hash_id, country) VALUES (?, ?)",
-            (request_fingerprint, country),
-        )
-        self.conn.commit()
+    country: str | None
+    sublocation: str | None
+    supporting_pairs: tuple[SupportingAttributeValuePair, ...]
+    unresolved_inputs: tuple[UnresolvedLocationInput, ...]
+    diagnostics: tuple[LocationDiagnostic, ...]
 
 
 # --- Main class ---
@@ -406,8 +319,6 @@ class LocationStandardizer:
         self,
         policy: LocationPolicy,
         *,
-        client: openai.OpenAI | object | None = _LOAD_CONFIGURED_CLIENT,
-        llm_settings: LLMSettings | None = None,
         result_logger: logging.Logger | None = None,
     ) -> None:
         self.logger = result_logger or logger
@@ -415,14 +326,8 @@ class LocationStandardizer:
         self.coordinate_attributes = set(policy.coordinate_attributes)
         self.insdc_map = dict(policy.insdc_country_map)
         self.insdc_names = self._load_insdc_names(policy.geo_loc_list_path)
-        self.llm_system_prompt = policy.prompts.system
-        self.llm_user_prompt_template = policy.prompts.user_template
-
-        if client is _LOAD_CONFIGURED_CLIENT:
-            self.client, self.llm_model = load_llm_client(llm_settings)
-        else:
-            self.client = client
-            self.llm_model = llm_settings.model if llm_settings else None
+        self.reviewed_mappings = dict(policy.reviewed_mappings)
+        self.reviewed_unmapped = frozenset(policy.reviewed_unmapped)
 
         self.cc = coco.CountryConverter()
         logging.getLogger("country_converter").setLevel(logging.CRITICAL)
@@ -433,13 +338,10 @@ class LocationStandardizer:
         self._country_to_unregion = lru_cache(maxsize=4096)(self._country_to_unregion)
         self.decode_coordinates = lru_cache(maxsize=4096)(self.decode_coordinates)
 
-        self.cache = SQLiteCache(policy.cache_db_path)
-
         self.stats = {
             "coordinate_decodes": 0,
             "direct_matches": 0,
-            "cache_hits": 0,
-            "llm_calls": 0,
+            "reviewed_mapping_matches": 0,
         }
 
     @staticmethod
@@ -457,17 +359,11 @@ class LocationStandardizer:
             return LocationMatch(
                 "NA",
                 match.sublocation,
-                match.used_llm,
                 (LocationDiagnostic.UNMAPPABLE_RESULT,),
             )
         if mapped == match.country:
             return match
-        return LocationMatch(
-            mapped,
-            match.sublocation,
-            match.used_llm,
-            match.diagnostics,
-        )
+        return LocationMatch(mapped, match.sublocation, match.diagnostics)
 
     # --- Per-value matching ---
 
@@ -525,31 +421,22 @@ class LocationStandardizer:
             return LocationMatch(
                 "NA",
                 None,
-                diagnostics=(LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE,),
+                (LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE,),
             )
         if raw_country is None:
-            return LocationMatch("NA", None, diagnostics=(LocationDiagnostic.UNRESOLVED_PLACE,))
+            return LocationMatch("NA", None)
 
         country = self._country_converter_lookup(raw_country, "name_short") or raw_country
 
         self.stats["coordinate_decodes"] += 1
-        return LocationMatch(
-            country,
-            city,
-            diagnostics=(LocationDiagnostic.COORDINATE_RESOLUTION,),
-        )
+        return LocationMatch(country, city, (LocationDiagnostic.COORDINATE_RESOLUTION,))
 
     def _try_country_converter(self, val: str) -> LocationMatch | None:
         """
         Run country_converter on a non-coordinate value.
 
-        Returns None if country_converter fails so the caller can queue the
-        already-identified value for LLM fallback.
+        Returns None on failure so the caller can try the reviewed fallback.
         """
-        loc_lower = val.strip().lower()
-        if not loc_lower:
-            return LocationMatch("NA", None)
-
         # Peel off "Country:City" sublocation before lookup.
         sublocation = None
         loc_clean = val
@@ -562,130 +449,7 @@ class LocationStandardizer:
         if country is None:
             return None
         self.stats["direct_matches"] += 1
-        return LocationMatch(
-            country,
-            sublocation,
-            diagnostics=(LocationDiagnostic.DIRECT_RESOLUTION,),
-        )
-
-    # --- LLM fallback ---
-
-    def _call_llm(
-        self,
-        accession: str,
-        request: CanonicalLLMRequest,
-        timeout: int = 30,
-    ) -> _LLMResponse:
-        try:
-            with observe_llm_call(
-                accession=accession,
-                target="location",
-                model=request.model,
-            ) as call:
-                response = self.client.chat.completions.create(
-                    model=request.model,
-                    messages=list(request.messages),
-                    **request.parameters,
-                    timeout=timeout,
-                )
-        except openai.APITimeoutError:
-            return _LLMResponse(None, diagnostic=LocationDiagnostic.RECOVERABLE_LLM_FAILURE)
-        except openai.APIError:
-            return _LLMResponse(None, diagnostic=LocationDiagnostic.RECOVERABLE_LLM_FAILURE)
-        except Exception as e:
-            call.failed(LLMFailureCategory.UNEXPECTED)
-            raise RuntimeError(f"Unexpected location LLM failure: {e}") from e
-
-        if response is None:
-            call.failed(LLMFailureCategory.INVALID_MODEL_RESPONSE)
-            return _LLMResponse(None, diagnostic=LocationDiagnostic.INVALID_LLM_RESPONSE)
-
-        try:
-            content = response.choices[0].message.content
-        except (AttributeError, IndexError):
-            call.failed(LLMFailureCategory.INVALID_MODEL_RESPONSE)
-            return _LLMResponse(None, diagnostic=LocationDiagnostic.INVALID_LLM_RESPONSE)
-
-        if not content:
-            call.failed(LLMFailureCategory.INVALID_MODEL_RESPONSE)
-            return _LLMResponse(None, diagnostic=LocationDiagnostic.INVALID_LLM_RESPONSE)
-
-        content = content.strip()
-
-        try:
-            parsed = json.loads(content)
-        except json.JSONDecodeError:
-            call.failed(LLMFailureCategory.INVALID_MODEL_RESPONSE)
-            return _LLMResponse(None, diagnostic=LocationDiagnostic.INVALID_LLM_RESPONSE)
-
-        if not isinstance(parsed, dict) or set(parsed) != {"country"}:
-            call.failed(LLMFailureCategory.INVALID_MODEL_RESPONSE)
-            return _LLMResponse(None, diagnostic=LocationDiagnostic.INVALID_LLM_RESPONSE)
-
-        country = parsed["country"]
-        if not isinstance(country, str) or not country.strip():
-            call.failed(LLMFailureCategory.INVALID_MODEL_RESPONSE)
-            return _LLMResponse(None, diagnostic=LocationDiagnostic.INVALID_LLM_RESPONSE)
-
-        call.accepted()
-        return _LLMResponse(country.strip())
-
-    def _llm_fallback(self, accession: str, context_string: str) -> LocationMatch:
-        user_prompt = self.llm_user_prompt_template.format(attr_val_pairs=context_string)
-        messages = []
-        if self.llm_system_prompt:
-            messages.append({"role": "system", "content": self.llm_system_prompt})
-        messages.append({"role": "user", "content": user_prompt})
-        request = CanonicalLLMRequest(
-            model=self.llm_model or "",
-            messages=tuple(messages),
-            parameters=LOCATION_LLM_PARAMETERS,
-            response_schema_id=LOCATION_RESPONSE_SCHEMA_ID,
-        )
-        cached = self.cache.get(request.fingerprint)
-        if cached is not None:
-            self.stats["cache_hits"] += 1
-            diagnostic = (
-                LocationDiagnostic.CACHE_RESOLUTION
-                if cached != "NA"
-                else LocationDiagnostic.UNRESOLVED_PLACE
-            )
-            # The cache memoizes the model's country_converter name, not the standardized
-            # INSDC name, so INSDC remapping has to be applied on this route too. Without
-            # it a mapped country (United States -> USA) resolves differently on the first
-            # classification than on every later cache hit, and a country absent from the
-            # INSDC vocabulary reaches the dataset instead of becoming NA.
-            return self._to_insdc(LocationMatch(cached, None, True, (diagnostic,)))
-
-        if self.client is None:
-            return LocationMatch("NA", None, True, (LocationDiagnostic.LLM_DISABLED,))
-
-        response = self._call_llm(accession, request)
-        self.stats["llm_calls"] += 1
-
-        if response.diagnostic is not None:
-            return LocationMatch("NA", None, True, (response.diagnostic,))
-
-        llm_country = response.country
-        if llm_country is None:
-            raise AssertionError("Successful LLM response has no country")
-
-        if llm_country == "NA":
-            self.cache.set(request.fingerprint, "NA")
-            return LocationMatch("NA", None, True, (LocationDiagnostic.UNMAPPABLE_RESULT,))
-
-        # Standardize the LLM's country through cc
-        resolved_country = self._country_converter_lookup(llm_country, "name_short") or llm_country
-
-        self.cache.set(request.fingerprint, resolved_country)
-        return self._to_insdc(
-            LocationMatch(
-                resolved_country,
-                None,
-                True,
-                (LocationDiagnostic.LLM_RESOLUTION,),
-            )
-        )
+        return LocationMatch(country, sublocation, (LocationDiagnostic.DIRECT_RESOLUTION,))
 
     # --- Per-record dispatch ---
 
@@ -702,106 +466,193 @@ class LocationStandardizer:
                 f"loc_attr_orig={len(attributes)}, loc_val_orig={len(values)}; counts must match"
             )
         before = self.stats.copy()
-        match = self.find_best_location(
-            accession,
-            extracted_record.get("loc_attr_orig", ""),
-            extracted_record.get("loc_val_orig", ""),
-        )
-        diagnostics = {
+        resolution = self._resolve_record(attributes, values)
+        published = {
+            "unresolved_inputs": resolution.unresolved_inputs,
             "coordinate_decodes": self.stats["coordinate_decodes"] - before["coordinate_decodes"],
             "direct_matches": self.stats["direct_matches"] - before["direct_matches"],
-            "cache_hits": self.stats["cache_hits"] - before["cache_hits"],
-            "llm_calls": self.stats["llm_calls"] - before["llm_calls"],
-            "diagnostics": match.diagnostics,
+            "reviewed_mapping_matches": (
+                self.stats["reviewed_mapping_matches"] - before["reviewed_mapping_matches"]
+            ),
+            "diagnostics": resolution.diagnostics,
         }
-        if match.country == "NA":
-            return LocationRejection(**diagnostics)
+        if resolution.country is None:
+            return LocationRejection(**published)
         # loc_UNregion carries the UN region derived from the standardized country.
         return LocationOutcome(
-            un_region=self._country_to_unregion(match.country),
-            country=match.country,
-            sublocation=match.sublocation,
-            supporting_pairs=tuple(
-                SupportingAttributeValuePair(attribute, value)
-                for attribute, value in zip(attributes, values, strict=True)
-            ),
-            **diagnostics,
+            un_region=self._country_to_unregion(resolution.country),
+            country=resolution.country,
+            sublocation=resolution.sublocation,
+            supporting_pairs=resolution.supporting_pairs,
+            **published,
         )
 
-    def close(self) -> None:
-        try:
-            self.cache.close()
-        finally:
-            close_client = getattr(self.client, "close", None)
-            if callable(close_client):
-                close_client()
-
-    def find_best_location(
+    def _resolve_record(
         self,
-        accession: str,
-        attr_str: str,
-        val_str: str,
-    ) -> LocationMatch:
-        attrs = split_pipe_separated(attr_str)
-        vals = split_pipe_separated(val_str)
+        attributes: Sequence[str],
+        values: Sequence[str],
+    ) -> _RecordResolution:
+        """
+        Resolve one BioSample record's geographic-location evidence.
 
-        if not vals:
-            return LocationMatch("NA", None, diagnostics=(LocationDiagnostic.ABSENT_VALUES,))
+        Deterministic resolution runs first with its sublocation preference. The reviewed
+        fallback is tried only when no deterministic route produced a usable INSDC location
+        (including when the selected match ended as ``unmappable_result``), and it tries
+        every submitted value as a lookup key.
+        """
+        submitted_pairs = tuple(
+            SupportingAttributeValuePair(attribute, value)
+            for attribute, value in zip(attributes, values, strict=True)
+        )
+        pairs = [
+            (attribute.strip(), value.strip())
+            for attribute, value in zip(attributes, values, strict=True)
+            if value.strip()
+        ]
+        if not pairs:
+            return _RecordResolution(None, None, (), (), (LocationDiagnostic.ABSENT_VALUES,))
 
-        valid_matches: list[LocationMatch] = []
-        rejected_matches: list[LocationMatch] = []
-        unmatched_pairs: list[tuple[str, str]] = []
-
-        for attr, val in zip(attrs, vals, strict=False):
-            attr = attr.strip()
-            val = val.strip()
-            if not val:
+        # A pair is unusable when neither route matched it to an INSDC location. A pair can
+        # be both selectable and unusable: a coordinate that decodes to a non-INSDC country
+        # still wins the sublocation preference below.
+        selectable: list[LocationMatch] = []
+        unusable_pairs: list[tuple[str, str]] = []
+        coordinate_failure = False
+        for attribute, value in pairs:
+            match = self._try_coordinate(value, attribute)
+            if match is None:
+                match = self._try_country_converter(value)
+            if match is not None and (
+                LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE in match.diagnostics
+            ):
+                coordinate_failure = True
+            if match is None or match.country == "NA":
+                unusable_pairs.append((attribute, value))
                 continue
+            selectable.append(match)
+            if self._to_insdc(match).country == "NA":
+                unusable_pairs.append((attribute, value))
 
-            coord_match = self._try_coordinate(val, attr)
-            if coord_match is not None:
-                if coord_match.country != "NA":
-                    valid_matches.append(coord_match)
-                else:
-                    rejected_matches.append(coord_match)
-                continue
+        unmappable_result = False
+        if selectable:
+            # Prefer matches that include a sublocation (coord-decoded city
+            # or "Country:City" sublocation) since they carry more information.
+            with_sublocation = [match for match in selectable if match.sublocation]
+            selected = self._to_insdc(with_sublocation[0] if with_sublocation else selectable[0])
+            if selected.country != "NA":
+                unresolved = self._unresolved_inputs(unusable_pairs)
+                return _RecordResolution(
+                    country=selected.country,
+                    sublocation=selected.sublocation,
+                    # Deterministic outcomes keep every submitted pair (narrowing to the
+                    # winning pair belongs to the decision-provenance workstream).
+                    supporting_pairs=submitted_pairs,
+                    unresolved_inputs=unresolved,
+                    diagnostics=self._record_diagnostics(
+                        coordinate_failure=coordinate_failure,
+                        unmappable_result=False,
+                        resolution=selected.diagnostics,
+                        unresolved=unresolved,
+                    ),
+                )
+            unmappable_result = True
 
-            cc_match = self._try_country_converter(val)
-            if cc_match is None:
-                unmatched_pairs.append((attr, val))
-            elif cc_match.country != "NA":
-                valid_matches.append(cc_match)
+        return self._reviewed_fallback(
+            pairs,
+            unusable_pairs=unusable_pairs,
+            coordinate_failure=coordinate_failure,
+            unmappable_result=unmappable_result,
+        )
 
-        # Prefer matches that include a sublocation (coord-decoded city
-        # or "Country:City" sublocation) since they carry more information.
-        if valid_matches:
-            with_subloc = [m for m in valid_matches if m.sublocation]
-            selected = self._to_insdc(with_subloc[0] if with_subloc else valid_matches[0])
-            return self._preserve_operational_diagnostics(selected, rejected_matches)
+    def _reviewed_fallback(
+        self,
+        pairs: Sequence[tuple[str, str]],
+        *,
+        unusable_pairs: Sequence[tuple[str, str]],
+        coordinate_failure: bool,
+        unmappable_result: bool,
+    ) -> _RecordResolution:
+        """Apply the reviewed geographic-location policy to every submitted value."""
+        mapped: list[tuple[tuple[str, str], str]] = []
+        reviewed_unmapped_present = False
+        for attribute, value in pairs:
+            key = normalize_submitted_location_value(value)
+            target = self.reviewed_mappings.get(key)
+            if target is not None:
+                self.stats["reviewed_mapping_matches"] += 1
+                mapped.append(((attribute, value), target))
+            elif key in self.reviewed_unmapped:
+                reviewed_unmapped_present = True
 
-        if not unmatched_pairs:
-            if rejected_matches:
-                return self._preserve_operational_diagnostics(rejected_matches[0], rejected_matches)
-            return LocationMatch("NA", None, diagnostics=(LocationDiagnostic.UNRESOLVED_PLACE,))
+        unresolved = self._unresolved_inputs(unusable_pairs)
 
-        context = " ".join(f"{a}={v}" for a, v in unmatched_pairs)
-        return self._preserve_operational_diagnostics(
-            self._llm_fallback(accession, context), rejected_matches
+        def resolution(
+            country: str | None,
+            supporting_pairs: tuple[SupportingAttributeValuePair, ...],
+            *diagnostics: LocationDiagnostic,
+        ) -> _RecordResolution:
+            return _RecordResolution(
+                country=country,
+                # Reviewed mappings resolve to a country or water body only,
+                # so no sublocation.
+                sublocation=None,
+                supporting_pairs=supporting_pairs,
+                unresolved_inputs=unresolved,
+                diagnostics=self._record_diagnostics(
+                    coordinate_failure=coordinate_failure,
+                    unmappable_result=unmappable_result,
+                    resolution=diagnostics,
+                    unresolved=unresolved,
+                ),
+            )
+
+        if mapped:
+            targets = {target for _, target in mapped}
+            if len(targets) > 1:
+                return resolution(None, (), LocationDiagnostic.REVIEWED_MAPPING_CONFLICT)
+            # Unlike deterministic outcomes (which keep every pair), reviewed-mapping
+            # outcomes keep only the pairs that matched.
+            return resolution(
+                targets.pop(),
+                tuple(
+                    SupportingAttributeValuePair(attribute, value)
+                    for (attribute, value), _ in mapped
+                ),
+                LocationDiagnostic.REVIEWED_MAPPING_RESOLUTION,
+            )
+        if reviewed_unmapped_present:
+            return resolution(None, (), LocationDiagnostic.REVIEWED_UNMAPPED)
+        return resolution(None, ())
+
+    def _unresolved_inputs(
+        self,
+        unusable_pairs: Sequence[tuple[str, str]],
+    ) -> tuple[UnresolvedLocationInput, ...]:
+        """Filter unusable pairs down to those not already covered by a reviewed section."""
+        return tuple(
+            UnresolvedLocationInput(attribute, value)
+            for attribute, value in unusable_pairs
+            if (key := normalize_submitted_location_value(value)) not in self.reviewed_mappings
+            and key not in self.reviewed_unmapped
         )
 
     @staticmethod
-    def _preserve_operational_diagnostics(
-        match: LocationMatch,
-        rejected_matches: list[LocationMatch],
-    ) -> LocationMatch:
-        operational = LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE
-        if not any(operational in rejected.diagnostics for rejected in rejected_matches):
-            return match
-        if operational in match.diagnostics:
-            return match
-        return LocationMatch(
-            match.country,
-            match.sublocation,
-            match.used_llm,
-            (operational, *match.diagnostics),
+    def _record_diagnostics(
+        *,
+        coordinate_failure: bool,
+        unmappable_result: bool,
+        resolution: Sequence[LocationDiagnostic],
+        unresolved: Sequence[UnresolvedLocationInput],
+    ) -> tuple[LocationDiagnostic, ...]:
+        """
+        Order one record's diagnostics: operational, then selection, then review signals.
+
+        ``unresolved_place`` means at least one value went to the review worklist, so it
+        can appear even on a standardized record.
+        """
+        return (
+            *((LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE,) if coordinate_failure else ()),
+            *((LocationDiagnostic.UNMAPPABLE_RESULT,) if unmappable_result else ()),
+            *resolution,
+            *((LocationDiagnostic.UNRESOLVED_PLACE,) if unresolved else ()),
         )

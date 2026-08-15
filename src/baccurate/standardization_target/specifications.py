@@ -78,7 +78,7 @@ TARGET_SPECS: Mapping[StandardizationTarget, TargetSpec] = MappingProxyType(
         ),
         StandardizationTarget.LOCATION: TargetSpec(
             published_key="location",
-            uses_llm=True,
+            uses_llm=False,
             required_policies=(PolicySlot.LOCATION,),
             input_columns=("loc_attr_orig", "loc_val_orig"),
             output_columns=(

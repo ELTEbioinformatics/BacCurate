@@ -159,12 +159,11 @@ def fixture_location_policy(
     tmp_path: Path,
     standardization_fixture_resources: StandardizationFixtureResources,
 ) -> LocationPolicy:
-    """Load geographic-location policy against fixture locations and a temporary cache."""
+    """Load geographic-location policy against the fixture INSDC location vocabulary."""
     path = _write_runtime_policy(
         standardization_fixture_resources.location_policy,
         tmp_path / "location.yaml",
         geo_loc_list_path=standardization_fixture_resources.geographic_locations,
-        cache_db_path=tmp_path / "location-cache.db",
     )
     return LocationPolicy.load(path)
 

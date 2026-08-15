@@ -5,7 +5,6 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from baccurate.standardization.isolation_source import IsolationSourcePromptPolicy
-from baccurate.standardization.location import LocationPolicy
 from baccurate.standardization_target.specifications import TARGET_SPECS, StandardizationTarget
 
 
@@ -13,32 +12,14 @@ def write_prompt_snapshot(
     destination: Path,
     *,
     model_identifiers: Mapping[str, str | None],
-    location_policy: LocationPolicy | None = None,
     isolation_source_prompt_policy: IsolationSourcePromptPolicy | None = None,
 ) -> None:
-    """Write one section per selected standardization target to ``destination``.
+    """Write one section per prompt-backed target to ``destination``.
 
-    The supported prompt-backed targets are geographic location and isolation source.
-
-    Each section holds:
-    - model identifier
-    - declared prompt_version
-    - the exact system prompt and user-prompt template that is sent to the LLM
+    Only isolation-source uses prompts. Each section records the model identifier,
+    prompt_version, and the exact system/user prompts sent to the LLM.
     """
     sections = []
-    if location_policy is not None:
-        prompts = location_policy.prompts
-        sections.append(
-            _section(
-                "location",
-                model_identifiers.get("location"),
-                location_policy.prompt_version,
-                (
-                    ("system_prompt", prompts.system),
-                    ("user_prompt_template", prompts.user_template),
-                ),
-            )
-        )
     if isolation_source_prompt_policy is not None:
         prompts = isolation_source_prompt_policy.effective_prompts
         target_spec = TARGET_SPECS[StandardizationTarget.ISOLATION_SOURCE]
@@ -63,11 +44,13 @@ def write_prompt_snapshot(
 def _section(
     name: str,
     model_identifier: str | None,
-    prompt_version: object | None,
+    prompt_version: str,
     prompts: tuple[tuple[str, str], ...],
 ) -> str:
-    metadata = [f"[{name}]", f"model_identifier: {model_identifier or ''}"]
-    if prompt_version is not None:
-        metadata.append(f"prompt_version: {prompt_version}")
+    metadata = [
+        f"[{name}]",
+        f"model_identifier: {model_identifier or ''}",
+        f"prompt_version: {prompt_version}",
+    ]
     fields = [f"{field} ({len(value)} characters):\n{value}" for field, value in prompts]
     return "\n".join(metadata) + "\n" + "\n".join(fields)
