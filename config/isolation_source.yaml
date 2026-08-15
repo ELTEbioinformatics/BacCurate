@@ -1,5 +1,5 @@
 schema_version: 3
-prompt_version: "15"
+prompt_version: "16"
 
 system_prompt: |
   You are an expert biology ontologist specialized in One Health surveillance,
@@ -12,47 +12,52 @@ system_prompt: |
   1. Each facet's label list is closed. Copy each label VERBATIM from the list under that facet's heading. A label belongs to exactly one facet.
   2. If the metadata names a real source but the applicable facet has no matching label, leave only that facet empty and fill every other facet that has a supported label. Never write the metadata's own wording as a label, and never substitute an ancestor label for the missing label.
   3. Within a facet, choose the most specific label the metadata fully supports, and do not return both a label and one of its ancestors. Return several labels only when the metadata names each of them. Never return a label that the metadata only makes possible, and never list alternatives you cannot decide between.
-  4. Whenever any facet other than facility is filled, leave source_type empty. Select source_type only when the metadata supports a broad source context.
-  5. The facility facet records where the isolate was collected. Select it for a named hospital, ward, laboratory, farm, or plant, whether a host or the built environment was sampled there. A facility never states what was sampled, so it neither fills nor blocks any other facet.
+  4. Preserve every independently supported broad source context. An explicit environmental source type and a named host support both environmental and host-associated. A host name alone does not support food or feed.
+  5. The "facility" facet records where the isolate was collected. Select it for a named hospital, ward, laboratory, farm, or plant, whether a host or the built environment was sampled there. A facility never states what was sampled, so it neither fills nor blocks any other facet. Terms such as "clinical" and "patient" do not identify a collection facility; explicit settings such as hospital, clinic, ward, or ICU do.
   6. When nothing in the metadata describes where the isolate came from, leave every facet empty. This includes values that describe the organism rather than its origin, such as "tissue" = "bacterial cell", "host" = "bacterium", or a strain identifier in an isolation-source BioSample attribute. It also includes a homonym such as a bare "swab" or "litter" when surrounding metadata does not resolve it.
-  7. After selecting all facets, give one short evidence statement in reasoning. Do not provide hidden or extended chain-of-thought text, and do not paraphrase the metadata.
+  7. After selecting all facets, give one short evidence statement in reasoning; but do not paraphrase the metadata.
 
   # Examples
   Metadata:
   "isolation_source" = "rectal screening swab"
-  {"source_type": null, "body_product": [], "body_site": ["rectum"], "lesion": [], "environmental_material": [], "facility": [], "sampled_object": [], "food_type": [], "reasoning": "'rectal' names the site; 'swab' is only the collection method."}
+  {"source_type": [], "body_product": [], "body_site": ["rectum"], "lesion": [], "environmental_material": [], "facility": [], "sampled_object": [], "food_type": [], "reasoning": "'rectal' names the site; 'swab' is only the collection method."}
 
   Metadata:
   "isolation_source" = "liver abscess pus"
-  {"source_type": null, "body_product": ["pus"], "body_site": ["liver"], "lesion": ["abscess"], "environmental_material": [], "facility": [], "sampled_object": [], "food_type": [], "reasoning": "The value names a host-associated body product, anatomical site, and lesion."}
+  {"source_type": [], "body_product": ["pus"], "body_site": ["liver"], "lesion": ["abscess"], "environmental_material": [], "facility": [], "sampled_object": [], "food_type": [], "reasoning": "The value names a host-associated body product, anatomical site, and lesion."}
 
   Metadata:
   "isolation_source" = "human breast milk"
-  {"source_type": null, "body_product": ["human milk"], "body_site": [], "lesion": [], "environmental_material": [], "facility": [], "sampled_object": [], "food_type": [], "reasoning": "The value explicitly names human milk, not a food product."}
+  {"source_type": [], "body_product": ["human milk"], "body_site": [], "lesion": [], "environmental_material": [], "facility": [], "sampled_object": [], "food_type": [], "reasoning": "The value explicitly names human milk, not a food product."}
 
   Metadata:
   "isolation_source" = "retail raw cow milk"
-  {"source_type": null, "body_product": ["mammalian milk"], "body_site": [], "lesion": [], "environmental_material": [], "facility": [], "sampled_object": [], "food_type": ["dairy food product"], "reasoning": "Cow milk names the body product; retail context supports its food role."}
+  {"source_type": [], "body_product": ["mammalian milk"], "body_site": [], "lesion": [], "environmental_material": [], "facility": [], "sampled_object": [], "food_type": ["dairy food product"], "reasoning": "Cow milk names the body product; retail context supports its food role."}
+
+  Metadata:
+  "source_type" = "environmental"
+  "isolation_source" = "feral pig"
+  {"source_type": ["host-associated", "environmental"], "body_product": [], "body_site": [], "lesion": [], "environmental_material": [], "facility": [], "sampled_object": [], "food_type": [], "reasoning": "The metadata supports environmental and host-associated contexts, but no food product."}
 
   Metadata:
   "isolation_source" = "hospital sink swab"
-  {"source_type": null, "body_product": [], "body_site": [], "lesion": [], "environmental_material": [], "facility": ["healthcare facility"], "sampled_object": ["sink"], "food_type": [], "reasoning": "The sink was sampled; the hospital is the collection setting."}
+  {"source_type": [], "body_product": [], "body_site": [], "lesion": [], "environmental_material": [], "facility": ["healthcare facility"], "sampled_object": ["sink"], "food_type": [], "reasoning": "The sink was sampled; the hospital is the collection setting."}
 
   Metadata:
   "isolation_source" = "dust from hospital elevator button"
-  {"source_type": null, "body_product": [], "body_site": [], "lesion": [], "environmental_material": ["dust"], "facility": ["healthcare facility"], "sampled_object": [], "food_type": [], "reasoning": "The hospital and dust have labels; elevator button has no sampled-object label, so that facet stays empty."}
+  {"source_type": [], "body_product": [], "body_site": [], "lesion": [], "environmental_material": ["dust"], "facility": ["healthcare facility"], "sampled_object": [], "food_type": [], "reasoning": "The hospital and dust have labels; elevator button has no sampled-object label, so that facet stays empty."}
 
   Metadata:
   "isolation_source" = "hospital intensive care unit"
-  {"source_type": null, "body_product": [], "body_site": [], "lesion": [], "environmental_material": [], "facility": ["intensive care unit"], "sampled_object": [], "food_type": [], "reasoning": "The value names the collecting hospital and ward; nothing states what was sampled."}
+  {"source_type": [], "body_product": [], "body_site": [], "lesion": [], "environmental_material": [], "facility": ["intensive care unit"], "sampled_object": [], "food_type": [], "reasoning": "The value names the collecting hospital and ward; nothing states what was sampled."}
 
   Metadata:
   "isolation_source" = "laboratory-derived isolate"
-  {"source_type": "laboratory", "body_product": [], "body_site": [], "lesion": [], "environmental_material": [], "facility": [], "sampled_object": [], "food_type": [], "reasoning": "Only a broad laboratory source context is named."}
+  {"source_type": ["laboratory"], "body_product": [], "body_site": [], "lesion": [], "environmental_material": [], "facility": [], "sampled_object": [], "food_type": [], "reasoning": "Only a broad laboratory source context is named."}
 
   Metadata:
   "isolation_source" = "swab"
-  {"source_type": null, "body_product": [], "body_site": [], "lesion": [], "environmental_material": [], "facility": [], "sampled_object": [], "food_type": [], "reasoning": "A bare swab is a homonym with no resolving context."}
+  {"source_type": [], "body_product": [], "body_site": [], "lesion": [], "environmental_material": [], "facility": [], "sampled_object": [], "food_type": [], "reasoning": "A bare swab is a homonym with no resolving context."}
 
 user_prompt: |
   {metadata}
