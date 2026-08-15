@@ -16,6 +16,11 @@ from baccurate.pathogen_registry.registry import PathogenRegistry
 from baccurate.pathogen_registry.species_label_matching import load_atb_accessions_by_pathogen
 from baccurate.paths import DEFAULT_NAMES_DMP, DEFAULT_NODES_DMP
 from baccurate.provenance.source_snapshot import validate_extracted_metadata_bundle
+from baccurate.run.location_review_worklist import (
+    LOCATION_REVIEW_WORKLIST_FILENAME,
+    LocationReviewWorklist,
+    LocationReviewWorklistSummary,
+)
 from baccurate.run.statistics import (
     DatasetBuildProgress,
     DatasetBuildStatistics,
@@ -126,8 +131,7 @@ class _MutableLocationStatistics:
     rejected: int = 0
     coordinate_decodes: int = 0
     direct_matches: int = 0
-    cache_hits: int = 0
-    llm_calls: int = 0
+    reviewed_mapping_matches: int = 0
     diagnostics: Counter[LocationDiagnostic] = field(default_factory=Counter)
 
 
@@ -320,11 +324,9 @@ class DatasetBuilder:
     """
     Stream one final dataset for the requested records and standardization targets.
 
-    The four optional factories are substitution seams for collaborators that reach outside the
-    process or read bulk reference resources. ``location_standardizer_factory`` and
-    ``isolation_source_standardizer_factory`` substitute LLM clients;
-    ``host_standardizer_factory`` substitutes the NCBI Taxonomy reference table; and
-    ``host_lineage_factory`` substitutes the NCBI ``names.dmp`` and ``nodes.dmp`` readers.
+    The four optional factories are test seams for the external dependencies:
+    the LLM client (isolation source), the INSDC location list and reviewed policy
+    (location), the NCBI Taxonomy table (host), and ``names.dmp``/``nodes.dmp`` (lineage).
     """
 
     def __init__(
@@ -429,24 +431,17 @@ class DatasetBuilder:
             else:
                 date_standardizers = {}
             location_standardizer = None
+            location_review_worklist = None
             if StandardizationTarget.LOCATION in targets:
-                if self._location_standardizer_factory is not None:
-                    location_standardizer = self._location_standardizer_factory(
+                location_standardizer = (
+                    self._location_standardizer_factory(request.location_policy, request.logger)
+                    if self._location_standardizer_factory is not None
+                    else LocationStandardizer(
                         request.location_policy,
-                        request.logger,
+                        result_logger=request.logger,
                     )
-                else:
-                    location_options = {
-                        "result_logger": request.logger,
-                        "llm_settings": llm_settings,
-                    }
-                    if request.skip_llm:
-                        location_options["client"] = None
-                    location_standardizer = LocationStandardizer(
-                        request.location_policy, **location_options
-                    )
-            if location_standardizer is not None:
-                resources.callback(location_standardizer.close)
+                )
+                location_review_worklist = LocationReviewWorklist()
             host_standardizer = (
                 self._host_standardizer_factory(request.host_policy, request.logger)
                 if StandardizationTarget.HOST in targets
@@ -525,6 +520,7 @@ class DatasetBuilder:
                     host_lineage,
                     date_stats,
                     location_stats,
+                    location_review_worklist,
                     host_stats,
                     isolation_source_stats,
                     assembler,
@@ -537,6 +533,13 @@ class DatasetBuilder:
                     date_stats,
                     date_standardizers,
                     location_stats,
+                    (
+                        location_review_worklist.write(
+                            destination.parent / LOCATION_REVIEW_WORKLIST_FILENAME
+                        )
+                        if location_review_worklist is not None
+                        else None
+                    ),
                     host_stats,
                     isolation_source_stats,
                     request.progress.rows_written,
@@ -554,12 +557,9 @@ class DatasetBuilder:
         if statistics.location is None:
             return
         summaries = {
-            LocationDiagnostic.LLM_DISABLED: "location LLM disabled",
-            LocationDiagnostic.RECOVERABLE_LLM_FAILURE: "recoverable location LLM failure",
             LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE: (
                 "recoverable coordinate resolution failure"
             ),
-            LocationDiagnostic.INVALID_LLM_RESPONSE: "invalid location LLM response",
         }
         for diagnostic, description in summaries.items():
             count = statistics.location.aggregate.diagnostics.get(diagnostic, 0)
@@ -621,6 +621,7 @@ class DatasetBuilder:
         host_lineage: HostLineageEnricher | None,
         date_stats: Mapping[str, _MutableDateStatistics],
         location_stats: Mapping[str, _MutableLocationStatistics],
+        location_review_worklist: LocationReviewWorklist | None,
         host_stats: Mapping[str, _MutableHostStatistics],
         isolation_source_stats: Mapping[str, _MutableIsolationSourceStatistics],
         assembler: _FinalRowAssembler,
@@ -672,9 +673,14 @@ class DatasetBuilder:
                     location_result = location_standardizer.standardize(extracted_record)
                     stats.coordinate_decodes += location_result.coordinate_decodes
                     stats.direct_matches += location_result.direct_matches
-                    stats.cache_hits += location_result.cache_hits
-                    stats.llm_calls += location_result.llm_calls
+                    stats.reviewed_mapping_matches += location_result.reviewed_mapping_matches
                     stats.diagnostics.update(location_result.diagnostics)
+                    if location_review_worklist is not None:
+                        location_review_worklist.observe(
+                            location_result.unresolved_inputs,
+                            accession=accession,
+                            pathogen_key=pathogen,
+                        )
                     if isinstance(location_result, LocationRejection):
                         stats.rejected += 1
                     else:
@@ -857,12 +863,16 @@ class DatasetBuilder:
         date_stats: Mapping[str, _MutableDateStatistics],
         date_standardizers: Mapping[str, RecordDateStandardizer],
         location_stats: Mapping[str, _MutableLocationStatistics],
+        location_review_worklist: LocationReviewWorklistSummary | None,
         host_stats: Mapping[str, _MutableHostStatistics],
         isolation_source_stats: Mapping[str, _MutableIsolationSourceStatistics],
         rows_written: int,
     ) -> DatasetBuildStatistics:
         date_statistics = DatasetBuilder._make_date_statistics(date_stats, date_standardizers)
-        location_statistics = DatasetBuilder._make_location_statistics(location_stats)
+        location_statistics = DatasetBuilder._make_location_statistics(
+            location_stats,
+            location_review_worklist,
+        )
         host_statistics = DatasetBuilder._make_host_statistics(host_stats)
         isolation_source_statistics = DatasetBuilder._make_isolation_source_statistics(
             isolation_source_stats
@@ -923,6 +933,7 @@ class DatasetBuilder:
     @staticmethod
     def _make_location_statistics(
         mutable_stats: Mapping[str, _MutableLocationStatistics],
+        review_worklist: LocationReviewWorklistSummary | None,
     ) -> LocationBuildStatistics | None:
         if not mutable_stats:
             return None
@@ -934,8 +945,7 @@ class DatasetBuilder:
                 rejected=stats.rejected,
                 coordinate_decodes=stats.coordinate_decodes,
                 direct_matches=stats.direct_matches,
-                cache_hits=stats.cache_hits,
-                llm_calls=stats.llm_calls,
+                reviewed_mapping_matches=stats.reviewed_mapping_matches,
                 diagnostics=dict(sorted(stats.diagnostics.items())),
             )
 
@@ -946,11 +956,16 @@ class DatasetBuilder:
             rejected=sum(stats.rejected for stats in mutable_stats.values()),
             coordinate_decodes=sum(stats.coordinate_decodes for stats in mutable_stats.values()),
             direct_matches=sum(stats.direct_matches for stats in mutable_stats.values()),
-            cache_hits=sum(stats.cache_hits for stats in mutable_stats.values()),
-            llm_calls=sum(stats.llm_calls for stats in mutable_stats.values()),
+            reviewed_mapping_matches=sum(
+                stats.reviewed_mapping_matches for stats in mutable_stats.values()
+            ),
             diagnostics=_sum_counts(stats.diagnostics for stats in mutable_stats.values()),
         )
-        return LocationBuildStatistics(aggregate=aggregate, by_pathogen=by_pathogen)
+        return LocationBuildStatistics(
+            aggregate=aggregate,
+            by_pathogen=by_pathogen,
+            review_worklist=review_worklist,
+        )
 
     @staticmethod
     def _make_host_statistics(

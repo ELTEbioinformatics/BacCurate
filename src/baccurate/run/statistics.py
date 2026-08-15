@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from baccurate.run.location_review_worklist import LocationReviewWorklistSummary
 from baccurate.standardization.collection_date import (
     DateCategory,
     DateDiagnostic,
@@ -74,17 +75,21 @@ class LocationStatistics:
     rejected: int
     coordinate_decodes: int
     direct_matches: int
-    cache_hits: int
-    llm_calls: int
+    reviewed_mapping_matches: int
     diagnostics: Mapping[LocationDiagnostic, int]
 
 
 @dataclass(frozen=True, slots=True)
 class LocationBuildStatistics:
-    """Aggregate and per-pathogen location statistics."""
+    """Aggregate and per-pathogen location statistics, plus the review worklist summary.
+
+    Worklist totals live here (not in ``LocationStatistics``) because a single worklist row
+    can span multiple pathogens, so there is no per-pathogen breakdown.
+    """
 
     aggregate: LocationStatistics
     by_pathogen: Mapping[str, LocationStatistics]
+    review_worklist: LocationReviewWorklistSummary | None = None
 
 
 @dataclass(frozen=True, slots=True)
