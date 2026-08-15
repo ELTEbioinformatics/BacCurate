@@ -259,22 +259,12 @@ def test_in_atb_is_membership_for_the_resolved_target_pathogen(tmp_path: Path) -
     assert [record["in_ATB"] for record in built.records] == ["True", "False"]
 
 
-def _location_policy(tmp_path: Path) -> LocationPolicy:
-    return replace(
-        LocationPolicy.load(LOCATION_POLICY_PATH),
-        cache_db_path=tmp_path / "location-cache.db",
-    )
+def _location_policy(_tmp_path: Path) -> LocationPolicy:
+    return LocationPolicy.load(LOCATION_POLICY_PATH)
 
 
-def _location_without_llm(
-    policy: LocationPolicy,
-    _logger: object,
-) -> LocationStandardizer:
-    return LocationStandardizer(
-        policy,
-        client=None,
-        llm_settings=LLMSettings(None, None, "test-model"),
-    )
+def _location_standardizer(policy: LocationPolicy, _logger: object) -> LocationStandardizer:
+    return LocationStandardizer(policy)
 
 
 def _minimal_host_components(tmp_path: Path) -> tuple[HostPolicy, Path]:
@@ -516,7 +506,7 @@ def test_requested_target_without_outcome_serializes_exact_empty_columns_without
         ],
         (StandardizationTarget.DATE, StandardizationTarget.LOCATION),
         location_policy=location_policy,
-        location_standardizer_factory=_location_without_llm,
+        location_standardizer_factory=_location_standardizer,
     )
 
     location_path = tmp_path / "location"
@@ -525,7 +515,7 @@ def test_requested_target_without_outcome_serializes_exact_empty_columns_without
         [_dated_record("LOCATION_WITHOUT_OUTCOME", loc_attr_orig="", loc_val_orig="")],
         (StandardizationTarget.DATE, StandardizationTarget.LOCATION),
         location_policy=_location_policy(location_path),
-        location_standardizer_factory=_location_without_llm,
+        location_standardizer_factory=_location_standardizer,
     )
 
     host_path = tmp_path / "host"
@@ -736,7 +726,7 @@ def test_absent_sublocation_serializes_as_na_not_empty(tmp_path: Path) -> None:
         ],
         (StandardizationTarget.DATE, StandardizationTarget.LOCATION),
         location_policy=_location_policy(tmp_path),
-        location_standardizer_factory=_location_without_llm,
+        location_standardizer_factory=_location_standardizer,
     )
     records = {record["accession"]: record for record in built.records}
 
@@ -747,34 +737,22 @@ def test_absent_sublocation_serializes_as_na_not_empty(tmp_path: Path) -> None:
 def test_absent_un_region_serializes_as_na_not_empty_for_resolved_country(
     tmp_path: Path,
 ) -> None:
-    response = SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content='{"country": "Arctic Ocean"}'))]
-    )
-    client = SimpleNamespace(
-        chat=SimpleNamespace(
-            completions=SimpleNamespace(create=lambda **_kwargs: response),
-        ),
-        close=lambda: None,
-    )
+    """A reviewed mapping may name a water body, which has no UN region."""
     built = _build_dataset(
         tmp_path,
         [
             _dated_record(
                 "NO_UN_REGION",
                 loc_attr_orig="geo_loc_name",
-                loc_val_orig="model-only place 739105",
+                loc_val_orig="Baltic Sea",
             )
         ],
         (StandardizationTarget.DATE, StandardizationTarget.LOCATION),
         location_policy=_location_policy(tmp_path),
-        location_standardizer_factory=lambda policy, _logger: LocationStandardizer(
-            policy,
-            client=client,
-            llm_settings=LLMSettings(None, None, "test-model"),
-        ),
+        location_standardizer_factory=_location_standardizer,
     )
 
-    assert built.records[0]["loc_country"] == "Arctic Ocean"
+    assert built.records[0]["loc_country"] == "Baltic Sea"
     assert built.records[0]["loc_UNregion"] == "NA"
 
 
@@ -798,7 +776,7 @@ def test_rejected_locations_serialize_as_empty_not_na_while_diagnostics_preserve
         ],
         (StandardizationTarget.DATE, StandardizationTarget.LOCATION),
         location_policy=_location_policy(tmp_path),
-        location_standardizer_factory=_location_without_llm,
+        location_standardizer_factory=_location_standardizer,
     )
 
     assert len(built.records) == 3
@@ -810,7 +788,7 @@ def test_rejected_locations_serialize_as_empty_not_na_while_diagnostics_preserve
     assert built.statistics.location.aggregate.diagnostics == {
         LocationDiagnostic.ABSENT_VALUES: 1,
         LocationDiagnostic.UNMAPPABLE_RESULT: 1,
-        LocationDiagnostic.UNRESOLVED_PLACE: 1,
+        LocationDiagnostic.UNRESOLVED_PLACE: 2,
     }
 
 

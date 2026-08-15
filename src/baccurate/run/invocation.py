@@ -221,6 +221,7 @@ def resolve_invocation(
             output_file=args.output_file,
             include_isolation_source=StandardizationTarget.ISOLATION_SOURCE in active_targets,
             include_prompt_snapshot=include_prompt_snapshot,
+            include_location=StandardizationTarget.LOCATION in active_targets,
         )
     except ValueError as exc:
         parser.error(str(exc))

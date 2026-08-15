@@ -22,7 +22,7 @@ def test_llm_targets_own_their_published_model_identifier_keys() -> None:
     assert {target: spec.model_identifier_key for target, spec in TARGET_SPECS.items()} == {
         StandardizationTarget.HOST: None,
         StandardizationTarget.DATE: None,
-        StandardizationTarget.LOCATION: "location",
+        StandardizationTarget.LOCATION: None,
         StandardizationTarget.ISOLATION_SOURCE: "isolation_source",
     }
 

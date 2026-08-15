@@ -266,7 +266,6 @@ def test_pipeline_cli_validates_selected_standardization_policy_before_resources
     assert str(invalid_path) in str(error.value)
     assert "<yaml>" in str(error.value)
     assert not output_dir.exists()
-    assert not (tmp_path / "location-cache.db").exists()
     assert not (tmp_path / "isolation-cache.db").exists()
 
 
@@ -412,8 +411,8 @@ def test_isolation_source_only_run_report_changes_when_borrowed_host_policy_chan
 @pytest.mark.parametrize(
     ("standardization_target", "skip_llm", "expects_snapshot", "expected_model_keys"),
     [
-        ("loc", False, True, {"location"}),
-        ("loc", True, False, {"location"}),
+        ("loc", False, False, set()),
+        ("loc", True, False, set()),
         ("iso", True, False, {"isolation_source"}),
         ("date", False, False, set()),
     ],

@@ -275,14 +275,12 @@ def _write_location_policy(
     overrides: dict[str, object] | None = None,
 ) -> Path:
     policy: dict[str, object] = {
-        "schema_version": 1,
-        "prompt_version": "test-v1",
+        "schema_version": 2,
         "coordinate_attributes": ["lat_lon", "latitude"],
-        "llm_system_prompt": "Resolve a geographic location.",
-        "llm_user_prompt_template": "Evidence: {attr_val_pairs}; literal {{brace}}",
         "insdc_country_map": {"United States": "USA"},
+        "reviewed_mappings": {"uae": "United Arab Emirates"},
+        "reviewed_unmapped": ["ncbs"],
         "geo_loc_list_path": "reference/geo_loc_list.txt",
-        "cache_db_path": "cache/location.db",
     }
     policy.update(overrides or {})
     path = tmp_path / "location.yaml"
@@ -304,7 +302,7 @@ def test_unselected_location_policy_is_not_loaded(tmp_path: Path) -> None:
     assert policy.location_policy is None
 
 
-def test_location_policy_preserves_relative_paths_and_escaped_literal_braces(
+def test_location_policy_preserves_relative_reference_paths(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -314,36 +312,22 @@ def test_location_policy_preserves_relative_paths_and_escaped_literal_braces(
         "Germany\n",
         encoding="utf-8",
     )
-    (tmp_path / "cache").mkdir()
     location_path = _write_location_policy(tmp_path)
 
     policy = LocationPolicy.load(location_path)
 
     assert policy.geo_loc_list_path == Path("reference/geo_loc_list.txt")
-    assert policy.cache_db_path == Path("cache/location.db")
-    assert policy.prompts.user_template.format(attr_val_pairs="geo_loc_name=Germany") == (
-        "Evidence: geo_loc_name=Germany; literal {brace}"
-    )
+    assert policy.reviewed_mappings == {"uae": "United Arab Emirates"}
+    assert policy.reviewed_unmapped == frozenset({"ncbs"})
 
 
-@pytest.mark.parametrize(
-    ("overrides", "policy_key"),
-    [
-        ({"geo_loc_list_path": "missing-reference.txt"}, "geo_loc_list_path"),
-        ({"cache_db_path": "missing-parent/location.db"}, "cache_db_path"),
-    ],
-)
 def test_location_policy_rejects_unusable_resource_selection_before_standardization(
     tmp_path: Path,
-    overrides: dict[str, object],
-    policy_key: str,
 ) -> None:
     registry = load_pathogen_registry(PATHOGEN_REGISTRY_PATH)
-    valid_reference = tmp_path / "geo_loc_list.txt"
-    valid_reference.write_text("Germany\n", encoding="utf-8")
     location_path = _write_location_policy(
         tmp_path,
-        {"geo_loc_list_path": valid_reference.as_posix(), **overrides},
+        {"geo_loc_list_path": "missing-reference.txt"},
     )
 
     with pytest.raises(PolicyConfigurationError) as error:
@@ -355,7 +339,7 @@ def test_location_policy_rejects_unusable_resource_selection_before_standardizat
         )
 
     assert str(location_path) in str(error.value)
-    assert policy_key in str(error.value)
+    assert "geo_loc_list_path" in str(error.value)
 
 
 def test_location_standardizer_does_not_reopen_loaded_policy_source(tmp_path: Path) -> None:
@@ -363,25 +347,18 @@ def test_location_standardizer_does_not_reopen_loaded_policy_source(tmp_path: Pa
     geo_loc_list.write_text("Germany\n", encoding="utf-8")
     location_path = _write_location_policy(
         tmp_path,
-        {
-            "geo_loc_list_path": geo_loc_list.as_posix(),
-            "cache_db_path": (tmp_path / "location-cache.db").as_posix(),
-        },
+        {"geo_loc_list_path": geo_loc_list.as_posix()},
     )
     policy = LocationPolicy.load(location_path)
     location_path.write_text("broken: [\n", encoding="utf-8")
 
-    standardizer = LocationStandardizer(policy, client=None)
-    try:
-        outcome = standardizer.standardize(
-            {
-                "accession": "NO_REOPEN",
-                "loc_attr_orig": "geo_loc_name",
-                "loc_val_orig": "Germany",
-            }
-        )
-    finally:
-        standardizer.close()
+    outcome = LocationStandardizer(policy).standardize(
+        {
+            "accession": "NO_REOPEN",
+            "loc_attr_orig": "geo_loc_name",
+            "loc_val_orig": "Germany",
+        }
+    )
 
     assert outcome.country == "Germany"
 
@@ -390,25 +367,17 @@ def test_location_standardizer_does_not_reopen_loaded_policy_source(tmp_path: Pa
     ("overrides", "policy_key"),
     [
         ({"unexpected": True}, "top level.unexpected"),
-        ({"schema_version": "1"}, "schema_version"),
-        ({"prompt_version": 1}, "prompt_version"),
+        ({"schema_version": "2"}, "schema_version"),
         ({"coordinate_attributes": "lat_lon"}, "coordinate_attributes"),
         ({"coordinate_attributes": ["lat_lon", "  "]}, "coordinate_attributes.1"),
-        ({"llm_system_prompt": None}, "llm_system_prompt"),
-        ({"llm_user_prompt_template": "literal only"}, "llm_user_prompt_template"),
-        (
-            {"llm_user_prompt_template": "{attr_val_pairs} {unsupported}"},
-            "llm_user_prompt_template",
-        ),
-        (
-            {"llm_user_prompt_template": "{attr_val_pairs} {attr_val_pairs}"},
-            "llm_user_prompt_template",
-        ),
         ({"insdc_country_map": []}, "insdc_country_map"),
         ({"insdc_country_map": {"": "USA"}}, "insdc_country_map"),
         ({"insdc_country_map": {"United States": 1}}, "insdc_country_map.United States"),
+        ({"reviewed_mappings": []}, "reviewed_mappings"),
+        ({"reviewed_mappings": {"uae": ""}}, "reviewed_mappings.uae"),
+        ({"reviewed_unmapped": {"ncbs": True}}, "reviewed_unmapped"),
+        ({"reviewed_unmapped": ["ncbs", " "]}, "reviewed_unmapped.1"),
         ({"geo_loc_list_path": 1}, "geo_loc_list_path"),
-        ({"cache_db_path": ""}, "cache_db_path"),
     ],
 )
 def test_location_policy_rejects_invalid_values_with_source_and_key(
@@ -433,7 +402,7 @@ def test_location_policy_rejects_invalid_values_with_source_and_key(
 
 @pytest.mark.parametrize(
     "missing_key",
-    ["schema_version", "llm_system_prompt", "llm_user_prompt_template"],
+    ["schema_version", "reviewed_mappings", "reviewed_unmapped"],
 )
 def test_location_policy_rejects_missing_required_values(
     tmp_path: Path,
@@ -457,30 +426,11 @@ def test_location_policy_rejects_missing_required_values(
     assert missing_key in str(error.value)
 
 
-def test_location_policy_rejects_malformed_user_prompt_braces(tmp_path: Path) -> None:
-    registry = load_pathogen_registry(PATHOGEN_REGISTRY_PATH)
-    location_path = _write_location_policy(
-        tmp_path,
-        {"llm_user_prompt_template": "{attr_val_pairs"},
-    )
-
-    with pytest.raises(PolicyConfigurationError) as error:
-        load_effective_policy(
-            pathogen_registry=registry,
-            configuration_root=tmp_path,
-            requested_standardization_targets=("loc",),
-            extraction_required=False,
-        )
-
-    assert str(location_path) in str(error.value)
-    assert "llm_user_prompt_template" in str(error.value)
-
-
 def test_location_policy_unsupported_version_error_provides_migration_guidance(
     tmp_path: Path,
 ) -> None:
     registry = load_pathogen_registry(PATHOGEN_REGISTRY_PATH)
-    location_path = _write_location_policy(tmp_path, {"schema_version": 2})
+    location_path = _write_location_policy(tmp_path, {"schema_version": 1})
 
     with pytest.raises(PolicyConfigurationError) as error:
         load_effective_policy(
@@ -493,8 +443,8 @@ def test_location_policy_unsupported_version_error_provides_migration_guidance(
     message = str(error.value)
     assert str(location_path) in message
     assert "schema_version" in message
-    assert "unsupported schema version 2" in message
-    assert "supported schema version is 1" in message
+    assert "unsupported schema version 1" in message
+    assert "supported schema version is 2" in message
     assert "migrate" in message
 
 

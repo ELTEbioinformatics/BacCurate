@@ -50,7 +50,6 @@ def main(
         write_prompt_snapshot(
             outputs.prompt_snapshot,
             model_identifiers=model_identifiers,
-            location_policy=effective_policy.location_policy,
             isolation_source_prompt_policy=effective_policy.isolation_source_prompt_policy,
         )
     logging_state = configure_run_logging(outputs.log, console_debug=args.debug)

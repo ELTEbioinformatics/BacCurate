@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from baccurate.run.location_review_worklist import LocationReviewWorklistSummary
 from baccurate.run.outputs import RunOutputs
 from baccurate.run.prompt_snapshot import write_prompt_snapshot
 from baccurate.run.report import RunContext, RunReport, RunStatus
@@ -28,26 +29,11 @@ from baccurate.standardization.collection_date import (
 from baccurate.standardization.isolation_source import (
     IsolationSourcePromptPolicy,
 )
-from baccurate.standardization.location import LocationPolicy
 
 ROOT = Path(__file__).parents[2]
 
 
-def _write_prompt_configs(
-    tmp_path: Path,
-) -> tuple[LocationPolicy, IsolationSourcePromptPolicy]:
-    location = tmp_path / "location.yaml"
-    location.write_text(
-        "schema_version: 1\n"
-        "prompt_version: location-v2\n"
-        "coordinate_attributes: []\n"
-        "llm_system_prompt: |\n"
-        "  Locate café.\n"
-        "llm_user_prompt_template: |-\n"
-        "  {attr_val_pairs}\n"
-        "insdc_country_map: {}\n",
-        encoding="utf-8",
-    )
+def _write_prompt_configs(tmp_path: Path) -> IsolationSourcePromptPolicy:
     isolation_source = tmp_path / "isolation.yaml"
     isolation_source.write_text(
         "schema_version: 3\n"
@@ -61,28 +47,21 @@ def _write_prompt_configs(
         "  {metadata}\n",
         encoding="utf-8",
     )
-    return LocationPolicy.load(location), IsolationSourcePromptPolicy.load(isolation_source)
+    return IsolationSourcePromptPolicy.load(isolation_source)
 
 
 def test_prompt_snapshot_omits_unselected_pipeline(tmp_path: Path) -> None:
-    location, _ = _write_prompt_configs(tmp_path)
     destination = tmp_path / "prompts.txt"
 
-    write_prompt_snapshot(
-        destination,
-        model_identifiers={"location": "model"},
-        location_policy=location,
-    )
+    write_prompt_snapshot(destination, model_identifiers={})
 
     contents = destination.read_text(encoding="utf-8")
-    assert "[location]" in contents
-    assert "prompt_version: location-v2" in contents
+    assert "[location]" not in contents
     assert "[isolation_source]" not in contents
-    assert "[isolation]" not in contents
 
 
 def test_prompt_snapshot_uses_loaded_effective_isolation_source_prompts(tmp_path: Path) -> None:
-    _, isolation_source_policy = _write_prompt_configs(tmp_path)
+    isolation_source_policy = _write_prompt_configs(tmp_path)
     source = tmp_path / "isolation.yaml"
     source.write_text("broken: [\n", encoding="utf-8")
     destination = tmp_path / "prompts.txt"
@@ -120,7 +99,6 @@ def test_prompt_snapshot_participates_in_output_planning_only_when_enabled(
         expected.parent.mkdir(parents=True)
         expected.write_text("existing", encoding="utf-8")
         assert outputs.collision() == expected
-
 
 def test_run_report_uses_published_output_name_and_participates_in_collision_detection(
     tmp_path: Path,
@@ -231,7 +209,6 @@ def test_run_report_omits_prompt_artifact_when_snapshot_is_not_planned(tmp_path:
     assert "prompt_artifact" not in run_report
 
 
-
 def test_run_report_publishes_the_full_scientific_target_key_set(tmp_path: Path) -> None:
     outputs = RunOutputs.plan(
         output_dir=tmp_path,
@@ -264,6 +241,12 @@ def test_run_report_publishes_the_full_scientific_target_key_set(tmp_path: Path)
                 "accessions": {"SAMN00000001": 2},
             }
         }
+    }
+    assert run_report["scientific"]["location"]["review_worklist"] == {
+        "path": str(tmp_path / "run" / "location_review_worklist.tsv"),
+        "row_count": 1,
+        "occurrence_count": 2,
+        "biosample_record_count": 2,
     }
     assert run_report["scientific"]["date"]["aggregate"] == {
         "processed": 1,
@@ -298,8 +281,7 @@ def _complete_build_statistics(tmp_path: Path) -> DatasetBuildStatistics:
         rejected=0,
         coordinate_decodes=0,
         direct_matches=1,
-        cache_hits=0,
-        llm_calls=0,
+        reviewed_mapping_matches=0,
         diagnostics={},
     )
     host_statistics = HostStatistics(
@@ -340,6 +322,12 @@ def _complete_build_statistics(tmp_path: Path) -> DatasetBuildStatistics:
         location=LocationBuildStatistics(
             aggregate=location_statistics,
             by_pathogen={"ecoli": location_statistics},
+            review_worklist=LocationReviewWorklistSummary(
+                path=tmp_path / "run" / "location_review_worklist.tsv",
+                row_count=1,
+                occurrence_count=2,
+                biosample_record_count=2,
+            ),
         ),
         host=HostBuildStatistics(
             aggregate=host_statistics,

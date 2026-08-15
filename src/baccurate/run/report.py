@@ -344,19 +344,19 @@ def _stable_json_value(value):
         }
     if isinstance(value, (tuple, list)):
         return [_stable_json_value(item) for item in value]
+    if isinstance(value, Path):
+        return str(value)
     return getattr(value, "value", value)
 
 
 def _llm_cache_hits(statistics: DatasetBuildStatistics | None) -> dict[str, int]:
-    if statistics is None:
+    """Report model-cache reuse. Only isolation source calls a model."""
+    if statistics is None or statistics.isolation_source is None:
         return {}
     return {
-        TARGET_SPECS[target].published_key: target_statistics.aggregate.cache_hits
-        for target, target_statistics in (
-            (StandardizationTarget.LOCATION, statistics.location),
-            (StandardizationTarget.ISOLATION_SOURCE, statistics.isolation_source),
+        TARGET_SPECS[StandardizationTarget.ISOLATION_SOURCE].published_key: (
+            statistics.isolation_source.aggregate.cache_hits
         )
-        if target_statistics is not None
     }
 
 
