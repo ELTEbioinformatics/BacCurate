@@ -25,7 +25,7 @@ BACC:0000024	caecal content	body_product	BACC:0000023	cecal content;cecal conten
 BACC:0000025	feces	body_product		stool;stools;faeces;fecal;faecal;stool sample;fecal sample;faecal sample;fecal samples;faecal samples;fecal material;faecal material;feces sample;feces samples;human feces;human stool;dairy calf feces;cattle feces;mouse stool;human faeces;chicken feces;cattle faeces;feces swab;mouse feces;fecal swab	BACC:0000035		false
 BACC:0000026	respiratory system	body_site		respiratory;respiratory tract			false
 BACC:0000027	pleura	body_site	BACC:0000026				false
-BACC:0000028	upper respiratory tract	body_site	BACC:0000026	upper respiratory system			false
+BACC:0000028	upper respiratory tract	body_site	BACC:0000026	upper respiratory system		Do NOT select for sputum; choose lower respiratory tract instead.	false
 BACC:0000029	nasal cavity	body_site	BACC:0000028	nasal swab;nose;nasal;nares;nare			false
 BACC:0000030	pharynx	body_site	BACC:0000028	throat;throat swab;oropharynx;oropharyngeal swab;nasopharyngeal swab	BACC:0000035		false
 BACC:0000031	lower respiratory tract	body_site	BACC:0000026	lower respiratory system			false
