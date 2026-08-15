@@ -42,3 +42,61 @@ insdc_country_map:
   "Curaçao": "Curacao"
   "French Southern Territories": "French Southern and Antarctic Lands"
   "Micronesia, Fed. Sts.": "Micronesia, Federated States of"
+
+# Below is a list of manual mappings that country_converter could not resolve, or
+# the result could not be mapped to the INSDC Geographical Location list.
+#
+# Rules for editing:
+#   - Keys (the values to be mapped) must be lowercase and whitespace stripped.
+#   - Values (the targets to map to) must be written exactly as they appear INSDC
+#     Geographical Location List (data/reference/geo_loc_list.txt).
+reviewed_mappings:
+  # Country aliases and spelling variants.
+  "uae": "United Arab Emirates"
+  "cambodge": "Cambodia"
+  "afganistan": "Afghanistan"
+  "perú": "Peru"
+  "ksa": "Saudi Arabia"
+  "berlgium": "Belgium"
+  "cameroun": "Cameroon"
+  "german": "Germany"
+
+  # Marine areas. These are INSDC entries in their own right.
+  "baltic sea": "Baltic Sea"
+  "pacific ocean": "Pacific Ocean"
+  "atlantic ocean": "Atlantic Ocean"
+  "indian ocean": "Indian Ocean"
+  "atlantic ocean: cork u1383c-deep at north pond, mid-atlantic ridge": "Atlantic Ocean"
+
+  # Values that name cities but can be confidently resolved to countries.
+  "not provided: cologne": "Germany"
+  "not provided, tübingen": "Germany"
+  "not available, , cologne": "Germany"
+  "canonsburg, pa. usa": "USA"
+  "rajkot city": "India"
+  "wageningen": "Netherlands"
+
+  # Hospitals.
+  "brigham and women's hospital": "USA"
+  "king dinuzulu hospital": "South Africa"
+
+# Values here stay unmapped because they cannot be resolved confidently.
+reviewed_unmapped:
+  # Holding a strain is not evidence of where it was collected (and these are
+  # most likely lab strains as well, which are not of particular interest to BacCurate).
+  - "ncbs"
+  - "tokyo institute of technology"
+  - "coli genetics stock center"
+  - "who reference center"
+
+  # Areas that cover several countries, or none in the INSDC vocabulary. Could potentially
+  # map the last 2 to UN Regions later on.
+  - "ussr"
+  - "africa"
+  - "british isles"
+  - "lesser antilles"
+
+  # These do not describe geography.
+  - "water"
+  - "not collected: not available"
+  - "outpatient"
