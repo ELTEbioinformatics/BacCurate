@@ -163,8 +163,7 @@ Each `curated_taxa` entry is keyed by a quoted taxid and declares the matching t
 - `force` is an exact, preemptive score-1.0 decision for cases where the NCBI vocabulary or ordinary
   matching cascade would otherwise select the wrong taxon.
 
-`value_rejections.exact` is an ordered sequence of values and target-pathogen
-references. A `pathogen_key` entry resolves to the scientific name in the target-pathogen registry.
-Forced terms and value rejections are evaluated after isolation-source keyword routing and before the normal 
+`value_rejections.exact` is an ordered sequence of values and target-pathogen references. A
+`pathogen_key` entry resolves to the scientific name in the target-pathogen registry. Forced terms
+and value rejections are evaluated after isolation-source keyword routing and before the normal
 matching cascade.
-

@@ -1,4 +1,5 @@
 """Tests for target pathogen assignment from data/raw/biosample_index.tsv."""
+
 from pathlib import Path
 
 from baccurate.extraction import TargetPathogenAssignment, load_pathogen_map

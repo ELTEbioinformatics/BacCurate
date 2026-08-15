@@ -100,6 +100,7 @@ def test_prompt_snapshot_participates_in_output_planning_only_when_enabled(
         expected.write_text("existing", encoding="utf-8")
         assert outputs.collision() == expected
 
+
 def test_run_report_uses_published_output_name_and_participates_in_collision_detection(
     tmp_path: Path,
 ) -> None:

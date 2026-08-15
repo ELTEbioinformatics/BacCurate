@@ -30,9 +30,7 @@ def resolve_bioproject_accessions(
         for _event, bioproject_record in context:
             try:
                 archive_id = bioproject_record.find(".//ArchiveID")
-                project_id = (
-                    (archive_id.get("id") or "").strip() if archive_id is not None else ""
-                )
+                project_id = (archive_id.get("id") or "").strip() if archive_id is not None else ""
                 if project_id not in wanted:
                     continue
                 accession = (archive_id.get("accession") or "").strip()

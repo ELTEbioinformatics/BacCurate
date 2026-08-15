@@ -151,7 +151,6 @@ def _filter_assembly(
             fieldnames = header.rstrip("\r\n").split("\t")
             break
 
-
     inclusion_checks = (
         ("version_status != latest", lambda row: row["version_status"] == "latest"),
         ("biosample == na", lambda row: row["biosample"] != "na"),
@@ -219,7 +218,6 @@ def _write_manifest(
         source_url=report.source_url,
         file=SourceFile(name=source_path.name, sha256=source_sha256),
         notes=f"Wrote: {report.output_name}.",
-
     )
     path.write_text(
         yaml.safe_dump(manifest.model_dump(mode="json"), sort_keys=False),
