@@ -604,6 +604,7 @@ class LocationStandardizer:
 
         return self._reviewed_fallback(
             pairs,
+            submitted_pairs=submitted_pairs,
             unusable_pairs=unusable_pairs,
             coordinate_failure=coordinate_failure,
             unmappable_result=unmappable_result,
@@ -613,6 +614,7 @@ class LocationStandardizer:
         self,
         pairs: Sequence[SupportingAttributeValuePair],
         *,
+        submitted_pairs: tuple[SupportingAttributeValuePair, ...],
         unusable_pairs: Sequence[SupportingAttributeValuePair],
         coordinate_failure: bool,
         unmappable_result: bool,
@@ -633,7 +635,6 @@ class LocationStandardizer:
 
         def resolution(
             country: str | None,
-            supporting_pairs: tuple[SupportingAttributeValuePair, ...],
             *diagnostics: LocationDiagnostic,
         ) -> _RecordResolution:
             return _RecordResolution(
@@ -641,7 +642,7 @@ class LocationStandardizer:
                 # Reviewed mappings resolve to a country or water body only,
                 # so no sublocation.
                 sublocation=None,
-                supporting_pairs=supporting_pairs,
+                supporting_pairs=submitted_pairs,
                 unresolved_inputs=unresolved,
                 diagnostics=self._record_diagnostics(
                     coordinate_failure=coordinate_failure,
@@ -654,17 +655,11 @@ class LocationStandardizer:
         if mapped:
             targets = {target for _, target in mapped}
             if len(targets) > 1:
-                return resolution(None, (), LocationDiagnostic.REVIEWED_MAPPING_CONFLICT)
-            # Unlike deterministic outcomes (which keep every pair), reviewed-mapping
-            # outcomes keep only the pairs that matched.
-            return resolution(
-                targets.pop(),
-                tuple(pair for pair, _ in mapped),
-                LocationDiagnostic.REVIEWED_MAPPING_RESOLUTION,
-            )
+                return resolution(None, LocationDiagnostic.REVIEWED_MAPPING_CONFLICT)
+            return resolution(targets.pop(), LocationDiagnostic.REVIEWED_MAPPING_RESOLUTION)
         if reviewed_unmapped_present:
-            return resolution(None, (), LocationDiagnostic.REVIEWED_UNMAPPED)
-        return resolution(None, ())
+            return resolution(None, LocationDiagnostic.REVIEWED_UNMAPPED)
+        return resolution(None)
 
     def _unresolved_inputs(
         self,
@@ -690,7 +685,8 @@ class LocationStandardizer:
         """
         Order one record's diagnostics: operational, then selection, then review signals.
 
-        Both `unresolved_place` and `country_conflict` can appear on a successfully standardized record.
+        Both `unresolved_place` and `country_conflict` can appear on a successfully
+        standardized record.
         """
         return (
             *((LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE,) if coordinate_failure else ()),
