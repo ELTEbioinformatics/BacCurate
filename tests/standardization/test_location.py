@@ -14,6 +14,7 @@ from baccurate.standardization.location import (
     LocationOutcome,
     LocationPolicy,
     LocationRejection,
+    LocationResolutionRoute,
     LocationStandardizer,
     UnresolvedLocationInput,
     normalize_submitted_location_value,
@@ -66,14 +67,32 @@ def standardizer(fixture_location_policy: LocationPolicy):
 
 
 @pytest.mark.parametrize(
-    ("submitted", "country", "sublocation"),
+    ("submitted", "country", "sublocation", "route"),
     [
-        pytest.param("United States", "USA", None, id="insdc-remap"),
-        pytest.param("Germany", "Germany", None, id="already-insdc"),
-        pytest.param("United States: Boston", "USA", "Boston", id="sublocation"),
+        pytest.param(
+            "United States",
+            "USA",
+            None,
+            LocationResolutionRoute.INSDC_TERM,
+            id="insdc-remap",
+        ),
+        pytest.param(
+            "Germany",
+            "Germany",
+            None,
+            LocationResolutionRoute.INSDC_TERM,
+            id="already-insdc",
+        ),
+        pytest.param(
+            "United States: Boston",
+            "USA",
+            "Boston",
+            LocationResolutionRoute.INSDC_TERM,
+            id="sublocation",
+        ),
     ],
 )
-def test_country_normalized_to_insdc(standardizer, submitted, country, sublocation):
+def test_country_normalized_to_insdc(standardizer, submitted, country, sublocation, route):
     outcome = standardizer.standardize(
         {
             "accession": "INSDC_NORMALIZATION",
@@ -85,8 +104,8 @@ def test_country_normalized_to_insdc(standardizer, submitted, country, sublocati
     assert isinstance(outcome, LocationOutcome)
     assert outcome.country == country
     assert outcome.sublocation == sublocation
-    assert outcome.direct_matches == 1
-    assert outcome.diagnostics == (LocationDiagnostic.DIRECT_RESOLUTION,)
+    assert outcome.route == route
+    assert outcome.diagnostics == ()
 
 
 def test_non_insdc_country_rejected(standardizer):
@@ -99,7 +118,7 @@ def test_non_insdc_country_rejected(standardizer):
     )
 
     assert isinstance(outcome, LocationRejection)
-    assert outcome.direct_matches == 1
+    assert outcome.country_conversion_matches == 1
     assert outcome.diagnostics == (
         LocationDiagnostic.UNMAPPABLE_RESULT,
         LocationDiagnostic.UNRESOLVED_PLACE,
@@ -128,8 +147,8 @@ def test_outcome_carries_supporting_pairs_and_diagnostics(
         country="Germany",
         sublocation="Berlin",
         supporting_pairs=(SupportingAttributeValuePair("geo_loc_name", "Germany: Berlin"),),
-        direct_matches=1,
-        diagnostics=(LocationDiagnostic.DIRECT_RESOLUTION,),
+        route=LocationResolutionRoute.INSDC_TERM,
+        insdc_term_matches=1,
     )
 
 
@@ -152,7 +171,8 @@ def test_coordinate_decodes_to_country_and_city(monkeypatch, standardizer):
     assert outcome.country == "Germany"
     assert outcome.sublocation == "Berlin"
     assert outcome.coordinate_decodes == 1
-    assert outcome.diagnostics == (LocationDiagnostic.COORDINATE_RESOLUTION,)
+    assert outcome.route == LocationResolutionRoute.COORDINATE
+    assert outcome.diagnostics == ()
 
 
 # =============================================================================
@@ -279,10 +299,8 @@ def test_unmappable_coordinate_country_does_not_contribute_sublocation(monkeypat
 
     assert isinstance(outcome, LocationOutcome)
     assert (outcome.country, outcome.sublocation) == ("Italy", None)
-    assert outcome.diagnostics == (
-        LocationDiagnostic.DIRECT_RESOLUTION,
-        LocationDiagnostic.UNRESOLVED_PLACE,
-    )
+    assert outcome.route == LocationResolutionRoute.INSDC_TERM
+    assert outcome.diagnostics == (LocationDiagnostic.UNRESOLVED_PLACE,)
 
 
 def test_conflicting_countries_pick_coordinate_and_flag_conflict(monkeypatch, standardizer):
@@ -302,10 +320,8 @@ def test_conflicting_countries_pick_coordinate_and_flag_conflict(monkeypatch, st
 
     assert isinstance(outcome, LocationOutcome)
     assert (outcome.country, outcome.sublocation) == ("Italy", "Rome")
-    assert outcome.diagnostics == (
-        LocationDiagnostic.COUNTRY_CONFLICT,
-        LocationDiagnostic.COORDINATE_RESOLUTION,
-    )
+    assert outcome.route == LocationResolutionRoute.COORDINATE
+    assert outcome.diagnostics == (LocationDiagnostic.COUNTRY_CONFLICT,)
 
 
 # =============================================================================
@@ -353,9 +369,9 @@ def test_record_standardization_retains_coordinate_failure_when_place_name_resol
 
     assert isinstance(outcome, LocationOutcome)
     assert outcome.country == "Germany"
+    assert outcome.route == LocationResolutionRoute.INSDC_TERM
     assert outcome.diagnostics == (
         LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE,
-        LocationDiagnostic.DIRECT_RESOLUTION,
         LocationDiagnostic.UNRESOLVED_PLACE,
     )
 
@@ -412,7 +428,8 @@ def test_reviewed_mapping_standardizes_a_country_alias_without_a_sublocation(
     assert outcome.sublocation is None
     assert outcome.reviewed_mapping_matches == 1
     assert outcome.unresolved_inputs == ()
-    assert outcome.diagnostics == (LocationDiagnostic.REVIEWED_MAPPING_RESOLUTION,)
+    assert outcome.route == LocationResolutionRoute.REVIEWED_MAPPING
+    assert outcome.diagnostics == ()
 
 
 def test_reviewed_mapping_to_a_water_body_publishes_no_un_region(tmp_path, fixture_location_policy):
@@ -488,7 +505,8 @@ def test_agreeing_reviewed_mappings_are_not_cancelled_by_other_values(
     assert isinstance(outcome, LocationOutcome)
     assert outcome.country == "Germany"
     assert outcome.reviewed_mapping_matches == 2
-    assert outcome.diagnostics == (LocationDiagnostic.REVIEWED_MAPPING_RESOLUTION,)
+    assert outcome.route == LocationResolutionRoute.REVIEWED_MAPPING
+    assert outcome.diagnostics == ()
 
 
 def test_deterministic_resolution_beside_an_unreviewed_value_still_reports_it(
@@ -504,10 +522,8 @@ def test_deterministic_resolution_beside_an_unreviewed_value_still_reports_it(
 
     assert isinstance(outcome, LocationOutcome)
     assert outcome.country == "Germany"
-    assert outcome.diagnostics == (
-        LocationDiagnostic.DIRECT_RESOLUTION,
-        LocationDiagnostic.UNRESOLVED_PLACE,
-    )
+    assert outcome.route == LocationResolutionRoute.INSDC_TERM
+    assert outcome.diagnostics == (LocationDiagnostic.UNRESOLVED_PLACE,)
     assert outcome.unresolved_inputs == (
         UnresolvedLocationInput("collection_site", "unreviewed site 8841"),
     )
@@ -516,7 +532,7 @@ def test_deterministic_resolution_beside_an_unreviewed_value_still_reports_it(
 def test_deterministic_resolution_does_not_report_a_reviewed_unmapped_neighbour(
     tmp_path, fixture_location_policy
 ):
-    """Diagnostics record what the resolution did, not what the reviewed policy contains."""
+    """Diagnostics record what the record needed, not what the reviewed policy contains."""
     policy = _location_policy(tmp_path, fixture_location_policy, reviewed_unmapped=["water"])
 
     outcome = _standardize(
@@ -526,7 +542,8 @@ def test_deterministic_resolution_does_not_report_a_reviewed_unmapped_neighbour(
     )
 
     assert isinstance(outcome, LocationOutcome)
-    assert outcome.diagnostics == (LocationDiagnostic.DIRECT_RESOLUTION,)
+    assert outcome.route == LocationResolutionRoute.INSDC_TERM
+    assert outcome.diagnostics == ()
     assert outcome.unresolved_inputs == ()
 
 

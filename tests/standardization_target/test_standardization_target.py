@@ -108,6 +108,7 @@ def test_dataset_header_keeps_its_target_order_contract() -> None:
         "date_val_orig",
         "loc_attr_orig",
         "loc_val_orig",
+        "loc_resolution",
         "loc_country",
         "loc_un_region",
         "loc_sublocation",

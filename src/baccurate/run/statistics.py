@@ -18,7 +18,7 @@ from baccurate.standardization.isolation_source import (
     IsolationSourceEvidenceLevel,
     IsolationSourceOntologyGapDiagnostic,
 )
-from baccurate.standardization.location import LocationDiagnostic
+from baccurate.standardization.location import LocationDiagnostic, LocationResolutionRoute
 
 
 @dataclass(slots=True)
@@ -74,8 +74,12 @@ class LocationStatistics:
     standardized: int
     rejected: int
     coordinate_decodes: int
-    direct_matches: int
+    insdc_term_matches: int
+    country_conversion_matches: int
     reviewed_mapping_matches: int
+    # This counter counts standardized records.
+    # Each record has one route and no per-pair counter can give this count.
+    resolution_routes: Mapping[LocationResolutionRoute, int]
     diagnostics: Mapping[LocationDiagnostic, int]
 
 

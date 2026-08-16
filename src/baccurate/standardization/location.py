@@ -277,11 +277,22 @@ class LocationDiagnostic(StrEnum):
     RECOVERABLE_COORDINATE_FAILURE = "recoverable_coordinate_failure"
     UNMAPPABLE_RESULT = "unmappable_result"
     COUNTRY_CONFLICT = "country_conflict"
-    COORDINATE_RESOLUTION = "coordinate_resolution"
-    DIRECT_RESOLUTION = "direct_resolution"
-    REVIEWED_MAPPING_RESOLUTION = "reviewed_mapping_resolution"
     REVIEWED_UNMAPPED = "reviewed_unmapped"
     REVIEWED_MAPPING_CONFLICT = "reviewed_mapping_conflict"
+
+
+class LocationResolutionRoute(StrEnum):
+    """The path that produced a record's standardized location.
+
+    `INSDC_TERM` and `COUNTRY_CONVERSION` stay apart because they reach the country in
+    different ways. `INSDC_TERM` is membership of the INSDC list. `COUNTRY_CONVERSION`
+    is `country_converter` on the first segment of the value.
+    """
+
+    COORDINATE = "coordinate"
+    INSDC_TERM = "insdc_term"
+    COUNTRY_CONVERSION = "country_conversion"
+    REVIEWED_MAPPING = "reviewed_mapping"
 
 
 @dataclass(frozen=True, slots=True)
@@ -291,6 +302,7 @@ class LocationMatch:
     country: str
     sublocation: str | None  # region below country level (state, city, etc.)
     diagnostics: tuple[LocationDiagnostic, ...] = ()
+    route: LocationResolutionRoute | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -314,9 +326,11 @@ class LocationOutcome:
     country: str
     sublocation: str | None
     supporting_pairs: tuple[SupportingAttributeValuePair, ...]
+    route: LocationResolutionRoute
     unresolved_inputs: tuple[UnresolvedLocationInput, ...] = ()
     coordinate_decodes: int = 0
-    direct_matches: int = 0
+    insdc_term_matches: int = 0
+    country_conversion_matches: int = 0
     reviewed_mapping_matches: int = 0
     diagnostics: tuple[LocationDiagnostic, ...] = ()
 
@@ -327,7 +341,8 @@ class LocationRejection:
 
     unresolved_inputs: tuple[UnresolvedLocationInput, ...] = ()
     coordinate_decodes: int = 0
-    direct_matches: int = 0
+    insdc_term_matches: int = 0
+    country_conversion_matches: int = 0
     reviewed_mapping_matches: int = 0
     diagnostics: tuple[LocationDiagnostic, ...] = ()
 
@@ -341,6 +356,7 @@ class _RecordResolution:
     supporting_pairs: tuple[SupportingAttributeValuePair, ...]
     unresolved_inputs: tuple[UnresolvedLocationInput, ...]
     diagnostics: tuple[LocationDiagnostic, ...]
+    route: LocationResolutionRoute | None = None
 
 
 # --- Main class ---
@@ -375,7 +391,8 @@ class LocationStandardizer:
 
         self.stats = {
             "coordinate_decodes": 0,
-            "direct_matches": 0,
+            "insdc_term_matches": 0,
+            "country_conversion_matches": 0,
             "reviewed_mapping_matches": 0,
         }
 
@@ -398,7 +415,7 @@ class LocationStandardizer:
             )
         if mapped == match.country:
             return match
-        return LocationMatch(mapped, match.sublocation, match.diagnostics)
+        return LocationMatch(mapped, match.sublocation, match.diagnostics, match.route)
 
     # --- Per-value matching ---
 
@@ -449,7 +466,7 @@ class LocationStandardizer:
         country = self._country_converter_lookup(raw_country, "name_short") or raw_country
 
         self.stats["coordinate_decodes"] += 1
-        return LocationMatch(country, city, (LocationDiagnostic.COORDINATE_RESOLUTION,))
+        return LocationMatch(country, city, route=LocationResolutionRoute.COORDINATE)
 
     def _try_insdc_term(self, value: str) -> LocationMatch | None:
         """
@@ -463,8 +480,8 @@ class LocationStandardizer:
         for key, sublocation in ((value, None), (head, tail)):
             term = self.insdc_by_normalized_name.get(normalize_submitted_location_value(key))
             if term is not None:
-                self.stats["direct_matches"] += 1
-                return LocationMatch(term, sublocation, (LocationDiagnostic.DIRECT_RESOLUTION,))
+                self.stats["insdc_term_matches"] += 1
+                return LocationMatch(term, sublocation, route=LocationResolutionRoute.INSDC_TERM)
         return None
 
     def _try_country_converter(self, value: str) -> LocationMatch | None:
@@ -485,8 +502,8 @@ class LocationStandardizer:
         country = self._country_converter_lookup(first_segment, "name_short")
         if country is None:
             return None
-        self.stats["direct_matches"] += 1
-        return LocationMatch(country, sublocation, (LocationDiagnostic.DIRECT_RESOLUTION,))
+        self.stats["country_conversion_matches"] += 1
+        return LocationMatch(country, sublocation, route=LocationResolutionRoute.COUNTRY_CONVERSION)
 
     def _match_value(self, pair: SupportingAttributeValuePair) -> LocationMatch | None:
         """Try each step on one submitted pair, the first that resolves a country wins."""
@@ -518,7 +535,10 @@ class LocationStandardizer:
         published = {
             "unresolved_inputs": resolution.unresolved_inputs,
             "coordinate_decodes": self.stats["coordinate_decodes"] - before["coordinate_decodes"],
-            "direct_matches": self.stats["direct_matches"] - before["direct_matches"],
+            "insdc_term_matches": (self.stats["insdc_term_matches"] - before["insdc_term_matches"]),
+            "country_conversion_matches": (
+                self.stats["country_conversion_matches"] - before["country_conversion_matches"]
+            ),
             "reviewed_mapping_matches": (
                 self.stats["reviewed_mapping_matches"] - before["reviewed_mapping_matches"]
             ),
@@ -526,11 +546,14 @@ class LocationStandardizer:
         }
         if resolution.country is None:
             return LocationRejection(**published)
+        if resolution.route is None:
+            raise ValueError(f"Standardized location without a resolution route for {accession}")
         return LocationOutcome(
             un_region=self._country_to_unregion(resolution.country),
             country=resolution.country,
             sublocation=resolution.sublocation,
             supporting_pairs=resolution.supporting_pairs,
+            route=resolution.route,
             **published,
         )
 
@@ -596,9 +619,10 @@ class LocationStandardizer:
                     coordinate_failure=coordinate_failure,
                     unmappable_result=False,
                     country_conflict=len({match.country for match in insdc_matches}) > 1,
-                    resolution=selected.diagnostics,
+                    reviewed_fallback=(),
                     unresolved=unresolved,
                 ),
+                route=selected.route,
             )
 
         return self._reviewed_fallback(
@@ -646,16 +670,17 @@ class LocationStandardizer:
                 diagnostics=self._record_diagnostics(
                     coordinate_failure=coordinate_failure,
                     unmappable_result=unmappable_result,
-                    resolution=diagnostics,
+                    reviewed_fallback=diagnostics,
                     unresolved=unresolved,
                 ),
+                route=(LocationResolutionRoute.REVIEWED_MAPPING if country is not None else None),
             )
 
         if mapped:
             targets = {target for _, target in mapped}
             if len(targets) > 1:
                 return resolution(None, LocationDiagnostic.REVIEWED_MAPPING_CONFLICT)
-            return resolution(targets.pop(), LocationDiagnostic.REVIEWED_MAPPING_RESOLUTION)
+            return resolution(targets.pop())
         if reviewed_unmapped_present:
             return resolution(None, LocationDiagnostic.REVIEWED_UNMAPPED)
         return resolution(None)
@@ -678,7 +703,7 @@ class LocationStandardizer:
         coordinate_failure: bool,
         unmappable_result: bool,
         country_conflict: bool = False,
-        resolution: Sequence[LocationDiagnostic],
+        reviewed_fallback: Sequence[LocationDiagnostic],
         unresolved: Sequence[UnresolvedLocationInput],
     ) -> tuple[LocationDiagnostic, ...]:
         """
@@ -691,6 +716,6 @@ class LocationStandardizer:
             *((LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE,) if coordinate_failure else ()),
             *((LocationDiagnostic.UNMAPPABLE_RESULT,) if unmappable_result else ()),
             *((LocationDiagnostic.COUNTRY_CONFLICT,) if country_conflict else ()),
-            *resolution,
+            *reviewed_fallback,
             *((LocationDiagnostic.UNRESOLVED_PLACE,) if unresolved else ()),
         )

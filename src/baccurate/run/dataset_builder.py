@@ -70,6 +70,7 @@ from baccurate.standardization.location import (
     LocationOutcome,
     LocationPolicy,
     LocationRejection,
+    LocationResolutionRoute,
     LocationStandardizer,
 )
 from baccurate.standardization_target import specifications as target_specifications
@@ -130,8 +131,10 @@ class _MutableLocationStatistics:
     standardized: int = 0
     rejected: int = 0
     coordinate_decodes: int = 0
-    direct_matches: int = 0
+    insdc_term_matches: int = 0
+    country_conversion_matches: int = 0
     reviewed_mapping_matches: int = 0
+    resolution_routes: Counter[LocationResolutionRoute] = field(default_factory=Counter)
     diagnostics: Counter[LocationDiagnostic] = field(default_factory=Counter)
 
 
@@ -269,11 +272,16 @@ class _FinalRowAssembler:
                 )
         if StandardizationTarget.LOCATION in self._selected_targets:
             if final_row.location is None:
-                values += ("", "", "", "", "")
+                values += ("",) * len(
+                    target_specifications.TARGET_SPECS[
+                        StandardizationTarget.LOCATION
+                    ].output_columns
+                )
             else:
                 values += (
                     "||".join(pair.attribute for pair in final_row.location.supporting_pairs),
                     "||".join(pair.value for pair in final_row.location.supporting_pairs),
+                    final_row.location.route,
                     final_row.location.country,
                     final_row.location.un_region,
                     final_row.location.sublocation or "NA",
@@ -672,7 +680,8 @@ class DatasetBuilder:
                     stats.processed += 1
                     location_result = location_standardizer.standardize(extracted_record)
                     stats.coordinate_decodes += location_result.coordinate_decodes
-                    stats.direct_matches += location_result.direct_matches
+                    stats.insdc_term_matches += location_result.insdc_term_matches
+                    stats.country_conversion_matches += location_result.country_conversion_matches
                     stats.reviewed_mapping_matches += location_result.reviewed_mapping_matches
                     stats.diagnostics.update(location_result.diagnostics)
                     if location_review_worklist is not None:
@@ -685,6 +694,7 @@ class DatasetBuilder:
                         stats.rejected += 1
                     else:
                         stats.standardized += 1
+                        stats.resolution_routes[location_result.route] += 1
                         location_outcome = location_result
 
                 host_outcome = None
@@ -944,8 +954,10 @@ class DatasetBuilder:
                 standardized=stats.standardized,
                 rejected=stats.rejected,
                 coordinate_decodes=stats.coordinate_decodes,
-                direct_matches=stats.direct_matches,
+                insdc_term_matches=stats.insdc_term_matches,
+                country_conversion_matches=stats.country_conversion_matches,
                 reviewed_mapping_matches=stats.reviewed_mapping_matches,
+                resolution_routes=dict(sorted(stats.resolution_routes.items())),
                 diagnostics=dict(sorted(stats.diagnostics.items())),
             )
 
@@ -955,9 +967,15 @@ class DatasetBuilder:
             standardized=sum(stats.standardized for stats in mutable_stats.values()),
             rejected=sum(stats.rejected for stats in mutable_stats.values()),
             coordinate_decodes=sum(stats.coordinate_decodes for stats in mutable_stats.values()),
-            direct_matches=sum(stats.direct_matches for stats in mutable_stats.values()),
+            insdc_term_matches=sum(stats.insdc_term_matches for stats in mutable_stats.values()),
+            country_conversion_matches=sum(
+                stats.country_conversion_matches for stats in mutable_stats.values()
+            ),
             reviewed_mapping_matches=sum(
                 stats.reviewed_mapping_matches for stats in mutable_stats.values()
+            ),
+            resolution_routes=_sum_counts(
+                stats.resolution_routes for stats in mutable_stats.values()
             ),
             diagnostics=_sum_counts(stats.diagnostics for stats in mutable_stats.values()),
         )

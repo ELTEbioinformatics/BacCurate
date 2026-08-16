@@ -29,6 +29,7 @@ from baccurate.standardization.collection_date import (
 from baccurate.standardization.isolation_source import (
     IsolationSourcePromptPolicy,
 )
+from baccurate.standardization.location import LocationResolutionRoute
 
 ROOT = Path(__file__).parents[2]
 
@@ -281,8 +282,10 @@ def _complete_build_statistics(tmp_path: Path) -> DatasetBuildStatistics:
         standardized=1,
         rejected=0,
         coordinate_decodes=0,
-        direct_matches=1,
+        insdc_term_matches=1,
+        country_conversion_matches=0,
         reviewed_mapping_matches=0,
+        resolution_routes={LocationResolutionRoute.INSDC_TERM: 1},
         diagnostics={},
     )
     host_statistics = HostStatistics(

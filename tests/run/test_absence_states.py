@@ -40,6 +40,7 @@ from baccurate.standardization.isolation_source_ontology import IsolationSourceO
 from baccurate.standardization.location import (
     LocationDiagnostic,
     LocationPolicy,
+    LocationResolutionRoute,
     LocationStandardizer,
 )
 from baccurate.standardization_target.specifications import TARGET_SPECS, StandardizationTarget
@@ -62,6 +63,7 @@ DATE_COLUMNS = (
 LOCATION_COLUMNS = (
     "loc_attr_orig",
     "loc_val_orig",
+    "loc_resolution",
     "loc_country",
     "loc_un_region",
     "loc_sublocation",
@@ -756,6 +758,38 @@ def test_absent_un_region_serializes_as_na_not_empty_for_resolved_country(
     assert built.records[0]["loc_un_region"] == "NA"
 
 
+def test_published_resolution_route_names_the_step_that_produced_the_country(
+    tmp_path: Path,
+) -> None:
+    built = _build_dataset(
+        tmp_path,
+        [
+            _dated_record("INSDC", loc_attr_orig="geo_loc_name", loc_val_orig="Germany"),
+            _dated_record(
+                "CONVERTED",
+                loc_attr_orig="geo_loc_name",
+                loc_val_orig="United States of America",
+            ),
+            _dated_record("COORDINATE", loc_attr_orig="lat_lon", loc_val_orig="52.52, 13.405"),
+        ],
+        (StandardizationTarget.DATE, StandardizationTarget.LOCATION),
+        location_policy=_location_policy(tmp_path),
+        location_standardizer_factory=_location_standardizer,
+    )
+
+    assert {record["accession"]: record["loc_resolution"] for record in built.records} == {
+        "INSDC": "insdc_term",
+        "CONVERTED": "country_conversion",
+        "COORDINATE": "coordinate",
+    }
+    assert built.statistics.location is not None
+    assert built.statistics.location.aggregate.resolution_routes == {
+        LocationResolutionRoute.COORDINATE: 1,
+        LocationResolutionRoute.COUNTRY_CONVERSION: 1,
+        LocationResolutionRoute.INSDC_TERM: 1,
+    }
+
+
 def test_rejected_locations_serialize_as_empty_not_na_while_diagnostics_preserve_reasons(
     tmp_path: Path,
 ) -> None:
@@ -781,7 +815,7 @@ def test_rejected_locations_serialize_as_empty_not_na_while_diagnostics_preserve
 
     assert len(built.records) == 3
     for record in built.records:
-        assert tuple(record[column] for column in LOCATION_COLUMNS) == ("",) * 5
+        assert tuple(record[column] for column in LOCATION_COLUMNS) == ("",) * len(LOCATION_COLUMNS)
         assert record["loc_country"] != "NA"
     assert built.statistics.location is not None
     assert built.statistics.location.aggregate.rejected == 3
