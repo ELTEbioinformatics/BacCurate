@@ -63,6 +63,7 @@ DATE_COLUMNS = (
 LOCATION_COLUMNS = (
     "loc_attr_orig",
     "loc_val_orig",
+    "loc_selected_pair",
     "loc_resolution",
     "loc_country",
     "loc_un_region",
@@ -788,6 +789,26 @@ def test_published_resolution_route_names_the_step_that_produced_the_country(
         LocationResolutionRoute.COUNTRY_CONVERSION: 1,
         LocationResolutionRoute.INSDC_TERM: 1,
     }
+
+
+def test_published_selected_pair_positions_index_the_published_pairs(tmp_path: Path) -> None:
+    built = _build_dataset(
+        tmp_path,
+        [
+            _dated_record(
+                "EMPTY_FIRST_VALUE",
+                loc_attr_orig="collection_site||geo_loc_name",
+                loc_val_orig="||Germany",
+            )
+        ],
+        (StandardizationTarget.DATE, StandardizationTarget.LOCATION),
+        location_policy=_location_policy(tmp_path),
+        location_standardizer_factory=_location_standardizer,
+    )
+
+    record = built.records[0]
+    assert record["loc_val_orig"] == "||Germany"
+    assert record["loc_selected_pair"] == "2"
 
 
 def test_rejected_locations_serialize_as_empty_not_na_while_diagnostics_preserve_reasons(

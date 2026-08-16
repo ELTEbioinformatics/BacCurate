@@ -147,9 +147,37 @@ def test_outcome_carries_supporting_pairs_and_diagnostics(
         country="Germany",
         sublocation="Berlin",
         supporting_pairs=(SupportingAttributeValuePair("geo_loc_name", "Germany: Berlin"),),
+        selected_pair_positions=(1,),
         route=LocationResolutionRoute.INSDC_TERM,
         insdc_term_matches=1,
     )
+
+
+def test_selected_pair_position_names_the_pair_that_produced_the_country(standardizer):
+    outcome = standardizer.standardize(
+        {
+            "accession": "SECOND_PAIR",
+            "loc_attr_orig": "collection_site||geo_loc_name",
+            "loc_val_orig": "unreviewed site 8841||Germany",
+        }
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.selected_pair_positions == (2,)
+
+
+def test_selected_pair_position_follows_the_sublocation_preference(standardizer):
+    outcome = standardizer.standardize(
+        {
+            "accession": "SUBLOCATION_PREFERENCE",
+            "loc_attr_orig": "geo_loc_name||collection_site",
+            "loc_val_orig": "Germany||Germany: Berlin",
+        }
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.sublocation == "Berlin"
+    assert outcome.selected_pair_positions == (2,)
 
 
 def test_coordinate_decodes_to_country_and_city(monkeypatch, standardizer):
@@ -498,14 +526,15 @@ def test_agreeing_reviewed_mappings_are_not_cancelled_by_other_values(
 
     outcome = _standardize(
         policy,
-        loc_attr_orig="geo_loc_name||collection_site||isolation_source",
-        loc_val_orig="Not Provided: Cologne||not provided,  Tübingen||water",
+        loc_attr_orig="geo_loc_name||isolation_source||collection_site",
+        loc_val_orig="Not Provided: Cologne||water||not provided,  Tübingen",
     )
 
     assert isinstance(outcome, LocationOutcome)
     assert outcome.country == "Germany"
     assert outcome.reviewed_mapping_matches == 2
     assert outcome.route == LocationResolutionRoute.REVIEWED_MAPPING
+    assert outcome.selected_pair_positions == (1, 3)
     assert outcome.diagnostics == ()
 
 

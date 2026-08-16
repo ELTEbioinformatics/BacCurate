@@ -320,12 +320,18 @@ class UnresolvedLocationInput:
 
 @dataclass(frozen=True, slots=True)
 class LocationOutcome:
-    """A standardized geographic location with supporting attribute-value pairs and diagnostics."""
+    """
+    A standardized geographic location with its supporting attribute-value pairs and diagnostics.
+
+    `selected_pair_positions` holds 1-based positions into supporting_pairs, in ascending order,
+    of the pairs that produced the location. Each position maps to the pair the record published.
+    """
 
     un_region: str
     country: str
     sublocation: str | None
     supporting_pairs: tuple[SupportingAttributeValuePair, ...]
+    selected_pair_positions: tuple[int, ...]
     route: LocationResolutionRoute
     unresolved_inputs: tuple[UnresolvedLocationInput, ...] = ()
     coordinate_decodes: int = 0
@@ -357,6 +363,7 @@ class _RecordResolution:
     unresolved_inputs: tuple[UnresolvedLocationInput, ...]
     diagnostics: tuple[LocationDiagnostic, ...]
     route: LocationResolutionRoute | None = None
+    selected_pair_positions: tuple[int, ...] = ()
 
 
 # --- Main class ---
@@ -553,6 +560,7 @@ class LocationStandardizer:
             country=resolution.country,
             sublocation=resolution.sublocation,
             supporting_pairs=resolution.supporting_pairs,
+            selected_pair_positions=resolution.selected_pair_positions,
             route=resolution.route,
             **published,
         )
@@ -575,21 +583,21 @@ class LocationStandardizer:
             for attribute, value in zip(attributes, values, strict=True)
         )
         pairs = [
-            SupportingAttributeValuePair(attribute.strip(), value.strip())
-            for attribute, value in zip(attributes, values, strict=True)
-            if value.strip()
+            (position, SupportingAttributeValuePair(pair.attribute.strip(), pair.value.strip()))
+            for position, pair in enumerate(submitted_pairs, start=1)
+            if pair.value.strip()
         ]
         if not pairs:
             return _RecordResolution(None, None, (), (), (LocationDiagnostic.ABSENT_VALUES,))
 
         # Only matches that map to a valid INSDC location are considered.
-        # This prevents an unmappable coordinate from being selected over
-        # a valid country on the same record.
-        insdc_matches: list[LocationMatch] = []
+        # This prevents an unmappable coordinate from being selected over a valid country on the
+        # same record.
+        insdc_matches: list[tuple[int, LocationMatch]] = []
         unusable_pairs: list[SupportingAttributeValuePair] = []
         coordinate_failure = False
         unmappable_result = False
-        for pair in pairs:
+        for position, pair in pairs:
             match = self._match_value(pair)
             if match is not None and (
                 LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE in match.diagnostics
@@ -603,12 +611,12 @@ class LocationStandardizer:
                 unmappable_result = True
                 unusable_pairs.append(pair)
                 continue
-            insdc_matches.append(crosswalked)
+            insdc_matches.append((position, crosswalked))
 
         if insdc_matches:
             # Prefer matches with a sublocation, since they carry more detail.
-            with_sublocation = [match for match in insdc_matches if match.sublocation]
-            selected = with_sublocation[0] if with_sublocation else insdc_matches[0]
+            with_sublocation = [(pos, m) for pos, m in insdc_matches if m.sublocation]
+            selected_position, selected = (with_sublocation or insdc_matches)[0]
             unresolved = self._unresolved_inputs(unusable_pairs)
             return _RecordResolution(
                 country=selected.country,
@@ -618,11 +626,12 @@ class LocationStandardizer:
                 diagnostics=self._record_diagnostics(
                     coordinate_failure=coordinate_failure,
                     unmappable_result=False,
-                    country_conflict=len({match.country for match in insdc_matches}) > 1,
+                    country_conflict=len({match.country for _, match in insdc_matches}) > 1,
                     reviewed_fallback=(),
                     unresolved=unresolved,
                 ),
                 route=selected.route,
+                selected_pair_positions=(selected_position,),
             )
 
         return self._reviewed_fallback(
@@ -635,7 +644,7 @@ class LocationStandardizer:
 
     def _reviewed_fallback(
         self,
-        pairs: Sequence[SupportingAttributeValuePair],
+        pairs: Sequence[tuple[int, SupportingAttributeValuePair]],
         *,
         submitted_pairs: tuple[SupportingAttributeValuePair, ...],
         unusable_pairs: Sequence[SupportingAttributeValuePair],
@@ -643,14 +652,14 @@ class LocationStandardizer:
         unmappable_result: bool,
     ) -> _RecordResolution:
         """Apply the reviewed geographic-location policy to every submitted value."""
-        mapped: list[tuple[SupportingAttributeValuePair, str]] = []
+        mapped: list[tuple[int, str]] = []
         reviewed_unmapped_present = False
-        for pair in pairs:
+        for position, pair in pairs:
             key = normalize_submitted_location_value(pair.value)
             target = self.reviewed_mappings.get(key)
             if target is not None:
                 self.stats["reviewed_mapping_matches"] += 1
-                mapped.append((pair, target))
+                mapped.append((position, target))
             elif key in self.reviewed_unmapped:
                 reviewed_unmapped_present = True
 
@@ -659,6 +668,7 @@ class LocationStandardizer:
         def resolution(
             country: str | None,
             *diagnostics: LocationDiagnostic,
+            selected_pair_positions: tuple[int, ...] = (),
         ) -> _RecordResolution:
             return _RecordResolution(
                 country=country,
@@ -674,13 +684,18 @@ class LocationStandardizer:
                     unresolved=unresolved,
                 ),
                 route=(LocationResolutionRoute.REVIEWED_MAPPING if country is not None else None),
+                selected_pair_positions=selected_pair_positions,
             )
 
         if mapped:
             targets = {target for _, target in mapped}
             if len(targets) > 1:
                 return resolution(None, LocationDiagnostic.REVIEWED_MAPPING_CONFLICT)
-            return resolution(targets.pop())
+            # All mapped pairs resolve to the same country, so every mapped pair is a selected pair.
+            return resolution(
+                targets.pop(),
+                selected_pair_positions=tuple(position for position, _ in mapped),
+            )
         if reviewed_unmapped_present:
             return resolution(None, LocationDiagnostic.REVIEWED_UNMAPPED)
         return resolution(None)

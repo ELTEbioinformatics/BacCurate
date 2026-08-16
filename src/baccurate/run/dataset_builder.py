@@ -281,6 +281,7 @@ class _FinalRowAssembler:
                 values += (
                     "||".join(pair.attribute for pair in final_row.location.supporting_pairs),
                     "||".join(pair.value for pair in final_row.location.supporting_pairs),
+                    "||".join(map(str, final_row.location.selected_pair_positions)),
                     final_row.location.route,
                     final_row.location.country,
                     final_row.location.un_region,
