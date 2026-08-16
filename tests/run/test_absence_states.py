@@ -62,8 +62,8 @@ DATE_COLUMNS = (
 LOCATION_COLUMNS = (
     "loc_attr_orig",
     "loc_val_orig",
-    "loc_UNregion",
     "loc_country",
+    "loc_un_region",
     "loc_sublocation",
 )
 ISOLATION_SOURCE_COLUMNS = (
@@ -753,7 +753,7 @@ def test_absent_un_region_serializes_as_na_not_empty_for_resolved_country(
     )
 
     assert built.records[0]["loc_country"] == "Baltic Sea"
-    assert built.records[0]["loc_UNregion"] == "NA"
+    assert built.records[0]["loc_un_region"] == "NA"
 
 
 def test_rejected_locations_serialize_as_empty_not_na_while_diagnostics_preserve_reasons(

@@ -274,8 +274,8 @@ class _FinalRowAssembler:
                 values += (
                     "||".join(pair.attribute for pair in final_row.location.supporting_pairs),
                     "||".join(pair.value for pair in final_row.location.supporting_pairs),
-                    final_row.location.un_region,
                     final_row.location.country,
+                    final_row.location.un_region,
                     final_row.location.sublocation or "NA",
                 )
         if StandardizationTarget.ISOLATION_SOURCE in self._selected_targets:

@@ -526,7 +526,6 @@ class LocationStandardizer:
         }
         if resolution.country is None:
             return LocationRejection(**published)
-        # loc_UNregion carries the UN region derived from the standardized country.
         return LocationOutcome(
             un_region=self._country_to_unregion(resolution.country),
             country=resolution.country,

@@ -84,8 +84,8 @@ TARGET_SPECS: Mapping[StandardizationTarget, TargetSpec] = MappingProxyType(
             output_columns=(
                 "loc_attr_orig",
                 "loc_val_orig",
-                "loc_UNregion",
                 "loc_country",
+                "loc_un_region",
                 "loc_sublocation",
             ),
         ),
