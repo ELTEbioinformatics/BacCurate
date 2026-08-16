@@ -113,6 +113,8 @@ def test_dataset_header_keeps_its_target_order_contract() -> None:
         "loc_country",
         "loc_un_region",
         "loc_sublocation",
+        "loc_latitude",
+        "loc_longitude",
         "iso_attr_orig",
         "iso_val_orig",
         "iso_source_type",

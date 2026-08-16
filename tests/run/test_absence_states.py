@@ -68,6 +68,8 @@ LOCATION_COLUMNS = (
     "loc_country",
     "loc_un_region",
     "loc_sublocation",
+    "loc_latitude",
+    "loc_longitude",
 )
 ISOLATION_SOURCE_COLUMNS = (
     "iso_attr_orig",
@@ -789,6 +791,29 @@ def test_published_resolution_route_names_the_step_that_produced_the_country(
         LocationResolutionRoute.COUNTRY_CONVERSION: 1,
         LocationResolutionRoute.INSDC_TERM: 1,
     }
+
+
+def test_published_coordinate_is_filled_only_on_the_coordinate_route(tmp_path: Path) -> None:
+    built = _build_dataset(
+        tmp_path,
+        [
+            _dated_record(
+                "COORDINATE",
+                loc_attr_orig="lat_lon",
+                loc_val_orig="6°12'52\"S 106°50'42\"E",
+            ),
+            _dated_record("INSDC", loc_attr_orig="geo_loc_name", loc_val_orig="Germany"),
+        ],
+        (StandardizationTarget.DATE, StandardizationTarget.LOCATION),
+        location_policy=_location_policy(tmp_path),
+        location_standardizer_factory=_location_standardizer,
+    )
+
+    published = {
+        record["accession"]: (record["loc_latitude"], record["loc_longitude"])
+        for record in built.records
+    }
+    assert published == {"COORDINATE": ("-6.21444", "106.845"), "INSDC": ("", "")}
 
 
 def test_published_selected_pair_positions_index_the_published_pairs(tmp_path: Path) -> None:

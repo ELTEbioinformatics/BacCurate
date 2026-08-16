@@ -286,6 +286,14 @@ class _FinalRowAssembler:
                     final_row.location.country,
                     final_row.location.un_region,
                     final_row.location.sublocation or "NA",
+                    *(
+                        ("", "")
+                        if final_row.location.coordinate is None
+                        else (
+                            f"{degrees:.5f}".rstrip("0").rstrip(".")
+                            for degrees in final_row.location.coordinate
+                        )
+                    ),
                 )
         if StandardizationTarget.ISOLATION_SOURCE in self._selected_targets:
             if final_row.isolation_source is None:

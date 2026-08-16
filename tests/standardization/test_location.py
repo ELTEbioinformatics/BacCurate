@@ -166,6 +166,19 @@ def test_selected_pair_position_names_the_pair_that_produced_the_country(standar
     assert outcome.selected_pair_positions == (2,)
 
 
+def test_selected_pair_position_counts_a_published_pair_with_an_empty_value(standardizer):
+    outcome = standardizer.standardize(
+        {
+            "accession": "EMPTY_VALUE",
+            "loc_attr_orig": "collection_site||geo_loc_name",
+            "loc_val_orig": "||Germany",
+        }
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.selected_pair_positions == (2,)
+
+
 def test_selected_pair_position_follows_the_sublocation_preference(standardizer):
     outcome = standardizer.standardize(
         {
@@ -200,6 +213,7 @@ def test_coordinate_decodes_to_country_and_city(monkeypatch, standardizer):
     assert outcome.sublocation == "Berlin"
     assert outcome.coordinate_decodes == 1
     assert outcome.route == LocationResolutionRoute.COORDINATE
+    assert outcome.coordinate == (52.52, 13.405)
     assert outcome.diagnostics == ()
 
 

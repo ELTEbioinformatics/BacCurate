@@ -13,7 +13,7 @@ Still-unresolved values go to the review worklist (`location_review_worklist.tsv
 import logging
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
@@ -303,6 +303,9 @@ class LocationMatch:
     sublocation: str | None  # region below country level (state, city, etc.)
     diagnostics: tuple[LocationDiagnostic, ...] = ()
     route: LocationResolutionRoute | None = None
+    # The pair the value parsed to, carried only on the coordinate route. It is what the
+    # submitted text says, not what `reverse_geocode` returned for the matched city.
+    coordinate: tuple[float, float] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -333,6 +336,7 @@ class LocationOutcome:
     supporting_pairs: tuple[SupportingAttributeValuePair, ...]
     selected_pair_positions: tuple[int, ...]
     route: LocationResolutionRoute
+    coordinate: tuple[float, float] | None = None
     unresolved_inputs: tuple[UnresolvedLocationInput, ...] = ()
     coordinate_decodes: int = 0
     insdc_term_matches: int = 0
@@ -364,6 +368,7 @@ class _RecordResolution:
     diagnostics: tuple[LocationDiagnostic, ...]
     route: LocationResolutionRoute | None = None
     selected_pair_positions: tuple[int, ...] = ()
+    coordinate: tuple[float, float] | None = None
 
 
 # --- Main class ---
@@ -422,7 +427,7 @@ class LocationStandardizer:
             )
         if mapped == match.country:
             return match
-        return LocationMatch(mapped, match.sublocation, match.diagnostics, match.route)
+        return replace(match, country=mapped)
 
     # --- Per-value matching ---
 
@@ -473,7 +478,12 @@ class LocationStandardizer:
         country = self._country_converter_lookup(raw_country, "name_short") or raw_country
 
         self.stats["coordinate_decodes"] += 1
-        return LocationMatch(country, city, route=LocationResolutionRoute.COORDINATE)
+        return LocationMatch(
+            country,
+            city,
+            route=LocationResolutionRoute.COORDINATE,
+            coordinate=coordinates,
+        )
 
     def _try_insdc_term(self, value: str) -> LocationMatch | None:
         """
@@ -562,6 +572,7 @@ class LocationStandardizer:
             supporting_pairs=resolution.supporting_pairs,
             selected_pair_positions=resolution.selected_pair_positions,
             route=resolution.route,
+            coordinate=resolution.coordinate,
             **published,
         )
 
@@ -632,6 +643,7 @@ class LocationStandardizer:
                 ),
                 route=selected.route,
                 selected_pair_positions=(selected_position,),
+                coordinate=selected.coordinate,
             )
 
         return self._reviewed_fallback(
