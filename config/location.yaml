@@ -1,6 +1,8 @@
 schema_version: 2
 
-# Coordinate geocoding happens only on the values of these attributes.
+# If a value in one of these attributes was not read as a coordinate and has no
+# letters in it, it is dropped instead of being looked up as a place name
+# (but coordinate processing is not limited to these attributes).
 coordinate_attributes:
   - "lat_lon"
   - "lat lon"
@@ -60,13 +62,6 @@ reviewed_mappings:
   "berlgium": "Belgium"
   "cameroun": "Cameroon"
   "german": "Germany"
-
-  # Marine areas. These are INSDC entries in their own right.
-  "baltic sea": "Baltic Sea"
-  "pacific ocean": "Pacific Ocean"
-  "atlantic ocean": "Atlantic Ocean"
-  "indian ocean": "Indian Ocean"
-  "atlantic ocean: cork u1383c-deep at north pond, mid-atlantic ridge": "Atlantic Ocean"
 
   # Values that name cities but can be confidently resolved to countries.
   "not provided: cologne": "Germany"

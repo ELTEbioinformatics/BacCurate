@@ -1,10 +1,13 @@
 """
 Standardize submitted geographic-location values to INSDC geographical locations.
 
-Two routes: ``reverse_geocode`` for coordinates and ``country_converter`` for place names.
-When neither resolves a record, the reviewed mappings loaded from `config/location.yaml˙are
-tried by whole-key match on normalized values. Values that remain unresolved go to the review
-worklist (`location_review_worklist.tsv`).
+For each submitted value, the first step that resolves a country wins:
+  (1) parse coordinates and reverse-geocode
+  (2) exact match against the INSDC location list
+  (3) `country_converter` on the first segment.
+
+Values that none of these resolve are checked against reviewed mappings in `config/location.yaml`.
+Still-unresolved values go to the review worklist (`location_review_worklist.tsv`).
 """
 
 import logging
@@ -53,7 +56,7 @@ class LocationPolicy:
 
     @classmethod
     def load(cls, path: Path | str) -> "LocationPolicy":
-        """Strictly load geographic-location policy from one YAML source."""
+        """Load YAML mappings."""
         source = Path(path)
         return _parse_location_policy(load_policy_mapping(source), source)
 
@@ -161,60 +164,88 @@ def _parse_location_policy(
     )
 
 
-# --- Coordinate patterns ---
+# --- Coordinate parsing ---
 
-# "DD.DDD N/S DD.DDD E/W" e.g. "51.9194 N 19.1451 E"
-COORD_NS_EW_PATTERN = re.compile(
-    r"(-?\d+\.?\d*)\s*([NS])\s*[,/\s]*\s*(-?\d+\.?\d*)\s*([EW])", re.IGNORECASE
-)
+# Characters used as degree, minute, and second symbols in submitted values.
+# U+FFFD and the Mac Roman "∞" (these are actually present in the dataset) are
+# encoding-corruption artifacts. Their original symbol cannot be recovered, so
+# both are accepted as valid symbols here.
+_MARK_CHARACTERS = "'’′\"”″?_°º˚∞�"  # noqa: RUF001 - these symbols are the submitted characters
+_MARK = f"[{re.escape(_MARK_CHARACTERS)}]"
 
-# "lat,lon" or "lat/lon" e.g. "43.51/16.44", "-34.6037, -58.3816"
-COORD_LAT_LON_PATTERN = re.compile(r"(-?\d+\.?\d*)\s*[,/]\s*(-?\d+\.?\d*)")
+_NUMBER = r"\d+(?:\.\d*)?"
 
-# Combined check for the is_coordinate test.
-COORD_PATTERN = re.compile(
-    r"(-?\d+\.?\d*)\s*([NS])\s*[,/\s]*\s*(-?\d+\.?\d*)\s*([EW])|"
-    r"(-?\d+\.?\d*)\s*[,/]\s*(-?\d+\.?\d*)",
+# Separators between the latitude and the longitude component.
+_SEPARATOR = r"[\s,;/_]"
+
+# A coordinate must match as a whole value; only these characters may wrap it.
+# U+FFFC is another encoding-corruption artifact, like U+FFFD above.
+_COORDINATE_PADDING = " \t\r\n()￼"
+
+
+def _hemisphere_component(name: str, hemispheres: str) -> str:
+    """Build a regex for one coordinate component: degrees [minutes [seconds]] hemisphere."""
+    return (
+        rf"(?P<{name}_sign>[+-]?)\s*(?P<{name}_d>{_NUMBER})"
+        rf"(?:\s*{_MARK}\s*(?P<{name}_m>{_NUMBER})(?:\s*{_MARK}\s*(?P<{name}_s>{_NUMBER}))?)?"
+        rf"(?:\s*{_MARK})?\s*(?P<{name}_h>[{hemispheres}])"
+    )
+
+
+def _decimal_component(name: str) -> str:
+    """Build a regex for one coordinate component: signed decimal degrees."""
+    return rf"(?P<{name}_sign>[+-]?)\s*(?P<{name}_d>{_NUMBER})(?:\s*{_MARK})?"
+
+
+# Degrees/minutes/seconds with a hemisphere letter (N/S/E/W). The letter is mandatory.
+# Without it, "6°12'52\"_106°50'42\"" would need guessed signs (e.g. Jakarta at 6°S).
+_HEMISPHERE_COORDINATE = re.compile(
+    _hemisphere_component("lat", "NS") + rf"{_SEPARATOR}+" + _hemisphere_component("lon", "EW"),
     re.IGNORECASE,
 )
+# Signed decimal pair. Its separator is mandatory, otherwise a bare run of digits would split
+# into a latitude and a longitude.
+_DECIMAL_COORDINATE = re.compile(
+    _decimal_component("lat") + rf"{_SEPARATOR}+" + _decimal_component("lon")
+)
+
+
+def _parse_coordinate(value: str) -> tuple[float, float] | None:
+    """
+    Read a whole value as a `(latitude, longitude)` pair, or return `None`.
+
+    Only the two accepted forms are read, and only when they match the whole value, so that
+    postal addresses and other number pairs embedded in place names are not mistaken for
+    coordinates.
+    """
+    stripped = value.strip(_COORDINATE_PADDING).lstrip(_MARK_CHARACTERS)
+    match = _HEMISPHERE_COORDINATE.fullmatch(stripped) or _DECIMAL_COORDINATE.fullmatch(stripped)
+    if match is None:
+        return None
+    parts = match.groupdict()
+    degrees: list[float] = []
+    for name in ("lat", "lon"):
+        magnitude = float(parts[f"{name}_d"])
+        magnitude += float(parts.get(f"{name}_m") or 0) / 60
+        magnitude += float(parts.get(f"{name}_s") or 0) / 3600
+        hemisphere = (parts.get(f"{name}_h") or "").upper()
+        negative = parts[f"{name}_sign"] == "-" or hemisphere in ("S", "W")
+        degrees.append(-magnitude if negative else magnitude)
+    latitude, longitude = degrees
+    if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+        return None
+    return latitude, longitude
+
 
 # --- Helpers ---
 
 
-def _normalize_coordinates(coord_str: str) -> tuple[float | None, float | None]:
-    """Parse a coordinate string into (lat, lon); (None, None) on failure."""
-    if not isinstance(coord_str, str) or not coord_str.strip():
-        return None, None
-
-    match = COORD_NS_EW_PATTERN.search(coord_str)
-    if match:
-        lat, lat_dir, lon, lon_dir = match.groups()
-        lat = float(lat)
-        lon = float(lon)
-        if lat_dir.upper() == "S":
-            lat = -lat
-        if lon_dir.upper() == "W":
-            lon = -lon
-        return lat, lon
-
-    match = COORD_LAT_LON_PATTERN.search(coord_str)
-    if match:
-        lat, lon = match.groups()
-        return float(lat), float(lon)
-
-    return None, None
-
-
-def _is_valid_coord(lat: float | None, lon: float | None) -> bool:
-    if lat is None or lon is None:
-        return False
-    return -90 <= lat <= 90 and -180 <= lon <= 180
-
-
-def _is_coordinate(value: str) -> bool:
-    if not isinstance(value, str):
-        return False
-    return bool(COORD_PATTERN.search(value))
+def _split_sublocation(value: str) -> tuple[str, str | None]:
+    """
+    Split a value into its head (country) and its sublocation (state, city etc.).
+    """
+    head, _, tail = value.partition(":")
+    return head, tail.strip() or None
 
 
 def _extract_string(value) -> str | None:
@@ -239,12 +270,13 @@ def _extract_string(value) -> str | None:
 
 
 class LocationDiagnostic(StrEnum):
-    """location-resolution vocabulary used by build diagnostics."""
+    """Diagnostic labels for location standardization."""
 
     ABSENT_VALUES = "absent_values"
     UNRESOLVED_PLACE = "unresolved_place"
     RECOVERABLE_COORDINATE_FAILURE = "recoverable_coordinate_failure"
     UNMAPPABLE_RESULT = "unmappable_result"
+    COUNTRY_CONFLICT = "country_conflict"
     COORDINATE_RESOLUTION = "coordinate_resolution"
     DIRECT_RESOLUTION = "direct_resolution"
     REVIEWED_MAPPING_RESOLUTION = "reviewed_mapping_resolution"
@@ -257,7 +289,7 @@ class LocationMatch:
     """Result of matching one submitted attribute-value pair."""
 
     country: str
-    sublocation: str | None
+    sublocation: str | None  # region below country level (state, city, etc.)
     diagnostics: tuple[LocationDiagnostic, ...] = ()
 
 
@@ -326,6 +358,9 @@ class LocationStandardizer:
         self.coordinate_attributes = set(policy.coordinate_attributes)
         self.insdc_map = dict(policy.insdc_country_map)
         self.insdc_names = self._load_insdc_names(policy.geo_loc_list_path)
+        self.insdc_by_normalized_name = {
+            normalize_submitted_location_value(name): name for name in self.insdc_names
+        }
         self.reviewed_mappings = dict(policy.reviewed_mappings)
         self.reviewed_unmapped = frozenset(policy.reviewed_unmapped)
 
@@ -334,9 +369,9 @@ class LocationStandardizer:
 
         # Cache on this instance so the cache stays small
         # and is freed with the standardizer
-        self._country_convert = lru_cache(maxsize=4096)(self._country_convert)
+        self._country_converter_lookup = lru_cache(maxsize=4096)(self._country_converter_lookup)
         self._country_to_unregion = lru_cache(maxsize=4096)(self._country_to_unregion)
-        self.decode_coordinates = lru_cache(maxsize=4096)(self.decode_coordinates)
+        self._decode_coordinate = lru_cache(maxsize=4096)(self._decode_coordinate)
 
         self.stats = {
             "coordinate_decodes": 0,
@@ -346,7 +381,7 @@ class LocationStandardizer:
 
     @staticmethod
     def _load_insdc_names(path: Path | str) -> set[str]:
-        """Load the INSDC geo_loc_name vocabulary."""
+        """Load the INSDC geo_loc_name list."""
         with Path(path).open("r", encoding="utf-8") as f:
             return {line.strip() for line in f if line.strip()}
 
@@ -378,45 +413,30 @@ class LocationStandardizer:
         converted = _extract_string(self.cc.convert(names=value, to=to, not_found="NA"))
         return None if converted == "NA" else converted
 
-    def _country_convert(self, loc: str) -> str | None:
-        """
-        Look up a single string via country_converter.
-
-        The input is split on colon/comma/semicolon and each part is tried
-        in order, since submitter values often contain trailing extras
-        like "France: Paris" or "USA, California". A failed lookup is
-        reported as None.
-        """
-        raw = re.sub(r"\s+", " ", loc).strip()
-        for part in re.split(r"[:;,]", raw):
-            token = part.strip()
-            if not token:
-                continue
-            if name := self._country_converter_lookup(token, "name_short"):
-                return name
-        return None
-
     def _country_to_unregion(self, country: str) -> str:
         """Map a standardized country name to its UN region via country_converter."""
         if not country or country == "NA":
             return "NA"
         return self._country_converter_lookup(country, "UNregion") or "NA"
 
-    def decode_coordinates(self, coord_str: str) -> tuple[str | None, str | None]:
-        """Decode a coordinate string to (raw_country, city) via reverse_geocode."""
-        lat, lon = _normalize_coordinates(coord_str)
-        if not _is_valid_coord(lat, lon):
-            return None, None
-        info = reverse_geocode.get((lat, lon))
+    def _decode_coordinate(
+        self,
+        coordinates: tuple[float, float],
+    ) -> tuple[str | None, str | None]:
+        """Decode a (latitude, longitude) pair to (raw_country, city) via reverse_geocode."""
+        info = reverse_geocode.get(coordinates)
         return info.get("country"), info.get("city")
 
-    def _try_coordinate(self, val: str, attr: str) -> LocationMatch | None:
-        """Decode and standardize if the value or attribute looks like a coordinate."""
-        if not (_is_coordinate(val) or attr in self.coordinate_attributes):
+    def _try_coordinate(self, value: str) -> LocationMatch | None:
+        """
+        Decode a value that parses as a coordinate pair.
+        """
+        coordinates = _parse_coordinate(value)
+        if coordinates is None:
             return None
 
         try:
-            raw_country, city = self.decode_coordinates(val)
+            raw_country, city = self._decode_coordinate(coordinates)
         except Exception:
             return LocationMatch(
                 "NA",
@@ -431,32 +451,60 @@ class LocationStandardizer:
         self.stats["coordinate_decodes"] += 1
         return LocationMatch(country, city, (LocationDiagnostic.COORDINATE_RESOLUTION,))
 
-    def _try_country_converter(self, val: str) -> LocationMatch | None:
+    def _try_insdc_term(self, value: str) -> LocationMatch | None:
         """
-        Run country_converter on a non-coordinate value.
+        Match a value that is an INSDC geographical location verbatim, or before its first colon.
+
+        These values are already controlled terms, so they skip `country_converter`.
+        Substring matching would turn "Indian Ocean" into "India" and
+        "Gaza Strip" into "State of Palestine".
+        """
+        head, tail = _split_sublocation(value)
+        for key, sublocation in ((value, None), (head, tail)):
+            term = self.insdc_by_normalized_name.get(normalize_submitted_location_value(key))
+            if term is not None:
+                self.stats["direct_matches"] += 1
+                return LocationMatch(term, sublocation, (LocationDiagnostic.DIRECT_RESOLUTION,))
+        return None
+
+    def _try_country_converter(self, value: str) -> LocationMatch | None:
+        """
+        Run `country_converter` on the first segment of a value.
+
+        Only the text before the first `:`, `,`, or `;` is used. Later segments
+        are ignored because country_converter treats two-letter tokens as ISO codes,
+        which turns e.g. "Morehead, KY" into "Cayman Islands".
 
         Returns None on failure so the caller can try the reviewed fallback.
         """
-        # Peel off "Country:City" sublocation before lookup.
-        sublocation = None
-        loc_clean = val
-        if ":" in val:
-            country_part, sub = val.split(":", 1)
-            loc_clean = country_part.strip()
-            sublocation = sub.strip() or None
-
-        country = self._country_convert(loc_clean)
+        sublocation = _split_sublocation(value)[1]
+        # country_converter matches by regex, so a run of whitespace inside the key would miss.
+        first_segment = re.sub(r"\s+", " ", re.split(r"[:;,]", value, maxsplit=1)[0]).strip()
+        if not first_segment:
+            return None
+        country = self._country_converter_lookup(first_segment, "name_short")
         if country is None:
             return None
         self.stats["direct_matches"] += 1
         return LocationMatch(country, sublocation, (LocationDiagnostic.DIRECT_RESOLUTION,))
+
+    def _match_value(self, pair: SupportingAttributeValuePair) -> LocationMatch | None:
+        """Try each step on one submitted pair, the first that resolves a country wins."""
+        match = self._try_coordinate(pair.value)
+        if match is not None:
+            return match
+        if pair.attribute in self.coordinate_attributes and not any(
+            character.isalpha() for character in pair.value
+        ):
+            return None
+        return self._try_insdc_term(pair.value) or self._try_country_converter(pair.value)
 
     # --- Per-record dispatch ---
 
     def standardize(
         self, extracted_record: Mapping[str, str]
     ) -> LocationOutcome | LocationRejection:
-        """Standardize one extracted metadata record without performing persistence."""
+        """Standardize one extracted metadata record and return the result without saving it."""
         accession = extracted_record.get("accession", "")
         attributes = tuple(split_pipe_separated(extracted_record.get("loc_attr_orig", "")))
         values = tuple(split_pipe_separated(extracted_record.get("loc_val_orig", "")))
@@ -496,8 +544,8 @@ class LocationStandardizer:
         Resolve one BioSample record's geographic-location evidence.
 
         Deterministic resolution runs first with its sublocation preference. The reviewed
-        fallback is tried only when no deterministic route produced a usable INSDC location
-        (including when the selected match ended as ``unmappable_result``), and it tries
+        fallback is tried only when no step produced a usable INSDC location
+        (including when the selected match ended as `unmappable_result`), and it tries
         every submitted value as a lookup key.
         """
         submitted_pairs = tuple(
@@ -505,57 +553,54 @@ class LocationStandardizer:
             for attribute, value in zip(attributes, values, strict=True)
         )
         pairs = [
-            (attribute.strip(), value.strip())
+            SupportingAttributeValuePair(attribute.strip(), value.strip())
             for attribute, value in zip(attributes, values, strict=True)
             if value.strip()
         ]
         if not pairs:
             return _RecordResolution(None, None, (), (), (LocationDiagnostic.ABSENT_VALUES,))
 
-        # A pair is unusable when neither route matched it to an INSDC location. A pair can
-        # be both selectable and unusable: a coordinate that decodes to a non-INSDC country
-        # still wins the sublocation preference below.
-        selectable: list[LocationMatch] = []
-        unusable_pairs: list[tuple[str, str]] = []
+        # Only matches that map to a valid INSDC location are considered.
+        # This prevents an unmappable coordinate from being selected over
+        # a valid country on the same record.
+        insdc_matches: list[LocationMatch] = []
+        unusable_pairs: list[SupportingAttributeValuePair] = []
         coordinate_failure = False
-        for attribute, value in pairs:
-            match = self._try_coordinate(value, attribute)
-            if match is None:
-                match = self._try_country_converter(value)
+        unmappable_result = False
+        for pair in pairs:
+            match = self._match_value(pair)
             if match is not None and (
                 LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE in match.diagnostics
             ):
                 coordinate_failure = True
             if match is None or match.country == "NA":
-                unusable_pairs.append((attribute, value))
+                unusable_pairs.append(pair)
                 continue
-            selectable.append(match)
-            if self._to_insdc(match).country == "NA":
-                unusable_pairs.append((attribute, value))
+            crosswalked = self._to_insdc(match)
+            if crosswalked.country == "NA":
+                unmappable_result = True
+                unusable_pairs.append(pair)
+                continue
+            insdc_matches.append(crosswalked)
 
-        unmappable_result = False
-        if selectable:
-            # Prefer matches that include a sublocation (coord-decoded city
-            # or "Country:City" sublocation) since they carry more information.
-            with_sublocation = [match for match in selectable if match.sublocation]
-            selected = self._to_insdc(with_sublocation[0] if with_sublocation else selectable[0])
-            if selected.country != "NA":
-                unresolved = self._unresolved_inputs(unusable_pairs)
-                return _RecordResolution(
-                    country=selected.country,
-                    sublocation=selected.sublocation,
-                    # Deterministic outcomes keep every submitted pair (narrowing to the
-                    # winning pair belongs to the decision-provenance workstream).
-                    supporting_pairs=submitted_pairs,
-                    unresolved_inputs=unresolved,
-                    diagnostics=self._record_diagnostics(
-                        coordinate_failure=coordinate_failure,
-                        unmappable_result=False,
-                        resolution=selected.diagnostics,
-                        unresolved=unresolved,
-                    ),
-                )
-            unmappable_result = True
+        if insdc_matches:
+            # Prefer matches with a sublocation, since they carry more detail.
+            with_sublocation = [match for match in insdc_matches if match.sublocation]
+            selected = with_sublocation[0] if with_sublocation else insdc_matches[0]
+            unresolved = self._unresolved_inputs(unusable_pairs)
+            return _RecordResolution(
+                country=selected.country,
+                sublocation=selected.sublocation,
+                supporting_pairs=submitted_pairs,
+                unresolved_inputs=unresolved,
+                diagnostics=self._record_diagnostics(
+                    coordinate_failure=coordinate_failure,
+                    unmappable_result=False,
+                    country_conflict=len({match.country for match in insdc_matches}) > 1,
+                    resolution=selected.diagnostics,
+                    unresolved=unresolved,
+                ),
+            )
 
         return self._reviewed_fallback(
             pairs,
@@ -566,21 +611,21 @@ class LocationStandardizer:
 
     def _reviewed_fallback(
         self,
-        pairs: Sequence[tuple[str, str]],
+        pairs: Sequence[SupportingAttributeValuePair],
         *,
-        unusable_pairs: Sequence[tuple[str, str]],
+        unusable_pairs: Sequence[SupportingAttributeValuePair],
         coordinate_failure: bool,
         unmappable_result: bool,
     ) -> _RecordResolution:
         """Apply the reviewed geographic-location policy to every submitted value."""
-        mapped: list[tuple[tuple[str, str], str]] = []
+        mapped: list[tuple[SupportingAttributeValuePair, str]] = []
         reviewed_unmapped_present = False
-        for attribute, value in pairs:
-            key = normalize_submitted_location_value(value)
+        for pair in pairs:
+            key = normalize_submitted_location_value(pair.value)
             target = self.reviewed_mappings.get(key)
             if target is not None:
                 self.stats["reviewed_mapping_matches"] += 1
-                mapped.append(((attribute, value), target))
+                mapped.append((pair, target))
             elif key in self.reviewed_unmapped:
                 reviewed_unmapped_present = True
 
@@ -614,10 +659,7 @@ class LocationStandardizer:
             # outcomes keep only the pairs that matched.
             return resolution(
                 targets.pop(),
-                tuple(
-                    SupportingAttributeValuePair(attribute, value)
-                    for (attribute, value), _ in mapped
-                ),
+                tuple(pair for pair, _ in mapped),
                 LocationDiagnostic.REVIEWED_MAPPING_RESOLUTION,
             )
         if reviewed_unmapped_present:
@@ -626,13 +668,13 @@ class LocationStandardizer:
 
     def _unresolved_inputs(
         self,
-        unusable_pairs: Sequence[tuple[str, str]],
+        unusable_pairs: Sequence[SupportingAttributeValuePair],
     ) -> tuple[UnresolvedLocationInput, ...]:
         """Filter unusable pairs down to those not already covered by a reviewed section."""
         return tuple(
-            UnresolvedLocationInput(attribute, value)
-            for attribute, value in unusable_pairs
-            if (key := normalize_submitted_location_value(value)) not in self.reviewed_mappings
+            UnresolvedLocationInput(pair.attribute, pair.value)
+            for pair in unusable_pairs
+            if (key := normalize_submitted_location_value(pair.value)) not in self.reviewed_mappings
             and key not in self.reviewed_unmapped
         )
 
@@ -641,18 +683,19 @@ class LocationStandardizer:
         *,
         coordinate_failure: bool,
         unmappable_result: bool,
+        country_conflict: bool = False,
         resolution: Sequence[LocationDiagnostic],
         unresolved: Sequence[UnresolvedLocationInput],
     ) -> tuple[LocationDiagnostic, ...]:
         """
         Order one record's diagnostics: operational, then selection, then review signals.
 
-        ``unresolved_place`` means at least one value went to the review worklist, so it
-        can appear even on a standardized record.
+        Both `unresolved_place` and `country_conflict` can appear on a successfully standardized record.
         """
         return (
             *((LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE,) if coordinate_failure else ()),
             *((LocationDiagnostic.UNMAPPABLE_RESULT,) if unmappable_result else ()),
+            *((LocationDiagnostic.COUNTRY_CONFLICT,) if country_conflict else ()),
             *resolution,
             *((LocationDiagnostic.UNRESOLVED_PLACE,) if unresolved else ()),
         )
