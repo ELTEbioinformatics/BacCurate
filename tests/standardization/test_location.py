@@ -201,7 +201,7 @@ def test_coordinate_decodes_to_country_and_city(monkeypatch, standardizer):
     monkeypatch.setattr(
         location_module.reverse_geocode,
         "get",
-        lambda _coordinates: {"country": "Germany", "city": "Berlin"},
+        lambda _coordinates: {"country_code": "DE", "city": "Berlin"},
     )
 
     outcome = standardizer.standardize(
@@ -264,6 +264,18 @@ def test_coordinate_outside_a_coded_map_unit_names_no_country(standardizer, subm
     assert outcome.unresolved_inputs == (UnresolvedLocationInput("lat_lon", submitted),)
 
 
+def test_a_city_outside_the_resolved_country_is_no_sublocation(standardizer):
+    # A point in Italy near the border of Vatican City. The nearest city, Vatican City, is its
+    # own country, so it must not become an italian sublocation.
+    outcome = standardizer.standardize(
+        {"accession": "BORDER", "loc_attr_orig": "lat_lon", "loc_val_orig": "41.9 N 12.46 E"}
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.country == "Italy"
+    assert outcome.sublocation is None
+
+
 def test_coordinate_that_names_no_country_leaves_the_record_to_its_text(standardizer):
     outcome = standardizer.standardize(
         {
@@ -306,7 +318,7 @@ def test_coordinate_parsed_only_on_full_value_match(
 
     def record(coordinate_pair):
         decoded.append(coordinate_pair)
-        return {"country": "Germany", "city": "Berlin"}
+        return {"country_code": "DE", "city": "Berlin"}
 
     monkeypatch.setattr(location_module.reverse_geocode, "get", record)
 
@@ -409,7 +421,7 @@ def test_conflicting_countries_pick_coordinate_and_flag_conflict(monkeypatch, st
     monkeypatch.setattr(
         location_module.reverse_geocode,
         "get",
-        lambda _coordinates: {"city": "Rome"},
+        lambda _coordinates: {"country_code": "IT", "city": "Rome"},
     )
 
     outcome = standardizer.standardize(

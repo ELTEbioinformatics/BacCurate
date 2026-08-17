@@ -456,9 +456,19 @@ class LocationStandardizer:
             return "NA"
         return self._country_converter_lookup(country, "UNregion") or "NA"
 
-    def _nearest_city(self, coordinates: tuple[float, float]) -> str | None:
-        """Name the city nearest to a (latitude, longitude) pair via reverse_geocode."""
-        return reverse_geocode.get(coordinates).get("city")
+    def _comparison_key(self, country: str | None) -> str | None:
+        """Map a country_converter name to its INSDC alias for comparison."""
+        return self.insdc_map.get(country, country) if country else None
+
+    def _nearest_city(self, coordinates: tuple[float, float]) -> tuple[str | None, str | None]:
+        """
+        Return the city nearest to a (latitude, longitude) pair via reverse_geocode.
+
+        The ISO code of the city's own country travels with the name, because the nearest city
+        can lie in a different country than the point.
+        """
+        nearest = reverse_geocode.get(coordinates)
+        return nearest.get("city"), nearest.get("country_code")
 
     def _try_coordinate(self, value: str) -> LocationMatch | None:
         """
@@ -467,7 +477,8 @@ class LocationStandardizer:
         The map unit that contains the point names the country. A point in no map unit, or in
         a map unit with no ISO code, names no country.
 
-        reverse_geocode supplies the sublocation only.
+        reverse_geocode supplies the sublocation only, and only when the city it names lies in
+        the resolved country. A coordinate can therefore write no sublocation.
         """
         coordinates = _parse_coordinate(value)
         if coordinates is None:
@@ -479,11 +490,17 @@ class LocationStandardizer:
             return LocationMatch("NA", None)
 
         try:
-            city = self._nearest_city(coordinates)
+            city, city_code = self._nearest_city(coordinates)
             diagnostics: tuple[LocationDiagnostic, ...] = ()
         except Exception:
-            city = None
+            city, city_code = None, None
             diagnostics = (LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE,)
+
+        city_country = (
+            self._country_converter_lookup(city_code, "name_short") if city_code else None
+        )
+        if self._comparison_key(city_country) != self._comparison_key(country):
+            city = None
 
         self.stats["coordinate_decodes"] += 1
         return LocationMatch(
