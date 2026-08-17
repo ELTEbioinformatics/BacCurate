@@ -197,6 +197,41 @@ def test_selected_pair_position_follows_the_sublocation_preference(standardizer)
     assert outcome.selected_pair_positions == (2,)
 
 
+@pytest.mark.parametrize("marker", ["NA", "None", "confidential", "unknown", "missing", "-"])
+def test_a_missing_value_marker_is_no_sublocation(standardizer, marker):
+    outcome = standardizer.standardize(
+        {
+            "accession": "ABSENT_SUBLOCATION",
+            "loc_attr_orig": "geo_loc_name",
+            "loc_val_orig": f"Germany: {marker}",
+        }
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.country == "Germany"
+    assert outcome.sublocation is None
+
+
+@pytest.mark.parametrize(
+    ("submitted", "sublocation"),
+    [
+        pytest.param("USA:ND", "ND", id="north-dakota"),
+        pytest.param("USA: Nan", "Nan", id="nan-province"),
+    ],
+)
+def test_a_short_abbreviation_stays_a_sublocation(standardizer, submitted, sublocation):
+    outcome = standardizer.standardize(
+        {
+            "accession": "ABBREVIATED_SUBLOCATION",
+            "loc_attr_orig": "geo_loc_name",
+            "loc_val_orig": submitted,
+        }
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.sublocation == sublocation
+
+
 def test_coordinate_decodes_to_country_and_city(monkeypatch, standardizer):
     monkeypatch.setattr(
         location_module.reverse_geocode,

@@ -241,12 +241,52 @@ def _parse_coordinate(value: str) -> tuple[float, float] | None:
 # --- Helpers ---
 
 
+# Text that stand for a missing value rather than a place.
+# Mirrors universal_missing in config/curation_schema.yaml, which rejects the whole value.
+#
+# Very short tokens need to be watched out for, so some of those are not included here.
+# For example "Thailand: Nan" is an actual Thai province.
+_ABSENT_SUBLOCATION = frozenset(
+    {
+        "-",
+        "/",
+        "?",
+        "confidential",
+        "missing",
+        "n/a",
+        "na",
+        "no data",
+        "no information",
+        "none",
+        "not applicable",
+        "not applied",
+        "not available",
+        "not collected",
+        "not determined",
+        "not known",
+        "not provided",
+        "not recorded",
+        "not reported",
+        "not specified",
+        "not supplied",
+        "null",
+        "restricted access",
+        "unavailable",
+        "undetermined",
+        "unidentified",
+        "unknown",
+        "withheld",
+    }
+)
+
+
 def _split_sublocation(value: str) -> tuple[str, str | None]:
     """
     Split a value into its head (country) and its sublocation (state, city etc.).
     """
     head, _, tail = value.partition(":")
-    return head, tail.strip() or None
+    tail = tail.strip()
+    return head, None if tail.lower() in _ABSENT_SUBLOCATION else tail or None
 
 
 def _extract_string(value) -> str | None:
