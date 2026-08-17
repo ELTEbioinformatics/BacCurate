@@ -842,6 +842,33 @@ def test_standardized_location_publishes_its_diagnostics_in_the_same_column(
     assert record["loc_diagnostics"] == "unresolved_place"
 
 
+def test_standardized_location_reports_a_pair_resolved_outside_the_insdc_list(
+    tmp_path: Path,
+) -> None:
+    # The Rome coordinate decodes to "Holy See", which is not a valid INSDC
+    # location, so standardization is from `geo_loc_name` alone.
+    built = _build_dataset(
+        tmp_path,
+        [
+            _dated_record(
+                "STANDARDIZED_WITH_UNMAPPABLE_PAIR",
+                loc_attr_orig="geo_loc_name||lat_lon",
+                loc_val_orig="Italy: Milan||41.86 N 12.45 E",
+            )
+        ],
+        (StandardizationTarget.DATE, StandardizationTarget.LOCATION),
+        location_policy=_location_policy(tmp_path),
+        location_standardizer_factory=_location_standardizer,
+    )
+
+    record = built.records[0]
+    assert record["loc_selected_pair"] == "1"
+    assert record["loc_resolution"] == "insdc_term"
+    assert (record["loc_country"], record["loc_sublocation"]) == ("Italy", "Milan")
+    assert (record["loc_latitude"], record["loc_longitude"]) == ("", "")
+    assert record["loc_diagnostics"] == "unmappable_result||unresolved_place"
+
+
 def test_unfilled_isolation_source_facets_serialize_as_na_not_empty(
     tmp_path: Path,
 ) -> None:

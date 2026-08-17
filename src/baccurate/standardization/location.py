@@ -275,6 +275,8 @@ class LocationDiagnostic(StrEnum):
     ABSENT_VALUES = "absent_values"
     UNRESOLVED_PLACE = "unresolved_place"
     RECOVERABLE_COORDINATE_FAILURE = "recoverable_coordinate_failure"
+    # Reports that one submitted pair resolved to a country outside the INSDC
+    # Geographical Location List.
     UNMAPPABLE_RESULT = "unmappable_result"
     COUNTRY_CONFLICT = "country_conflict"
     REVIEWED_UNMAPPED = "reviewed_unmapped"
@@ -644,7 +646,7 @@ class LocationStandardizer:
                 unresolved_inputs=unresolved,
                 diagnostics=self._record_diagnostics(
                     coordinate_failure=coordinate_failure,
-                    unmappable_result=False,
+                    unmappable_result=unmappable_result,
                     country_conflict=len({match.country for _, match in insdc_matches}) > 1,
                     reviewed_fallback=(),
                     unresolved=unresolved,

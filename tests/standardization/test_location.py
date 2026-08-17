@@ -342,7 +342,10 @@ def test_unmappable_coordinate_country_does_not_contribute_sublocation(monkeypat
     assert isinstance(outcome, LocationOutcome)
     assert (outcome.country, outcome.sublocation) == ("Italy", None)
     assert outcome.route == LocationResolutionRoute.INSDC_TERM
-    assert outcome.diagnostics == (LocationDiagnostic.UNRESOLVED_PLACE,)
+    assert outcome.diagnostics == (
+        LocationDiagnostic.UNMAPPABLE_RESULT,
+        LocationDiagnostic.UNRESOLVED_PLACE,
+    )
 
 
 def test_conflicting_countries_pick_coordinate_and_flag_conflict(monkeypatch, standardizer):
