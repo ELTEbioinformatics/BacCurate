@@ -723,7 +723,7 @@ def test_published_resolution_route_names_the_step_that_produced_the_country(
     }
 
 
-def test_published_coordinate_is_filled_only_on_the_coordinate_route(tmp_path: Path) -> None:
+def test_published_coordinate_is_filled_whenever_a_value_parses(tmp_path: Path) -> None:
     built = _build_dataset(
         tmp_path,
         [
@@ -732,6 +732,7 @@ def test_published_coordinate_is_filled_only_on_the_coordinate_route(tmp_path: P
                 loc_attr_orig="lat_lon",
                 loc_val_orig="6°12'52\"S 106°50'42\"E",
             ),
+            _dated_record("NO_LOCATION", loc_attr_orig="lat_lon", loc_val_orig="0.0, 0.0"),
             _dated_record("INSDC", loc_attr_orig="geo_loc_name", loc_val_orig="Germany"),
         ],
         (StandardizationTarget.DATE, StandardizationTarget.LOCATION),
@@ -743,7 +744,11 @@ def test_published_coordinate_is_filled_only_on_the_coordinate_route(tmp_path: P
         record["accession"]: (record["loc_latitude"], record["loc_longitude"])
         for record in built.records
     }
-    assert published == {"COORDINATE": ("-6.21444", "106.845"), "INSDC": ("", "")}
+    assert published == {
+        "COORDINATE": ("-6.21444", "106.845"),
+        "NO_LOCATION": ("0", "0"),
+        "INSDC": ("", ""),
+    }
 
 
 def test_published_selected_pair_positions_index_the_published_pairs(tmp_path: Path) -> None:
@@ -865,7 +870,7 @@ def test_standardized_location_reports_a_pair_resolved_outside_the_insdc_list(
     assert record["loc_selected_pair"] == "1"
     assert record["loc_resolution"] == "insdc_term"
     assert (record["loc_country"], record["loc_sublocation"]) == ("Italy", "Milan")
-    assert (record["loc_latitude"], record["loc_longitude"]) == ("", "")
+    assert (record["loc_latitude"], record["loc_longitude"]) == ("41.9038", "12.4536")
     assert record["loc_diagnostics"] == "unmappable_result||unresolved_place"
 
 

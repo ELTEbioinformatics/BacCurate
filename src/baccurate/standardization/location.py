@@ -311,8 +311,9 @@ class LocationMatch:
     sublocation: str | None  # region below country level (state, city, etc.)
     diagnostics: tuple[LocationDiagnostic, ...] = ()
     route: LocationResolutionRoute | None = None
-    # The pair the value parsed to, carried only on the coordinate route. It is what the
-    # submitted text says, not what `reverse_geocode` returned for the matched city.
+    # The pair the value parsed to, carried whenever the value parsed as a coordinate, even
+    # when the point named no country. It is what the submitted text says, not what
+    # `reverse_geocode` returned for the matched city.
     coordinate: tuple[float, float] | None = None
 
 
@@ -348,9 +349,6 @@ class UnresolvedLocationInput:
 class LocationOutcome:
     """
     A standardized geographic location with its supporting attribute-value pairs and diagnostics.
-
-    `selected_pair_positions` holds 1-based positions into supporting_pairs, in ascending order,
-    of the pairs that produced the location. Each position maps to the pair the record published.
     """
 
     un_region: str
@@ -370,13 +368,12 @@ class LocationOutcome:
 
 @dataclass(frozen=True, slots=True)
 class LocationRejection:
-    """A record with no usable location, plus its supporting attribute-value pairs and diagnostics.
-
-    `supporting_pairs` carries every submitted pair, so a rejected record still publishes its
-    evidence. It is empty only when the record submitted no values.
+    """
+    A record with no usable location, plus its supporting attribute-value pairs and diagnostics.
     """
 
     supporting_pairs: tuple[SupportingAttributeValuePair, ...] = ()
+    coordinate: tuple[float, float] | None = None
     unresolved_inputs: tuple[UnresolvedLocationInput, ...] = ()
     coordinate_decodes: int = 0
     insdc_term_matches: int = 0
@@ -507,7 +504,12 @@ class LocationStandardizer:
         code = containing_map_unit_code(coordinates)
         country = self._country_converter_lookup(code, "name_short") if code else None
         if country is None:
-            return LocationMatch("NA", None, (LocationDiagnostic.COORDINATE_WITHOUT_COUNTRY,))
+            return LocationMatch(
+                "NA",
+                None,
+                (LocationDiagnostic.COORDINATE_WITHOUT_COUNTRY,),
+                coordinate=coordinates,
+            )
 
         try:
             city, city_code = self._nearest_city(coordinates)
@@ -596,6 +598,7 @@ class LocationStandardizer:
         before = self.stats.copy()
         resolution = self._resolve_record(attributes, values)
         published = {
+            "coordinate": resolution.coordinate,
             "unresolved_inputs": resolution.unresolved_inputs,
             "coordinate_decodes": self.stats["coordinate_decodes"] - before["coordinate_decodes"],
             "insdc_term_matches": (self.stats["insdc_term_matches"] - before["insdc_term_matches"]),
@@ -621,7 +624,6 @@ class LocationStandardizer:
             supporting_pairs=resolution.supporting_pairs,
             selected_pair_positions=resolution.selected_pair_positions,
             route=resolution.route,
-            coordinate=resolution.coordinate,
             **published,
         )
 
@@ -658,9 +660,15 @@ class LocationStandardizer:
         coordinate_failure = False
         coordinate_without_country = False
         unmappable_result = False
+
+        # Read before INSDC mapping, which drops the coordinate off an unmappable match.
+        first_coordinate: tuple[float, float] | None = None
+
         for position, pair in pairs:
             match = self._match_value(pair)
             if match is not None:
+                if first_coordinate is None:
+                    first_coordinate = match.coordinate
                 if LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE in match.diagnostics:
                     coordinate_failure = True
                 if LocationDiagnostic.COORDINATE_WITHOUT_COUNTRY in match.diagnostics:
@@ -693,7 +701,9 @@ class LocationStandardizer:
                 ),
                 route=selected.route,
                 selected_pair_positions=(selected_position,),
-                coordinate=selected.coordinate,
+                coordinate=(
+                    selected.coordinate if selected.coordinate is not None else first_coordinate
+                ),
             )
 
         return self._reviewed_fallback(
@@ -703,6 +713,7 @@ class LocationStandardizer:
             coordinate_failure=coordinate_failure,
             coordinate_without_country=coordinate_without_country,
             unmappable_result=unmappable_result,
+            first_coordinate=first_coordinate,
         )
 
     def _reviewed_fallback(
@@ -714,6 +725,7 @@ class LocationStandardizer:
         coordinate_failure: bool,
         coordinate_without_country: bool,
         unmappable_result: bool,
+        first_coordinate: tuple[float, float] | None,
     ) -> _RecordResolution:
         """Apply the reviewed geographic-location policy to every submitted value."""
         mapped: list[tuple[int, str]] = []
@@ -750,6 +762,7 @@ class LocationStandardizer:
                 ),
                 route=(LocationResolutionRoute.REVIEWED_MAPPING if country is not None else None),
                 selected_pair_positions=selected_pair_positions,
+                coordinate=first_coordinate,
             )
 
         if mapped:

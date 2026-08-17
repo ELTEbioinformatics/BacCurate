@@ -277,8 +277,14 @@ class _FinalRowAssembler:
                 )
         if StandardizationTarget.LOCATION in self._selected_targets:
             location = final_row.location or LocationRejection()
+            if location.coordinate is None:
+                latitude, longitude = "", ""
+            else:
+                latitude, longitude = (
+                    f"{degrees:.5f}".rstrip("0").rstrip(".") for degrees in location.coordinate
+                )
             if isinstance(location, LocationRejection):
-                answer_columns: tuple[object, ...] = ("",) * _LOCATION_ANSWER_COLUMN_COUNT
+                answer_columns: tuple[object, ...] = ("",) * (_LOCATION_ANSWER_COLUMN_COUNT - 2)
             else:
                 answer_columns = (
                     "||".join(map(str, location.selected_pair_positions)),
@@ -286,19 +292,13 @@ class _FinalRowAssembler:
                     location.country,
                     location.un_region,
                     location.sublocation or "NA",
-                    *(
-                        ("", "")
-                        if location.coordinate is None
-                        else (
-                            f"{degrees:.5f}".rstrip("0").rstrip(".")
-                            for degrees in location.coordinate
-                        )
-                    ),
                 )
             values += (
                 "||".join(pair.attribute for pair in location.supporting_pairs),
                 "||".join(pair.value for pair in location.supporting_pairs),
                 *answer_columns,
+                latitude,
+                longitude,
                 "||".join(location.diagnostics),
             )
         if StandardizationTarget.ISOLATION_SOURCE in self._selected_targets:

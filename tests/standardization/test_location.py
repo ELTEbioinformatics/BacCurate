@@ -246,15 +246,25 @@ def test_coordinate_names_the_map_unit_that_contains_it(standardizer, submitted,
 
 
 @pytest.mark.parametrize(
-    ("submitted", "reason"),
+    ("submitted", "coordinate", "reason"),
     [
-        pytest.param("0.0, 0.0", "no map unit contains a point in the Gulf of Guinea", id="water"),
         pytest.param(
-            "9.56 N 44.06 E", "Somaliland carries no ISO code", id="map-unit-without-code"
+            "0.0, 0.0",
+            (0.0, 0.0),
+            "no map unit contains a point in the Gulf of Guinea",
+            id="water",
+        ),
+        pytest.param(
+            "9.56 N 44.06 E",
+            (9.56, 44.06),
+            "Somaliland carries no ISO code",
+            id="map-unit-without-code",
         ),
     ],
 )
-def test_coordinate_outside_a_coded_map_unit_names_no_country(standardizer, submitted, reason):
+def test_coordinate_outside_a_coded_map_unit_names_no_country(
+    standardizer, submitted, coordinate, reason
+):
     outcome = standardizer.standardize(
         {"accession": "NO_COUNTRY", "loc_attr_orig": "lat_lon", "loc_val_orig": submitted}
     )
@@ -263,6 +273,7 @@ def test_coordinate_outside_a_coded_map_unit_names_no_country(standardizer, subm
     assert outcome.coordinate_decodes == 0
     assert outcome.unresolved_inputs == (UnresolvedLocationInput("lat_lon", submitted),)
     assert LocationDiagnostic.COORDINATE_WITHOUT_COUNTRY in outcome.diagnostics
+    assert outcome.coordinate == pytest.approx(coordinate)
 
 
 def test_a_city_outside_the_resolved_country_is_no_sublocation(standardizer):
@@ -278,12 +289,13 @@ def test_a_city_outside_the_resolved_country_is_no_sublocation(standardizer):
 
 
 @pytest.mark.parametrize(
-    ("coordinate", "submitted_text", "country", "sublocation"),
+    ("submitted", "parsed", "submitted_text", "country", "sublocation"),
     [
-        pytest.param("0.0, 0.0", "Germany", "Germany", None, id="gulf-of-guinea"),
+        pytest.param("0.0, 0.0", (0.0, 0.0), "Germany", "Germany", None, id="gulf-of-guinea"),
         # Offshore antarctic coordinate.
         pytest.param(
             "65.9 S 110.0 E",
+            (-65.9, 110.0),
             "Antarctica: Warriner Island",
             "Antarctica",
             "Warriner Island",
@@ -292,13 +304,13 @@ def test_a_city_outside_the_resolved_country_is_no_sublocation(standardizer):
     ],
 )
 def test_coordinate_that_names_no_country_leaves_the_record_to_its_text(
-    standardizer, coordinate, submitted_text, country, sublocation
+    standardizer, submitted, parsed, submitted_text, country, sublocation
 ):
     outcome = standardizer.standardize(
         {
             "accession": "NO_COUNTRY_AND_TEXT",
             "loc_attr_orig": "lat_lon||geo_loc_name",
-            "loc_val_orig": f"{coordinate}||{submitted_text}",
+            "loc_val_orig": f"{submitted}||{submitted_text}",
         }
     )
 
@@ -306,6 +318,21 @@ def test_coordinate_that_names_no_country_leaves_the_record_to_its_text(
     assert (outcome.country, outcome.sublocation) == (country, sublocation)
     assert outcome.route == LocationResolutionRoute.INSDC_TERM
     assert LocationDiagnostic.COORDINATE_WITHOUT_COUNTRY in outcome.diagnostics
+    assert outcome.coordinate == pytest.approx(parsed)
+
+
+def test_the_first_parsed_coordinate_is_published_when_no_coordinate_resolved(standardizer):
+    outcome = standardizer.standardize(
+        {
+            "accession": "TWO_COORDINATES",
+            "loc_attr_orig": "lat_lon||lat_lon||geo_loc_name",
+            "loc_val_orig": "0.0, 0.0||9.56 N 44.06 E||Germany",
+        }
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.route == LocationResolutionRoute.INSDC_TERM
+    assert outcome.coordinate == pytest.approx((0.0, 0.0))
 
 
 def test_a_coordinate_country_outranks_submitted_text(standardizer):
