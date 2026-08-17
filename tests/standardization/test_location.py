@@ -288,6 +288,63 @@ def test_a_city_outside_the_resolved_country_is_no_sublocation(standardizer):
     assert outcome.sublocation is None
 
 
+# =============================================================================
+# Ownership of the sublocation
+# =============================================================================
+
+
+def test_submitted_text_keeps_the_sublocation_when_it_agrees_on_the_country(standardizer):
+    outcome = standardizer.standardize(
+        {
+            "accession": "TEXT_OWNS_SUBLOCATION",
+            "loc_attr_orig": "geo_loc_name||lat_lon",
+            "loc_val_orig": "Germany: Potsdam||52.52, 13.405",
+        }
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.country == "Germany"
+    assert outcome.route == LocationResolutionRoute.COORDINATE
+    assert outcome.sublocation == "Potsdam"
+    # The country came from pair 2 and the sublocation from pair 1, in submitted order.
+    assert outcome.selected_pair_positions == (1, 2)
+
+
+def test_submitted_text_restores_a_sublocation_the_country_restriction_dropped(standardizer):
+    # The nearest city to this point is Vatican City, which the country restriction drops.
+    # The submitted text agrees on Italy, so it restores the sublocation.
+    outcome = standardizer.standardize(
+        {
+            "accession": "TEXT_RESTORES_SUBLOCATION",
+            "loc_attr_orig": "geo_loc_name||lat_lon",
+            "loc_val_orig": "Italy: Rome||41.9 N 12.46 E",
+        }
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.country == "Italy"
+    assert outcome.sublocation == "Rome"
+    assert outcome.selected_pair_positions == (1, 2)
+
+
+def test_the_coordinate_keeps_the_sublocation_when_the_text_names_another_country(standardizer):
+    # The point lies in Belgium and the text names the Netherlands.
+    # Breda belongs to a different country, so the coordinate supplies both country and sublocation.
+    outcome = standardizer.standardize(
+        {
+            "accession": "COUNTRY_DISAGREEMENT",
+            "loc_attr_orig": "geo_loc_name||lat_lon",
+            "loc_val_orig": "Netherlands: Breda||51.34 N 4.48 E",
+        }
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.country == "Belgium"
+    assert outcome.sublocation != "Breda"
+    assert LocationDiagnostic.COUNTRY_CONFLICT in outcome.diagnostics
+    assert outcome.selected_pair_positions == (2,)
+
+
 @pytest.mark.parametrize(
     ("submitted", "parsed", "submitted_text", "country", "sublocation"),
     [

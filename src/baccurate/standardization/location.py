@@ -627,6 +627,31 @@ class LocationStandardizer:
             **published,
         )
 
+    @staticmethod
+    def _submitted_sublocation(
+        insdc_matches: Sequence[tuple[int, LocationMatch]], country: str
+    ) -> tuple[int, str] | None:
+        """
+        Return the first submitted text pair that names a place inside ``country``.
+
+        A coordinate resolves its country by polygon containment, which is a geometric
+        guarantee. Its sublocation is the nearest settlement-table entry, which can lie far
+        from the point. Submitted text keeps the sublocation whenever it agrees on the
+        resolved country. The nearest-city lookup fills the field only when no submitted
+        text names a place.
+
+        Submitted text that names a different country is skipped. This prevents outputting a
+        country and a place that belong to different countries.
+        """
+        for position, match in insdc_matches:
+            if (
+                match.route is not LocationResolutionRoute.COORDINATE
+                and match.country == country
+                and match.sublocation is not None
+            ):
+                return position, match.sublocation
+        return None
+
     def _resolve_record(
         self,
         attributes: Sequence[str],
@@ -661,7 +686,6 @@ class LocationStandardizer:
         coordinate_failure = False
         unmappable_result = False
 
-        # Read before INSDC mapping, which drops the coordinate off an unmappable match.
         first_coordinate: tuple[float, float] | None = None
 
         for position, pair in pairs:
@@ -685,13 +709,20 @@ class LocationStandardizer:
 
         if insdc_matches:
             selected_position, selected = min(insdc_matches, key=_selection_rank)
+            sublocation = selected.sublocation
+            selected_positions = (selected_position,)
+            if selected.route is LocationResolutionRoute.COORDINATE:
+                submitted = self._submitted_sublocation(insdc_matches, selected.country)
+                if submitted is not None:
+                    sublocation_position, sublocation = submitted
+                    selected_positions = tuple(sorted((selected_position, sublocation_position)))
             unresolved = self._unresolved_inputs(
                 unusable_pairs,
                 excluded=countryless_coordinate_pairs,
             )
             return _RecordResolution(
                 country=selected.country,
-                sublocation=selected.sublocation,
+                sublocation=sublocation,
                 supporting_pairs=submitted_pairs,
                 unresolved_inputs=unresolved,
                 diagnostics=self._record_diagnostics(
@@ -703,7 +734,7 @@ class LocationStandardizer:
                     unresolved=unresolved,
                 ),
                 route=selected.route,
-                selected_pair_positions=(selected_position,),
+                selected_pair_positions=selected_positions,
                 coordinate=(
                     selected.coordinate if selected.coordinate is not None else first_coordinate
                 ),
