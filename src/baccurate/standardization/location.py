@@ -347,8 +347,13 @@ class LocationOutcome:
 
 @dataclass(frozen=True, slots=True)
 class LocationRejection:
-    """An extracted metadata record with no usable location, plus diagnostics."""
+    """A record with no usable location, plus its supporting attribute-value pairs and diagnostics.
 
+    `supporting_pairs` carries every submitted pair, so a rejected record still publishes its
+    evidence. It is empty only when the record submitted no values.
+    """
+
+    supporting_pairs: tuple[SupportingAttributeValuePair, ...] = ()
     unresolved_inputs: tuple[UnresolvedLocationInput, ...] = ()
     coordinate_decodes: int = 0
     insdc_term_matches: int = 0
@@ -562,7 +567,10 @@ class LocationStandardizer:
             "diagnostics": resolution.diagnostics,
         }
         if resolution.country is None:
-            return LocationRejection(**published)
+            return LocationRejection(
+                supporting_pairs=resolution.supporting_pairs,
+                **published,
+            )
         if resolution.route is None:
             raise ValueError(f"Standardized location without a resolution route for {accession}")
         return LocationOutcome(

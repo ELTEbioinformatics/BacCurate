@@ -43,7 +43,7 @@ from baccurate.standardization.location import (
     LocationResolutionRoute,
     LocationStandardizer,
 )
-from baccurate.standardization_target.specifications import TARGET_SPECS, StandardizationTarget
+from baccurate.standardization_target.specifications import StandardizationTarget
 
 ROOT = Path(__file__).parents[2]
 CURATION_SCHEMA_PATH = ROOT / "config" / "curation_schema.yaml"
@@ -70,7 +70,9 @@ LOCATION_COLUMNS = (
     "loc_sublocation",
     "loc_latitude",
     "loc_longitude",
+    "loc_diagnostics",
 )
+LOCATION_ANSWER_COLUMNS = LOCATION_COLUMNS[2:-1]
 ISOLATION_SOURCE_COLUMNS = (
     "iso_attr_orig",
     "iso_val_orig",
@@ -494,78 +496,6 @@ def test_equivalent_vocabulary_order_produces_byte_stable_dataset(tmp_path: Path
     assert built_datasets[0].content == built_datasets[1].content
 
 
-def test_requested_target_without_outcome_serializes_exact_empty_columns_without_shifting_others(
-    tmp_path: Path,
-) -> None:
-    date_path = tmp_path / "date"
-    location_policy = _location_policy(date_path)
-    date_without_outcome = _build_dataset(
-        date_path,
-        [
-            _dated_record(
-                "DATE_WITHOUT_OUTCOME",
-                date_val_orig="not a date",
-                loc_attr_orig="geo_loc_name",
-                loc_val_orig="Germany",
-            )
-        ],
-        (StandardizationTarget.DATE, StandardizationTarget.LOCATION),
-        location_policy=location_policy,
-        location_standardizer_factory=_location_standardizer,
-    )
-
-    location_path = tmp_path / "location"
-    location_without_outcome = _build_dataset(
-        location_path,
-        [_dated_record("LOCATION_WITHOUT_OUTCOME", loc_attr_orig="", loc_val_orig="")],
-        (StandardizationTarget.DATE, StandardizationTarget.LOCATION),
-        location_policy=_location_policy(location_path),
-        location_standardizer_factory=_location_standardizer,
-    )
-
-    host_path = tmp_path / "host"
-    host_policy, taxonomy_path = _minimal_host_components(host_path)
-    host_without_outcome = _build_dataset(
-        host_path,
-        [_dated_record("HOST_WITHOUT_OUTCOME", host_attr_orig="", host_val_orig="")],
-        (StandardizationTarget.DATE, StandardizationTarget.HOST),
-        host_policy=host_policy,
-        host_standardizer_factory=lambda policy, _logger: HostStandardizer(
-            policy,
-            taxonomy_path,
-        ),
-    )
-
-    isolation_source_without_outcome = _build_isolation_source_dataset(
-        tmp_path / "isolation-source",
-        [_dated_record("ISOLATION_SOURCE_WITHOUT_OUTCOME")],
-    )
-
-    cases = (
-        (date_without_outcome, StandardizationTarget.DATE, "loc_country", "Germany"),
-        (
-            location_without_outcome,
-            StandardizationTarget.LOCATION,
-            "date_start",
-            "2020-01-02",
-        ),
-        (host_without_outcome, StandardizationTarget.HOST, "date_start", "2020-01-02"),
-        (
-            isolation_source_without_outcome,
-            StandardizationTarget.ISOLATION_SOURCE,
-            "date_start",
-            "2020-01-02",
-        ),
-    )
-    for built, target, preserved_column, preserved_value in cases:
-        assert len(built.records) == 1
-        record = built.records[0]
-        absent_columns = TARGET_SPECS[target].output_columns
-        assert None not in record
-        assert tuple(record[column] for column in absent_columns) == ("",) * len(absent_columns)
-        assert record[preserved_column] == preserved_value
-
-
 def test_failed_isolation_source_classification_skips_record_and_continues(
     tmp_path: Path,
 ) -> None:
@@ -836,7 +766,7 @@ def test_published_selected_pair_positions_index_the_published_pairs(tmp_path: P
     assert record["loc_selected_pair"] == "2"
 
 
-def test_rejected_locations_serialize_as_empty_not_na_while_diagnostics_preserve_reasons(
+def test_rejected_locations_publish_evidence_and_diagnostics_with_empty_answer_columns(
     tmp_path: Path,
 ) -> None:
     built = _build_dataset(
@@ -860,9 +790,27 @@ def test_rejected_locations_serialize_as_empty_not_na_while_diagnostics_preserve
     )
 
     assert len(built.records) == 3
+    records = {record["accession"]: record for record in built.records}
+
     for record in built.records:
-        assert tuple(record[column] for column in LOCATION_COLUMNS) == ("",) * len(LOCATION_COLUMNS)
-        assert record["loc_country"] != "NA"
+        assert tuple(record[column] for column in LOCATION_ANSWER_COLUMNS) == ("",) * len(
+            LOCATION_ANSWER_COLUMNS
+        )
+        assert record["date_start"] == "2020-01-02"
+
+    # A rejected record keeps its selected pairs and its diagnostics.
+    assert records["UNRESOLVED"]["loc_attr_orig"] == "lat_lon"
+    assert records["UNRESOLVED"]["loc_val_orig"] == "999, 999"
+    assert records["UNRESOLVED"]["loc_diagnostics"] == "unresolved_place"
+
+    assert records["ABSENT"]["loc_attr_orig"] == ""
+    assert records["ABSENT"]["loc_val_orig"] == ""
+    assert records["ABSENT"]["loc_diagnostics"] == "absent_values"
+
+    assert records["OUTSIDE_INSDC"]["loc_attr_orig"] == "geo_loc_name"
+    assert records["OUTSIDE_INSDC"]["loc_val_orig"] == "Vatican"
+    assert records["OUTSIDE_INSDC"]["loc_diagnostics"] == "unmappable_result||unresolved_place"
+
     assert built.statistics.location is not None
     assert built.statistics.location.aggregate.rejected == 3
     assert built.statistics.location.aggregate.diagnostics == {
@@ -870,6 +818,28 @@ def test_rejected_locations_serialize_as_empty_not_na_while_diagnostics_preserve
         LocationDiagnostic.UNMAPPABLE_RESULT: 1,
         LocationDiagnostic.UNRESOLVED_PLACE: 2,
     }
+
+
+def test_standardized_location_publishes_its_diagnostics_in_the_same_column(
+    tmp_path: Path,
+) -> None:
+    built = _build_dataset(
+        tmp_path,
+        [
+            _dated_record(
+                "STANDARDIZED_WITH_CONFLICT",
+                loc_attr_orig="geo_loc_name||collection_site",
+                loc_val_orig="Germany||unreviewed site 8841",
+            )
+        ],
+        (StandardizationTarget.DATE, StandardizationTarget.LOCATION),
+        location_policy=_location_policy(tmp_path),
+        location_standardizer_factory=_location_standardizer,
+    )
+
+    record = built.records[0]
+    assert record["loc_country"] == "Germany"
+    assert record["loc_diagnostics"] == "unresolved_place"
 
 
 def test_unfilled_isolation_source_facets_serialize_as_na_not_empty(

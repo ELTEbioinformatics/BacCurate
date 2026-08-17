@@ -115,6 +115,7 @@ def test_dataset_header_keeps_its_target_order_contract() -> None:
         "loc_sublocation",
         "loc_latitude",
         "loc_longitude",
+        "loc_diagnostics",
         "iso_attr_orig",
         "iso_val_orig",
         "iso_source_type",

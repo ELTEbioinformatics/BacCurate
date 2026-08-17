@@ -523,6 +523,11 @@ def test_disagreeing_reviewed_mappings_reject_the_record_but_not_its_unreviewed_
     assert outcome.unresolved_inputs == (
         UnresolvedLocationInput("isolation_country", "unreviewed site 5512"),
     )
+    assert outcome.supporting_pairs == (
+        SupportingAttributeValuePair("geo_loc_name", "UAE"),
+        SupportingAttributeValuePair("collection_site", "Cambodge"),
+        SupportingAttributeValuePair("isolation_country", "unreviewed site 5512"),
+    )
 
 
 def test_agreeing_reviewed_mappings_are_not_cancelled_by_other_values(

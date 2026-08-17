@@ -91,6 +91,7 @@ TARGET_SPECS: Mapping[StandardizationTarget, TargetSpec] = MappingProxyType(
                 "loc_sublocation",
                 "loc_latitude",
                 "loc_longitude",
+                "loc_diagnostics",
             ),
         ),
         StandardizationTarget.ISOLATION_SOURCE: TargetSpec(

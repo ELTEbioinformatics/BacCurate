@@ -84,6 +84,11 @@ from baccurate.standardization_target.specifications import (
 logger = logging.getLogger(__name__)
 
 
+_LOCATION_ANSWER_COLUMN_COUNT = (
+    len(target_specifications.TARGET_SPECS[StandardizationTarget.LOCATION].output_columns) - 3
+)
+
+
 def _sum_counts[Key: str](counts: Iterable[Counter[Key]]) -> dict[Key, int]:
     return dict(sorted(sum(counts, Counter()).items()))
 
@@ -172,7 +177,7 @@ class _FinalRow:
     in_atb: bool
     bioproject: str
     date: DateOutcome | None
-    location: LocationOutcome | None
+    location: LocationOutcome | LocationRejection | None
     isolation_source: IsolationSourceOutcome | None
     host: HostOutcome | None
     host_lineage: HostLineage | None
@@ -222,7 +227,7 @@ class _FinalRowAssembler:
         self,
         extracted_record: Mapping[str, str],
         date: DateOutcome | None,
-        location: LocationOutcome | None,
+        location: LocationOutcome | LocationRejection | None,
         isolation_source: IsolationSourceOutcome | None,
         host: HostOutcome | None,
         host_lineage: HostLineage | None,
@@ -271,30 +276,31 @@ class _FinalRowAssembler:
                     date_values,
                 )
         if StandardizationTarget.LOCATION in self._selected_targets:
-            if final_row.location is None:
-                values += ("",) * len(
-                    target_specifications.TARGET_SPECS[
-                        StandardizationTarget.LOCATION
-                    ].output_columns
-                )
+            location = final_row.location or LocationRejection()
+            if isinstance(location, LocationRejection):
+                answer_columns: tuple[object, ...] = ("",) * _LOCATION_ANSWER_COLUMN_COUNT
             else:
-                values += (
-                    "||".join(pair.attribute for pair in final_row.location.supporting_pairs),
-                    "||".join(pair.value for pair in final_row.location.supporting_pairs),
-                    "||".join(map(str, final_row.location.selected_pair_positions)),
-                    final_row.location.route,
-                    final_row.location.country,
-                    final_row.location.un_region,
-                    final_row.location.sublocation or "NA",
+                answer_columns = (
+                    "||".join(map(str, location.selected_pair_positions)),
+                    location.route,
+                    location.country,
+                    location.un_region,
+                    location.sublocation or "NA",
                     *(
                         ("", "")
-                        if final_row.location.coordinate is None
+                        if location.coordinate is None
                         else (
                             f"{degrees:.5f}".rstrip("0").rstrip(".")
-                            for degrees in final_row.location.coordinate
+                            for degrees in location.coordinate
                         )
                     ),
                 )
+            values += (
+                "||".join(pair.attribute for pair in location.supporting_pairs),
+                "||".join(pair.value for pair in location.supporting_pairs),
+                *answer_columns,
+                "||".join(location.diagnostics),
+            )
         if StandardizationTarget.ISOLATION_SOURCE in self._selected_targets:
             if final_row.isolation_source is None:
                 values += ("",) * (len(self._isolation_source_facets) + 3)
@@ -684,6 +690,7 @@ class DatasetBuilder:
                         stats.derivations.update(date_outcome.derivations)
 
                 location_outcome = None
+                location_result: LocationOutcome | LocationRejection | None = None
                 if location_standardizer is not None:
                     stats = location_stats[pathogen]
                     stats.processed += 1
@@ -862,7 +869,7 @@ class DatasetBuilder:
                     final_row = assembler.assemble(
                         extracted_record,
                         date_outcome,
-                        location_outcome,
+                        location_result,
                         isolation_source_outcome,
                         host_outcome,
                         lineage_outcome,
