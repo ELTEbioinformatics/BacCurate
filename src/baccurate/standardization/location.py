@@ -657,8 +657,8 @@ class LocationStandardizer:
         # same record.
         insdc_matches: list[tuple[int, LocationMatch]] = []
         unusable_pairs: list[SupportingAttributeValuePair] = []
+        countryless_coordinate_pairs: list[SupportingAttributeValuePair] = []
         coordinate_failure = False
-        coordinate_without_country = False
         unmappable_result = False
 
         # Read before INSDC mapping, which drops the coordinate off an unmappable match.
@@ -672,7 +672,7 @@ class LocationStandardizer:
                 if LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE in match.diagnostics:
                     coordinate_failure = True
                 if LocationDiagnostic.COORDINATE_WITHOUT_COUNTRY in match.diagnostics:
-                    coordinate_without_country = True
+                    countryless_coordinate_pairs.append(pair)
             if match is None or match.country == "NA":
                 unusable_pairs.append(pair)
                 continue
@@ -685,7 +685,10 @@ class LocationStandardizer:
 
         if insdc_matches:
             selected_position, selected = min(insdc_matches, key=_selection_rank)
-            unresolved = self._unresolved_inputs(unusable_pairs)
+            unresolved = self._unresolved_inputs(
+                unusable_pairs,
+                excluded=countryless_coordinate_pairs,
+            )
             return _RecordResolution(
                 country=selected.country,
                 sublocation=selected.sublocation,
@@ -693,7 +696,7 @@ class LocationStandardizer:
                 unresolved_inputs=unresolved,
                 diagnostics=self._record_diagnostics(
                     coordinate_failure=coordinate_failure,
-                    coordinate_without_country=coordinate_without_country,
+                    coordinate_without_country=bool(countryless_coordinate_pairs),
                     unmappable_result=unmappable_result,
                     country_conflict=len({match.country for _, match in insdc_matches}) > 1,
                     reviewed_fallback=(),
@@ -710,8 +713,8 @@ class LocationStandardizer:
             pairs,
             submitted_pairs=submitted_pairs,
             unusable_pairs=unusable_pairs,
+            countryless_coordinate_pairs=countryless_coordinate_pairs,
             coordinate_failure=coordinate_failure,
-            coordinate_without_country=coordinate_without_country,
             unmappable_result=unmappable_result,
             first_coordinate=first_coordinate,
         )
@@ -722,8 +725,8 @@ class LocationStandardizer:
         *,
         submitted_pairs: tuple[SupportingAttributeValuePair, ...],
         unusable_pairs: Sequence[SupportingAttributeValuePair],
+        countryless_coordinate_pairs: Sequence[SupportingAttributeValuePair],
         coordinate_failure: bool,
-        coordinate_without_country: bool,
         unmappable_result: bool,
         first_coordinate: tuple[float, float] | None,
     ) -> _RecordResolution:
@@ -739,13 +742,15 @@ class LocationStandardizer:
             elif key in self.reviewed_unmapped:
                 reviewed_unmapped_present = True
 
-        unresolved = self._unresolved_inputs(unusable_pairs)
-
         def resolution(
             country: str | None,
             *diagnostics: LocationDiagnostic,
             selected_pair_positions: tuple[int, ...] = (),
         ) -> _RecordResolution:
+            unresolved = self._unresolved_inputs(
+                unusable_pairs,
+                excluded=() if country is None else countryless_coordinate_pairs,
+            )
             return _RecordResolution(
                 country=country,
                 # Reviewed mappings resolve to a country or water body only,
@@ -755,7 +760,7 @@ class LocationStandardizer:
                 unresolved_inputs=unresolved,
                 diagnostics=self._record_diagnostics(
                     coordinate_failure=coordinate_failure,
-                    coordinate_without_country=coordinate_without_country,
+                    coordinate_without_country=bool(countryless_coordinate_pairs),
                     unmappable_result=unmappable_result,
                     reviewed_fallback=diagnostics,
                     unresolved=unresolved,
@@ -781,12 +786,16 @@ class LocationStandardizer:
     def _unresolved_inputs(
         self,
         unusable_pairs: Sequence[SupportingAttributeValuePair],
+        *,
+        excluded: Sequence[SupportingAttributeValuePair] = (),
     ) -> tuple[UnresolvedLocationInput, ...]:
         """Filter unusable pairs down to those not already covered by a reviewed section."""
         return tuple(
             UnresolvedLocationInput(pair.attribute, pair.value)
             for pair in unusable_pairs
-            if (key := normalize_submitted_location_value(pair.value)) not in self.reviewed_mappings
+            if pair not in excluded
+            and (key := normalize_submitted_location_value(pair.value))
+            not in self.reviewed_mappings
             and key not in self.reviewed_unmapped
         )
 

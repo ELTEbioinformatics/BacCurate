@@ -319,6 +319,8 @@ def test_coordinate_that_names_no_country_leaves_the_record_to_its_text(
     assert outcome.route == LocationResolutionRoute.INSDC_TERM
     assert LocationDiagnostic.COORDINATE_WITHOUT_COUNTRY in outcome.diagnostics
     assert outcome.coordinate == pytest.approx(parsed)
+    assert outcome.unresolved_inputs == ()
+    assert LocationDiagnostic.UNRESOLVED_PLACE not in outcome.diagnostics
 
 
 def test_the_first_parsed_coordinate_is_published_when_no_coordinate_resolved(standardizer):
