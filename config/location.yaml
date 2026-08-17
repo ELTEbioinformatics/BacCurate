@@ -70,6 +70,10 @@ reviewed_mappings:
   "canonsburg, pa. usa": "USA"
   "rajkot city": "India"
   "wageningen": "Netherlands"
+  "morehead, ky": "USA"
+  "tilburg": "Netherlands"
+  "scotland": "United Kingdom"
+  "tokyo": "Japan"
 
   # Hospitals.
   "brigham and women's hospital": "USA"
@@ -91,7 +95,12 @@ reviewed_unmapped:
   - "british isles"
   - "lesser antilles"
 
-  # These do not describe geography.
+  # Other
   - "water"
   - "not collected: not available"
   - "outpatient"
+  - "mcarmen martín-higuera"
+  - "ucl ccm"
+  - "unspecified"
+  - "#checklist_accession"
+  - "hospital"
