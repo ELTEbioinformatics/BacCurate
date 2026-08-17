@@ -262,6 +262,7 @@ def test_coordinate_outside_a_coded_map_unit_names_no_country(standardizer, subm
     assert isinstance(outcome, LocationRejection), reason
     assert outcome.coordinate_decodes == 0
     assert outcome.unresolved_inputs == (UnresolvedLocationInput("lat_lon", submitted),)
+    assert LocationDiagnostic.COORDINATE_WITHOUT_COUNTRY in outcome.diagnostics
 
 
 def test_a_city_outside_the_resolved_country_is_no_sublocation(standardizer):
@@ -276,18 +277,53 @@ def test_a_city_outside_the_resolved_country_is_no_sublocation(standardizer):
     assert outcome.sublocation is None
 
 
-def test_coordinate_that_names_no_country_leaves_the_record_to_its_text(standardizer):
+@pytest.mark.parametrize(
+    ("coordinate", "submitted_text", "country", "sublocation"),
+    [
+        pytest.param("0.0, 0.0", "Germany", "Germany", None, id="gulf-of-guinea"),
+        # Offshore antarctic coordinate.
+        pytest.param(
+            "65.9 S 110.0 E",
+            "Antarctica: Warriner Island",
+            "Antarctica",
+            "Warriner Island",
+            id="offshore-antarctica",
+        ),
+    ],
+)
+def test_coordinate_that_names_no_country_leaves_the_record_to_its_text(
+    standardizer, coordinate, submitted_text, country, sublocation
+):
     outcome = standardizer.standardize(
         {
-            "accession": "WATER_AND_TEXT",
+            "accession": "NO_COUNTRY_AND_TEXT",
             "loc_attr_orig": "lat_lon||geo_loc_name",
-            "loc_val_orig": "0.0, 0.0||Germany",
+            "loc_val_orig": f"{coordinate}||{submitted_text}",
         }
     )
 
     assert isinstance(outcome, LocationOutcome)
-    assert outcome.country == "Germany"
+    assert (outcome.country, outcome.sublocation) == (country, sublocation)
     assert outcome.route == LocationResolutionRoute.INSDC_TERM
+    assert LocationDiagnostic.COORDINATE_WITHOUT_COUNTRY in outcome.diagnostics
+
+
+def test_a_coordinate_country_outranks_submitted_text(standardizer):
+    # Coordinate is Belgium, next to a Dutch place name.
+    # The coordinate wins even though the text carries a sublocation.
+    outcome = standardizer.standardize(
+        {
+            "accession": "ROUTE_ORDER",
+            "loc_attr_orig": "geo_loc_name||lat_lon",
+            "loc_val_orig": "Netherlands: Breda||51.34 N 4.48 E",
+        }
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.country == "Belgium"
+    assert outcome.route == LocationResolutionRoute.COORDINATE
+    assert outcome.selected_pair_positions == (2,)
+    assert LocationDiagnostic.COUNTRY_CONFLICT in outcome.diagnostics
 
 
 # =============================================================================

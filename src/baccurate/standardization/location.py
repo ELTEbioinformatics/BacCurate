@@ -276,10 +276,15 @@ class LocationDiagnostic(StrEnum):
     ABSENT_VALUES = "absent_values"
     UNRESOLVED_PLACE = "unresolved_place"
     RECOVERABLE_COORDINATE_FAILURE = "recoverable_coordinate_failure"
-    # Reports that one submitted pair resolved to a country outside the INSDC
-    # Geographical Location List.
+
+    # Outside the INSDC location list.
     UNMAPPABLE_RESULT = "unmappable_result"
+
     COUNTRY_CONFLICT = "country_conflict"
+
+    # No map unit or in a map unit with no country code.
+    COORDINATE_WITHOUT_COUNTRY = "coordinate_without_country"
+
     REVIEWED_UNMAPPED = "reviewed_unmapped"
     REVIEWED_MAPPING_CONFLICT = "reviewed_mapping_conflict"
 
@@ -309,6 +314,21 @@ class LocationMatch:
     # The pair the value parsed to, carried only on the coordinate route. It is what the
     # submitted text says, not what `reverse_geocode` returned for the matched city.
     coordinate: tuple[float, float] | None = None
+
+
+_ROUTE_RANK = {route: rank for rank, route in enumerate(LocationResolutionRoute)}
+
+
+def _selection_rank(positioned_match: tuple[int, LocationMatch]) -> tuple[int, bool]:
+    """
+    Return a sort key that selects the best match when passed to min().
+
+    Route order decides first (coordinate beats INSDC term beats country conversion).
+    Within one route, a match with a sublocation wins over one without. Equal keys
+    preserve submitted order.
+    """
+    _, match = positioned_match
+    return _ROUTE_RANK[match.route], match.sublocation is None
 
 
 @dataclass(frozen=True, slots=True)
@@ -487,7 +507,7 @@ class LocationStandardizer:
         code = containing_map_unit_code(coordinates)
         country = self._country_converter_lookup(code, "name_short") if code else None
         if country is None:
-            return LocationMatch("NA", None)
+            return LocationMatch("NA", None, (LocationDiagnostic.COORDINATE_WITHOUT_COUNTRY,))
 
         try:
             city, city_code = self._nearest_city(coordinates)
@@ -613,8 +633,8 @@ class LocationStandardizer:
         """
         Resolve one BioSample record's geographic-location evidence.
 
-        Deterministic resolution runs first with its sublocation preference. The reviewed
-        fallback is tried only when no step produced a usable INSDC location
+        Deterministic resolution runs first, and the route order decides between its
+        matches. The reviewed fallback is tried only when no step produced a usable INSDC location
         (including when the selected match ended as `unmappable_result`), and it tries
         every submitted value as a lookup key.
         """
@@ -636,13 +656,15 @@ class LocationStandardizer:
         insdc_matches: list[tuple[int, LocationMatch]] = []
         unusable_pairs: list[SupportingAttributeValuePair] = []
         coordinate_failure = False
+        coordinate_without_country = False
         unmappable_result = False
         for position, pair in pairs:
             match = self._match_value(pair)
-            if match is not None and (
-                LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE in match.diagnostics
-            ):
-                coordinate_failure = True
+            if match is not None:
+                if LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE in match.diagnostics:
+                    coordinate_failure = True
+                if LocationDiagnostic.COORDINATE_WITHOUT_COUNTRY in match.diagnostics:
+                    coordinate_without_country = True
             if match is None or match.country == "NA":
                 unusable_pairs.append(pair)
                 continue
@@ -654,9 +676,7 @@ class LocationStandardizer:
             insdc_matches.append((position, crosswalked))
 
         if insdc_matches:
-            # Prefer matches with a sublocation, since they carry more detail.
-            with_sublocation = [(pos, m) for pos, m in insdc_matches if m.sublocation]
-            selected_position, selected = (with_sublocation or insdc_matches)[0]
+            selected_position, selected = min(insdc_matches, key=_selection_rank)
             unresolved = self._unresolved_inputs(unusable_pairs)
             return _RecordResolution(
                 country=selected.country,
@@ -665,6 +685,7 @@ class LocationStandardizer:
                 unresolved_inputs=unresolved,
                 diagnostics=self._record_diagnostics(
                     coordinate_failure=coordinate_failure,
+                    coordinate_without_country=coordinate_without_country,
                     unmappable_result=unmappable_result,
                     country_conflict=len({match.country for _, match in insdc_matches}) > 1,
                     reviewed_fallback=(),
@@ -680,6 +701,7 @@ class LocationStandardizer:
             submitted_pairs=submitted_pairs,
             unusable_pairs=unusable_pairs,
             coordinate_failure=coordinate_failure,
+            coordinate_without_country=coordinate_without_country,
             unmappable_result=unmappable_result,
         )
 
@@ -690,6 +712,7 @@ class LocationStandardizer:
         submitted_pairs: tuple[SupportingAttributeValuePair, ...],
         unusable_pairs: Sequence[SupportingAttributeValuePair],
         coordinate_failure: bool,
+        coordinate_without_country: bool,
         unmappable_result: bool,
     ) -> _RecordResolution:
         """Apply the reviewed geographic-location policy to every submitted value."""
@@ -720,6 +743,7 @@ class LocationStandardizer:
                 unresolved_inputs=unresolved,
                 diagnostics=self._record_diagnostics(
                     coordinate_failure=coordinate_failure,
+                    coordinate_without_country=coordinate_without_country,
                     unmappable_result=unmappable_result,
                     reviewed_fallback=diagnostics,
                     unresolved=unresolved,
@@ -757,6 +781,7 @@ class LocationStandardizer:
     def _record_diagnostics(
         *,
         coordinate_failure: bool,
+        coordinate_without_country: bool,
         unmappable_result: bool,
         country_conflict: bool = False,
         reviewed_fallback: Sequence[LocationDiagnostic],
@@ -765,11 +790,16 @@ class LocationStandardizer:
         """
         Order one record's diagnostics: operational, then selection, then review signals.
 
-        Both `unresolved_place` and `country_conflict` can appear on a successfully
-        standardized record.
+        `unresolved_place`, `country_conflict`, and `coordinate_without_country` can all
+        appear on a successfully standardized record.
         """
         return (
             *((LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE,) if coordinate_failure else ()),
+            *(
+                (LocationDiagnostic.COORDINATE_WITHOUT_COUNTRY,)
+                if coordinate_without_country
+                else ()
+            ),
             *((LocationDiagnostic.UNMAPPABLE_RESULT,) if unmappable_result else ()),
             *((LocationDiagnostic.COUNTRY_CONFLICT,) if country_conflict else ()),
             *reviewed_fallback,
