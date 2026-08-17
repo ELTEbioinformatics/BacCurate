@@ -845,15 +845,15 @@ def test_standardized_location_publishes_its_diagnostics_in_the_same_column(
 def test_standardized_location_reports_a_pair_resolved_outside_the_insdc_list(
     tmp_path: Path,
 ) -> None:
-    # The Rome coordinate decodes to "Holy See", which is not a valid INSDC
-    # location, so standardization is from `geo_loc_name` alone.
+    # The coordinate lies inside the Vatican map unit. The Vatican is not a valid
+    # INSDC location, so standardization uses `geo_loc_name` alone.
     built = _build_dataset(
         tmp_path,
         [
             _dated_record(
                 "STANDARDIZED_WITH_UNMAPPABLE_PAIR",
                 loc_attr_orig="geo_loc_name||lat_lon",
-                loc_val_orig="Italy: Milan||41.86 N 12.45 E",
+                loc_val_orig="Italy: Milan||41.9038 N 12.4536 E",
             )
         ],
         (StandardizationTarget.DATE, StandardizationTarget.LOCATION),

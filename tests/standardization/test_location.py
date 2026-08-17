@@ -56,7 +56,11 @@ def standardizer(fixture_location_policy: LocationPolicy):
         replace(
             fixture_location_policy,
             coordinate_attributes=("lat_lon",),
-            insdc_country_map={"United States": "USA", "Vietnam": "Viet Nam"},
+            insdc_country_map={
+                "United States": "USA",
+                "Vietnam": "Viet Nam",
+                "Brunei Darussalam": "Brunei",
+            },
         )
     )
 
@@ -218,6 +222,63 @@ def test_coordinate_decodes_to_country_and_city(monkeypatch, standardizer):
 
 
 # =============================================================================
+# Coordinate resolution by map-unit containment
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    ("submitted", "country"),
+    [
+        # King George Island. The nearest city is on the Falkland Islands, 1,200 km away.
+        pytest.param("62.13 S 58.57 W", "Antarctica", id="antarctic-island"),
+        # Brunei. The nearest city lies across the border, in Malaysia.
+        pytest.param("4.33764957 N 114.44534163 E", "Brunei", id="enclaved-country"),
+    ],
+)
+def test_coordinate_names_the_map_unit_that_contains_it(standardizer, submitted, country):
+    outcome = standardizer.standardize(
+        {"accession": "CONTAINMENT", "loc_attr_orig": "lat_lon", "loc_val_orig": submitted}
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.country == country
+    assert outcome.route == LocationResolutionRoute.COORDINATE
+
+
+@pytest.mark.parametrize(
+    ("submitted", "reason"),
+    [
+        pytest.param("0.0, 0.0", "no map unit contains a point in the Gulf of Guinea", id="water"),
+        pytest.param(
+            "9.56 N 44.06 E", "Somaliland carries no ISO code", id="map-unit-without-code"
+        ),
+    ],
+)
+def test_coordinate_outside_a_coded_map_unit_names_no_country(standardizer, submitted, reason):
+    outcome = standardizer.standardize(
+        {"accession": "NO_COUNTRY", "loc_attr_orig": "lat_lon", "loc_val_orig": submitted}
+    )
+
+    assert isinstance(outcome, LocationRejection), reason
+    assert outcome.coordinate_decodes == 0
+    assert outcome.unresolved_inputs == (UnresolvedLocationInput("lat_lon", submitted),)
+
+
+def test_coordinate_that_names_no_country_leaves_the_record_to_its_text(standardizer):
+    outcome = standardizer.standardize(
+        {
+            "accession": "WATER_AND_TEXT",
+            "loc_attr_orig": "lat_lon||geo_loc_name",
+            "loc_val_orig": "0.0, 0.0||Germany",
+        }
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.country == "Germany"
+    assert outcome.route == LocationResolutionRoute.INSDC_TERM
+
+
+# =============================================================================
 # Coordinate parsing - full-value patterns
 # =============================================================================
 
@@ -324,18 +385,13 @@ def test_a_later_segment_is_never_a_country_lookup_key(standardizer):
 # =============================================================================
 
 
-def test_unmappable_coordinate_country_does_not_contribute_sublocation(monkeypatch, standardizer):
-    monkeypatch.setattr(
-        location_module.reverse_geocode,
-        "get",
-        lambda _coordinates: {"country": "Vatican", "city": "Vatican City"},
-    )
-
+def test_unmappable_coordinate_country_does_not_contribute_sublocation(standardizer):
+    """The Vatican map unit converts to a name outside the INSDC location vocabulary."""
     outcome = standardizer.standardize(
         {
             "accession": "UNMAPPABLE_COORDINATE",
             "loc_attr_orig": "lat_lon||geo_loc_name",
-            "loc_val_orig": "41.98/12.47||Italy",
+            "loc_val_orig": "41.9038/12.4536||Italy",
         }
     )
 
@@ -346,13 +402,14 @@ def test_unmappable_coordinate_country_does_not_contribute_sublocation(monkeypat
         LocationDiagnostic.UNMAPPABLE_RESULT,
         LocationDiagnostic.UNRESOLVED_PLACE,
     )
+    assert outcome.coordinate_decodes == 1
 
 
 def test_conflicting_countries_pick_coordinate_and_flag_conflict(monkeypatch, standardizer):
     monkeypatch.setattr(
         location_module.reverse_geocode,
         "get",
-        lambda _coordinates: {"country": "Italy", "city": "Rome"},
+        lambda _coordinates: {"city": "Rome"},
     )
 
     outcome = standardizer.standardize(
@@ -374,7 +431,8 @@ def test_conflicting_countries_pick_coordinate_and_flag_conflict(monkeypatch, st
 # =============================================================================
 
 
-def test_coordinate_service_failure_is_recoverable(monkeypatch, standardizer, caplog):
+def test_coordinate_service_failure_costs_only_the_sublocation(monkeypatch, standardizer, caplog):
+
     def fail(_coordinates):
         raise RuntimeError("reverse geocoder unavailable")
 
@@ -384,15 +442,14 @@ def test_coordinate_service_failure_is_recoverable(monkeypatch, standardizer, ca
         {
             "accession": "COORDINATE_FAILURE",
             "loc_attr_orig": "lat_lon",
-            "loc_val_orig": "48.2, 16.3",
+            "loc_val_orig": "52.52, 13.405",
         }
     )
 
-    assert isinstance(outcome, LocationRejection)
-    assert outcome.diagnostics == (
-        LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE,
-        LocationDiagnostic.UNRESOLVED_PLACE,
-    )
+    assert isinstance(outcome, LocationOutcome)
+    assert (outcome.country, outcome.sublocation) == ("Germany", None)
+    assert outcome.route == LocationResolutionRoute.COORDINATE
+    assert outcome.diagnostics == (LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE,)
     assert caplog.messages == []
 
 
@@ -417,6 +474,7 @@ def test_record_standardization_retains_coordinate_failure_when_place_name_resol
     assert outcome.route == LocationResolutionRoute.INSDC_TERM
     assert outcome.diagnostics == (
         LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE,
+        LocationDiagnostic.UNMAPPABLE_RESULT,
         LocationDiagnostic.UNRESOLVED_PLACE,
     )
 

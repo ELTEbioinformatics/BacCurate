@@ -2,7 +2,7 @@
 Standardize submitted geographic-location values to INSDC geographical locations.
 
 For each submitted value, the first step that resolves a country wins:
-  (1) parse coordinates and reverse-geocode
+  (1) parse coordinates and read the map unit that contains the point
   (2) exact match against the INSDC location list
   (3) `country_converter` on the first segment.
 
@@ -25,6 +25,7 @@ import reverse_geocode
 from baccurate.adapters.policy_yaml import PolicyConfigurationError, load_policy_mapping
 from baccurate.paths import DEFAULT_GEO_LOC_LIST
 from baccurate.standardization._attribute_value_text import split_pipe_separated
+from baccurate.standardization._map_units import containing_map_unit_code
 from baccurate.standardization.supporting_attribute_value_pair import SupportingAttributeValuePair
 
 logger = logging.getLogger(__name__)
@@ -406,7 +407,7 @@ class LocationStandardizer:
         # and is freed with the standardizer
         self._country_converter_lookup = lru_cache(maxsize=4096)(self._country_converter_lookup)
         self._country_to_unregion = lru_cache(maxsize=4096)(self._country_to_unregion)
-        self._decode_coordinate = lru_cache(maxsize=4096)(self._decode_coordinate)
+        self._nearest_city = lru_cache(maxsize=4096)(self._nearest_city)
 
         self.stats = {
             "coordinate_decodes": 0,
@@ -455,39 +456,40 @@ class LocationStandardizer:
             return "NA"
         return self._country_converter_lookup(country, "UNregion") or "NA"
 
-    def _decode_coordinate(
-        self,
-        coordinates: tuple[float, float],
-    ) -> tuple[str | None, str | None]:
-        """Decode a (latitude, longitude) pair to (raw_country, city) via reverse_geocode."""
-        info = reverse_geocode.get(coordinates)
-        return info.get("country"), info.get("city")
+    def _nearest_city(self, coordinates: tuple[float, float]) -> str | None:
+        """Name the city nearest to a (latitude, longitude) pair via reverse_geocode."""
+        return reverse_geocode.get(coordinates).get("city")
 
     def _try_coordinate(self, value: str) -> LocationMatch | None:
         """
         Decode a value that parses as a coordinate pair.
+
+        The map unit that contains the point names the country. A point in no map unit, or in
+        a map unit with no ISO code, names no country.
+
+        reverse_geocode supplies the sublocation only.
         """
         coordinates = _parse_coordinate(value)
         if coordinates is None:
             return None
 
-        try:
-            raw_country, city = self._decode_coordinate(coordinates)
-        except Exception:
-            return LocationMatch(
-                "NA",
-                None,
-                (LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE,),
-            )
-        if raw_country is None:
+        code = containing_map_unit_code(coordinates)
+        country = self._country_converter_lookup(code, "name_short") if code else None
+        if country is None:
             return LocationMatch("NA", None)
 
-        country = self._country_converter_lookup(raw_country, "name_short") or raw_country
+        try:
+            city = self._nearest_city(coordinates)
+            diagnostics: tuple[LocationDiagnostic, ...] = ()
+        except Exception:
+            city = None
+            diagnostics = (LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE,)
 
         self.stats["coordinate_decodes"] += 1
         return LocationMatch(
             country,
             city,
+            diagnostics,
             route=LocationResolutionRoute.COORDINATE,
             coordinate=coordinates,
         )
