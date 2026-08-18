@@ -850,13 +850,12 @@ def test_classifier_response_schema_enforces_the_faceted_contract(
         }
     )
 
-    invalid_answers = (
-        {**empty_answer, "source_type": ["host-associated", "animal host"]},
-        {**empty_answer, "body_site": ["blood"]},
+    with pytest.raises(ValidationError):
+        response_model.model_validate({**empty_answer, "body_site": ["blood"]})
+    pruned_source_type = response_model.model_validate(
+        {**empty_answer, "source_type": ["host-associated", "animal host"]}
     )
-    for invalid_answer in invalid_answers:
-        with pytest.raises(ValidationError):
-            response_model.model_validate(invalid_answer)
+    assert pruned_source_type.source_type == ["animal host"]
     with pytest.raises(
         ValidationError,
         match="Unknown source_type labels: 'animal-host'",
@@ -867,16 +866,13 @@ def test_classifier_response_schema_enforces_the_faceted_contract(
         match="Unknown source_type labels: 'built environment'",
     ):
         response_model.model_validate({**empty_answer, "source_type": ["built environment"]})
-    with pytest.raises(
-        ValidationError,
-        match=("'rectum' cannot be returned with its ancestor 'digestive tract' in body_site"),
-    ):
-        response_model.model_validate(
-            {
-                **empty_answer,
-                "body_site": ["digestive tract", "rectum"],
-            }
-        )
+    pruned = response_model.model_validate(
+        {
+            **empty_answer,
+            "body_site": ["digestive tract", "rectum"],
+        }
+    )
+    assert pruned.body_site == ["rectum"]
 
     assert fake.calls[0]["max_retries"] == 3
 
@@ -1139,35 +1135,32 @@ def test_each_invented_label_is_preserved_when_validation_retries_are_exhausted(
     assert result.ontology_gap_diagnostics == (expected_diagnostic,) * 3
 
 
-def test_ancestor_exclusion_does_not_create_an_ontology_gap_diagnostic(
+def test_an_ancestor_beside_its_descendant_costs_no_extra_model_call(
     fixture_isolation_source_prompt_policy: IsolationSourcePromptPolicy,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    invalid_answer = _classifier_answer(
+    answer = _classifier_answer(
         reasoning="The response selects an ancestor and descendant.",
         body_site=["digestive tract", "rectum"],
     )
-    valid_answer = {**invalid_answer, "body_site": ["rectum"]}
-
-    def respond(response_model: type[BaseModel]) -> object:
-        with pytest.raises(ValidationError):
-            response_model.model_validate(invalid_answer)
-        return response_model.model_validate(valid_answer)
 
     fake = FakeClient()
-    fake.behavior = respond
+    fake.behavior = lambda response_model: response_model.model_validate(answer)
     result = _standardize_fixture_record(
         fixture_isolation_source_prompt_policy,
         tmp_path,
         values="rectal sample 49115",
         fake=fake,
         monkeypatch=monkeypatch,
-        accession="ANCESTOR_THEN_VALID",
+        accession="ANCESTOR_WITH_DESCENDANT",
     )
 
     assert isinstance(result, IsolationSourceOutcome)
+    assert len(fake.calls) == 1
     assert result.ontology_gap_diagnostics == ()
+    labels = {term.label for term in result.selected_terms}
+    assert {"digestive tract", "rectum"} <= labels
 
 
 def test_direct_matches_receive_derived_source_kind_ancestors_and_preorder(

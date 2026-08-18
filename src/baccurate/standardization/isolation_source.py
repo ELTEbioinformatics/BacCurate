@@ -705,18 +705,15 @@ def _build_schema(
                 raise ValueError(
                     f"Unknown {facet_key} labels: " + ", ".join(repr(label) for label in invalid)
                 )
-            selected_ids = {terms_by_label[label].term_id for label in labels}
+            if not isinstance(value, list):
+                return value
+            implied_ids: set[str] = set()
             for label in labels:
-                term = terms_by_label[label]
-                parent_id = term.parent_id
+                parent_id = terms_by_label[label].parent_id
                 while parent_id is not None:
-                    if parent_id in selected_ids:
-                        raise ValueError(
-                            f"{term.label!r} cannot be returned with its ancestor "
-                            f"{ontology.terms[parent_id].label!r} in {facet_key}"
-                        )
+                    implied_ids.add(parent_id)
                     parent_id = ontology.terms[parent_id].parent_id
-            return value
+            return [label for label in labels if terms_by_label[label].term_id not in implied_ids]
 
         validators[f"validate_{facet.key}"] = field_validator(facet.key, mode="before")(
             validate_facet
