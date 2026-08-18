@@ -1,13 +1,16 @@
 # BacCurate
 
 [BacCurate](https://baccurate.org/) turns heterogeneous public sequencing metadata into a
-standardized, confidence-scored resource for comparative genomics, genomic epidemiology, and One
-Health research.
+standardized resource for comparative genomics, genomic epidemiology, and One Health research.
 
-This repository contains the source code that extracts and harmonizes the metadata from the
-[NCBI BioSample](https://www.ncbi.nlm.nih.gov/biosample) database.
+This repository contains the source code that extracts and harmonizes
+[BioSample](https://www.ncbi.nlm.nih.gov/biosample) metadata. The dataset itself, and the
+documentation, are on the [website](https://baccurate.org/).
 
-### Pathogens covered (includes all ESKAPEE)
+### Samples covered
+
+As of the 2026-07-09 BioSample snapshot, ~1.5 million BioSample records are covered, including all
+_ESKAPEE_ pathogens:
 
 - _Enterococcus faecium_
 - _Enterococcus faecalis_
@@ -18,12 +21,27 @@ This repository contains the source code that extracts and harmonizes the metada
 - _Enterobacter_ spp.
 - _Escherichia coli_
 
-### Standardization targets
+### Methodology in brief
 
-- Collection date
-- Host organism
-- Geographic location
-- Isolation source
+1. The NCBI BioSample XML dump is parsed and the records of the target pathogens are indexed.
+2. The attribute-value pairs of interest from each record are selected.
+3. Values are resolved against the reference vocabularies in [`data/reference/`](data/reference):
+   - **Isolation source**: Large Language Model (LLM) assisted mapping to a purpose-built ontology
+     of 103 terms (`ontology/terms.tsv`), with [SSSOM](https://mapping-commons.github.io/sssom/)
+     mappings to external ontologies.
+   - **Host organism**: mapped to [NCBI taxonomy](https://www.ncbi.nlm.nih.gov/taxonomy)
+     (`taxonomy/`) taxids and scientific names.
+   - **Geographic location**: mapped to the
+     [INSDC Geographic Location Name List](https://www.ncbi.nlm.nih.gov/genbank/collab/country/) and
+     [Natural Earth](https://www.naturalearthdata.com/) map units for coordinate-derived countries.
+   - **Collection dates**: parsed with custom-built rules and normalized to
+     [ISO 8601](https://www.iso.org/iso-8601-date-and-time-format.html).
+
+LLMs are only used for isolation-source standardization, everything else is deterministic and driven
+by hand-curated rules.
+
+For more information on the methods and the interpretation of the output data,
+[read the full documentation here](https://baccurate.org/#/documentation) (_still WIP_).
 
 ## Installation
 
@@ -38,56 +56,56 @@ cd BacCurate
 
 ### 2. Install dependencies and setup environment
 
-Using [`uv`](https://docs.astral.sh/uv/):
+Using [uv](https://docs.astral.sh/uv/):
 
 ```bash
 uv sync
-```
-
-For development:
-
-```bash
-uv sync --extra dev
 ```
 
 If you'd rather not install `uv`, `pip install -e .` also works in a standard `venv`:
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -e .
 ```
 
-### Verify the installation
+> [!NOTE] The commands below use `uv`. With a `venv` activated instead, drop the `uv run` prefix.
+
+Verify the installation:
 
 ```bash
-uv run python main.py --help
+uv run baccurate --help
 ```
 
-### 3. (Optional) Configuring environment variables
+### 3. Configuring API credentials (optional)
 
-The standardization scripts can call LLM APIs as a fallback. To use this feature, create a `.env`
-file in the repository root with your API credentials:
+By default, isolation-source standardization utilizes an OpenAI compatible API.
+
+Create a `.env` file in the repository root with your API credentials:
 
 ```
-API_KEY="openai_api_key"
-SERVER="url"
-LLM_MODEL="model-name"
+API_KEY="sk-..."
+SERVER="https://api.openai.com/v1"
+LLM_MODEL="gpt-4o-mini"
 ```
+
+Use `--skip-llm` to process without LLMs.
 
 ### 4. Setting up input data
 
 The starting dataset is assembled from:
 
-- [NCBI BioSample metadata](https://ftp.ncbi.nlm.nih.gov/biosample/) (`biosample_set.xml.gz`),
-- [NCBI taxonomy dump](https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/) (`nodes.dmp`, `names.dmp`,
-  `merged.dmp`),
-- [AllTheBacteria](https://allthebacteria.org/) metadata (sylph/GTDB species profiling).
+- [NCBI BioSample metadata](https://ftp.ncbi.nlm.nih.gov/biosample/) (`biosample_set.xml.gz`)
+- [AllTheBacteria](https://allthebacteria.org/) metadata (sylph/GTDB species profiling)
 - [NCBI Genbank metadata](https://ftp.ncbi.nlm.nih.gov/genomes/ASSEMBLY_REPORTS/assembly_summary_genbank.txt)
 - [NCBI RefSeq metadata](https://ftp.ncbi.nlm.nih.gov/genomes/ASSEMBLY_REPORTS/assembly_summary_refseq.txt)
 - [NCBI SRA metadata](https://ftp.ncbi.nlm.nih.gov/sra/reports/Metadata/SRA_Accessions.tab)
 
-With those in `data/raw`, run:
+Place these in `data/raw`.
+
+The [NCBI taxonomy dump](https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/) (`nodes.dmp`, `names.dmp`,
+`merged.dmp`) goes in `data/reference/taxonomy/`. Then run:
 
 ```bash
 uv run python scripts/parse_biosample_xml.py
@@ -97,32 +115,43 @@ uv run python scripts/build_biosample_index.py
 
 ## Usage
 
-To process all standardization targets (`host`, `date`, `loc`, `iso`) for one or more pathogens:
+### Running all pipelines for each pathogen
 
 ```bash
+uv run baccurate
+```
+
+Outputs are in `output/<timestamp>/`.
+
+### Specifying pathogens
+
+You can provide pathogen keywords defined in `config/pathogens.yaml` to only process select
+pathogens.
+
+```bash
+# Acinetobacter baumannii and Escherichia coli
 uv run baccurate abaumannii ecoli
 ```
 
-You must provide at least one pathogen keyword. Keywords are defined in `config/pathogens.yaml`.
-Example: `ecoli`
+### Specifying pipelines
 
-### Running specific pipelines only
-
-The `--standardize` option accepts `host`, `date`, `loc`, and `iso`.
+The `--standardize` option accepts `host`, `date`, `loc`, and `iso` (_host organism_, _collection
+date_, _geographical location_ and _isolation-source_).
 
 ```bash
-# Run date and location standardization
+# Collection date and geographical location standardization
 uv run baccurate abaumannii --standardize date loc
 ```
 
 ### Re-extracting metadata
 
-By default, the pipeline skips extraction and curation (selecting BioSample attribute-value pairs)
-if `extracted_metadata.tsv` already exists. To force re-extraction, use the --extracted-metadata
-argument:
+Extraction (selecting the attribute-value pairs of interest from the raw BioSample metadata) runs
+only if `output/extracted_metadata.tsv` does not exist.
+
+To re-extract, either delete it or specify a new filename:
 
 ```bash
-uv run baccurate abaumannii --extracted-metadata extracted_metadata_new.tsv
+uv run baccurate --extracted-metadata extracted_metadata_new.tsv
 ```
 
 ### Debug mode
@@ -130,5 +159,5 @@ uv run baccurate abaumannii --extracted-metadata extracted_metadata_new.tsv
 Enable verbose logging:
 
 ```bash
-uv run baccurate abaumannii --debug
+uv run baccurate --debug
 ```

@@ -6,5 +6,6 @@
   - `terms.tsv` - ontology term identities, labels, relationships, and curation notes.
   - `mappings.sssom.tsv` - external ontology mappings.
   - `mappings.sssom.yml` - mapping-set metadata and prefix declarations.
+- `data/reference/geo_loc_list.txt` - The [INSDC Geographic Location Name List](https://www.ncbi.nlm.nih.gov/genbank/collab/country/).
 - `taxonomy/`
-  - `taxids_ncbi.tsv` - NCBI host taxonomy lookup table.
+  - `taxids_ncbi.tsv` - Taxonomy lookup table and dmp files from [NCBI Taxonomy FTP taxdmp.zip](https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/)
