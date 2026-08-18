@@ -600,6 +600,17 @@ class IsolationSourceRejection:
 
 # --- Cache ---
 
+_SAMPLE_DIGITS_PATTERN = re.compile(r"(?<![:\d])\d+")
+
+
+def _strip_digits(value: str) -> str:
+    """
+    Normalize a value so that samples differing only in digits share a cache key
+    (like "patient 1" and "patient 2").
+
+    Skips digits after a colon, to avoid masking ontology patterns (ENVO:00002007)"""
+    return _SAMPLE_DIGITS_PATTERN.sub("<NUM>", " ".join(value.lower().split()))
+
 
 class SQLiteCache(SQLiteKVCache):
     """SQLite-backed store keyed by canonical LLM request fingerprints."""
@@ -1055,6 +1066,28 @@ class LLMClassifier:
             for attribute, value in zip(attrs, vals, strict=True)
         )
 
+    def _classification_request(
+        self,
+        attributes: list[str],
+        values: list[str],
+        response_schema_id: str,
+    ) -> CanonicalLLMRequest:
+        """Build one classification request from selected attribute-value pairs."""
+        return CanonicalLLMRequest(
+            model=self.model,
+            messages=(
+                {"role": "system", "content": self.system_prompt},
+                {
+                    "role": "user",
+                    "content": self.user_template.format(
+                        metadata=self._format_metadata(attributes, values),
+                    ),
+                },
+            ),
+            parameters=ISOLATION_SOURCE_LLM_PARAMETERS,
+            response_schema_id=response_schema_id,
+        )
+
     def standardize_record(
         self,
         accession: str,
@@ -1125,31 +1158,26 @@ class LLMClassifier:
         else:
             ontology_gap_diagnostics: list[IsolationSourceOntologyGapDiagnostic] = []
             response_schema = self._response_schema
-            user_prompt = self.user_template.format(
-                metadata=self._format_metadata(valid_attrs, valid_vals),
+            response_schema_id = (
+                f"{ISOLATION_SOURCE_RESPONSE_SCHEMA_ID}:"
+                f"{ISOLATION_SOURCE_STRUCTURED_OUTPUT_MODE.value}:"
+                f"{canonical_json_sha256(response_schema.model_json_schema())}"
             )
-            request = CanonicalLLMRequest(
-                model=self.model,
-                messages=(
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ),
-                parameters=ISOLATION_SOURCE_LLM_PARAMETERS,
-                response_schema_id=(
-                    f"{ISOLATION_SOURCE_RESPONSE_SCHEMA_ID}:"
-                    f"{ISOLATION_SOURCE_STRUCTURED_OUTPUT_MODE.value}:"
-                    f"{canonical_json_sha256(response_schema.model_json_schema())}"
-                ),
-            )
+            request = self._classification_request(valid_attrs, valid_vals, response_schema_id)
+            cache_fingerprint = self._classification_request(
+                valid_attrs,
+                [_strip_digits(value) for value in valid_vals],
+                response_schema_id,
+            ).fingerprint
             if self.read_cache:
-                cached_answer = self.cache.get(request.fingerprint)
+                cached_answer = self.cache.get(cache_fingerprint)
                 if cached_answer:
                     self.stats["cache_hits"] += 1
                     return self._standardize_classifier_answer(
                         cached_answer,
                         direct_term_ids=direct_term_ids,
                         identifier_disagreement=identifier_disagreement,
-                        request_fingerprint=request.fingerprint,
+                        request_fingerprint=cache_fingerprint,
                     )
 
             if self.client is None:
@@ -1209,12 +1237,12 @@ class LLMClassifier:
                         f"Isolation-source LLM failed for accession {accession}"
                     ) from e
 
-                self.cache.set(request.fingerprint, classifier_answer)
+                self.cache.set(cache_fingerprint, classifier_answer)
                 return self._standardize_classifier_answer(
                     classifier_answer,
                     direct_term_ids=direct_term_ids,
                     identifier_disagreement=identifier_disagreement,
-                    request_fingerprint=request.fingerprint,
+                    request_fingerprint=cache_fingerprint,
                     ontology_gap_diagnostics=tuple(ontology_gap_diagnostics),
                 )
 
@@ -1226,7 +1254,7 @@ class LLMClassifier:
             identifier_disagreement=identifier_disagreement,
         )
         if not direct_covers_all:
-            classification = replace(classification, request_fingerprint=request.fingerprint)
+            classification = replace(classification, request_fingerprint=cache_fingerprint)
         return self._enrich(classification)
 
 

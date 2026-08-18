@@ -1622,3 +1622,45 @@ def test_cache_round_trip_preserves_only_the_classifier_answer(cache):
     got = cache.get("fingerprint")
 
     assert got == answer
+
+
+def test_records_differing_only_in_digits_share_one_model_call(tmp_path: Path) -> None:
+    fake = FakeClient()
+    fake.respond_with(["wound"], reasoning="clinical wound")
+    standardizer = IsolationSourceStandardizer(
+        IsolationSourcePromptPolicy.load(_isolation_source_config(tmp_path)),
+        client=None,
+        llm_settings=LLMSettings(None, None, "test-model"),
+    )
+    standardizer.pipeline.client = fake
+    try:
+        first = standardizer.standardize(
+            {
+                "accession": "SAMN00000001",
+                "iso_attr_orig": "isolation_source",
+                "iso_val_orig": "patient 1",
+            },
+        )
+        second = standardizer.standardize(
+            {
+                "accession": "SAMN00000002",
+                "iso_attr_orig": "isolation_source",
+                "iso_val_orig": "patient 2",
+            },
+        )
+    finally:
+        standardizer.close()
+
+    assert isinstance(first, IsolationSourceOutcome)
+    assert isinstance(second, IsolationSourceOutcome)
+    assert first.diagnostics == (IsolationSourceDiagnostic.LLM_CALL,)
+    assert second.diagnostics == (IsolationSourceDiagnostic.CACHE_HIT,)
+    assert first.request_fingerprint == second.request_fingerprint
+    assert len(fake.calls) == 1
+    assert "patient 1" in fake.calls[0]["messages"][1]["content"]
+
+
+def test_strip_keeps_the_digits_of_an_ontology_identifier() -> None:
+    fold = isolation_source_module._strip_digits
+    assert fold("Wound,  patient 12") == "wound, patient <NUM>"
+    assert fold("wound [ENVO:00002007]") == "wound [envo:00002007]"
