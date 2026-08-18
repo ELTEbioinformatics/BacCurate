@@ -56,7 +56,11 @@ def standardizer(fixture_location_policy: LocationPolicy):
         replace(
             fixture_location_policy,
             coordinate_attributes=("lat_lon",),
-            insdc_country_map={"United States": "USA", "Vietnam": "Viet Nam"},
+            insdc_country_map={
+                "United States": "USA",
+                "Vietnam": "Viet Nam",
+                "Brunei Darussalam": "Brunei",
+            },
         )
     )
 
@@ -193,11 +197,46 @@ def test_selected_pair_position_follows_the_sublocation_preference(standardizer)
     assert outcome.selected_pair_positions == (2,)
 
 
+@pytest.mark.parametrize("marker", ["NA", "None", "confidential", "unknown", "missing", "-"])
+def test_a_missing_value_marker_is_no_sublocation(standardizer, marker):
+    outcome = standardizer.standardize(
+        {
+            "accession": "ABSENT_SUBLOCATION",
+            "loc_attr_orig": "geo_loc_name",
+            "loc_val_orig": f"Germany: {marker}",
+        }
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.country == "Germany"
+    assert outcome.sublocation is None
+
+
+@pytest.mark.parametrize(
+    ("submitted", "sublocation"),
+    [
+        pytest.param("USA:ND", "ND", id="north-dakota"),
+        pytest.param("USA: Nan", "Nan", id="nan-province"),
+    ],
+)
+def test_a_short_abbreviation_stays_a_sublocation(standardizer, submitted, sublocation):
+    outcome = standardizer.standardize(
+        {
+            "accession": "ABBREVIATED_SUBLOCATION",
+            "loc_attr_orig": "geo_loc_name",
+            "loc_val_orig": submitted,
+        }
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.sublocation == sublocation
+
+
 def test_coordinate_decodes_to_country_and_city(monkeypatch, standardizer):
     monkeypatch.setattr(
         location_module.reverse_geocode,
         "get",
-        lambda _coordinates: {"country": "Germany", "city": "Berlin"},
+        lambda _coordinates: {"country_code": "DE", "city": "Berlin"},
     )
 
     outcome = standardizer.standardize(
@@ -215,6 +254,197 @@ def test_coordinate_decodes_to_country_and_city(monkeypatch, standardizer):
     assert outcome.route == LocationResolutionRoute.COORDINATE
     assert outcome.coordinate == (52.52, 13.405)
     assert outcome.diagnostics == ()
+
+
+# =============================================================================
+# Coordinate resolution by map-unit containment
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    ("submitted", "country"),
+    [
+        # King George Island. The nearest city is on the Falkland Islands, 1,200 km away.
+        pytest.param("62.13 S 58.57 W", "Antarctica", id="antarctic-island"),
+        # Brunei. The nearest city lies across the border, in Malaysia.
+        pytest.param("4.33764957 N 114.44534163 E", "Brunei", id="enclaved-country"),
+    ],
+)
+def test_coordinate_names_the_map_unit_that_contains_it(standardizer, submitted, country):
+    outcome = standardizer.standardize(
+        {"accession": "CONTAINMENT", "loc_attr_orig": "lat_lon", "loc_val_orig": submitted}
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.country == country
+    assert outcome.route == LocationResolutionRoute.COORDINATE
+
+
+@pytest.mark.parametrize(
+    ("submitted", "coordinate", "reason"),
+    [
+        pytest.param(
+            "0.0, 0.0",
+            (0.0, 0.0),
+            "no map unit contains a point in the Gulf of Guinea",
+            id="water",
+        ),
+        pytest.param(
+            "9.56 N 44.06 E",
+            (9.56, 44.06),
+            "Somaliland carries no ISO code",
+            id="map-unit-without-code",
+        ),
+    ],
+)
+def test_coordinate_outside_a_coded_map_unit_names_no_country(
+    standardizer, submitted, coordinate, reason
+):
+    outcome = standardizer.standardize(
+        {"accession": "NO_COUNTRY", "loc_attr_orig": "lat_lon", "loc_val_orig": submitted}
+    )
+
+    assert isinstance(outcome, LocationRejection), reason
+    assert outcome.coordinate_decodes == 0
+    assert outcome.unresolved_inputs == (UnresolvedLocationInput("lat_lon", submitted),)
+    assert LocationDiagnostic.COORDINATE_WITHOUT_COUNTRY in outcome.diagnostics
+    assert outcome.coordinate == pytest.approx(coordinate)
+
+
+def test_a_city_outside_the_resolved_country_is_no_sublocation(standardizer):
+    # A point in Italy near the border of Vatican City. The nearest city, Vatican City, is its
+    # own country, so it must not become an italian sublocation.
+    outcome = standardizer.standardize(
+        {"accession": "BORDER", "loc_attr_orig": "lat_lon", "loc_val_orig": "41.9 N 12.46 E"}
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.country == "Italy"
+    assert outcome.sublocation is None
+
+
+# =============================================================================
+# Ownership of the sublocation
+# =============================================================================
+
+
+def test_submitted_text_keeps_the_sublocation_when_it_agrees_on_the_country(standardizer):
+    outcome = standardizer.standardize(
+        {
+            "accession": "TEXT_OWNS_SUBLOCATION",
+            "loc_attr_orig": "geo_loc_name||lat_lon",
+            "loc_val_orig": "Germany: Potsdam||52.52, 13.405",
+        }
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.country == "Germany"
+    assert outcome.route == LocationResolutionRoute.COORDINATE
+    assert outcome.sublocation == "Potsdam"
+    # The country came from pair 2 and the sublocation from pair 1, in submitted order.
+    assert outcome.selected_pair_positions == (1, 2)
+
+
+def test_submitted_text_restores_a_sublocation_the_country_restriction_dropped(standardizer):
+    # The nearest city to this point is Vatican City, which the country restriction drops.
+    # The submitted text agrees on Italy, so it restores the sublocation.
+    outcome = standardizer.standardize(
+        {
+            "accession": "TEXT_RESTORES_SUBLOCATION",
+            "loc_attr_orig": "geo_loc_name||lat_lon",
+            "loc_val_orig": "Italy: Rome||41.9 N 12.46 E",
+        }
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.country == "Italy"
+    assert outcome.sublocation == "Rome"
+    assert outcome.selected_pair_positions == (1, 2)
+
+
+def test_the_coordinate_keeps_the_sublocation_when_the_text_names_another_country(standardizer):
+    # The point lies in Belgium and the text names the Netherlands.
+    # Breda belongs to a different country, so the coordinate supplies both country and sublocation.
+    outcome = standardizer.standardize(
+        {
+            "accession": "COUNTRY_DISAGREEMENT",
+            "loc_attr_orig": "geo_loc_name||lat_lon",
+            "loc_val_orig": "Netherlands: Breda||51.34 N 4.48 E",
+        }
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.country == "Belgium"
+    assert outcome.sublocation != "Breda"
+    assert LocationDiagnostic.COUNTRY_CONFLICT in outcome.diagnostics
+    assert outcome.selected_pair_positions == (2,)
+
+
+@pytest.mark.parametrize(
+    ("submitted", "parsed", "submitted_text", "country", "sublocation"),
+    [
+        pytest.param("0.0, 0.0", (0.0, 0.0), "Germany", "Germany", None, id="gulf-of-guinea"),
+        # Offshore antarctic coordinate.
+        pytest.param(
+            "65.9 S 110.0 E",
+            (-65.9, 110.0),
+            "Antarctica: Warriner Island",
+            "Antarctica",
+            "Warriner Island",
+            id="offshore-antarctica",
+        ),
+    ],
+)
+def test_coordinate_that_names_no_country_leaves_the_record_to_its_text(
+    standardizer, submitted, parsed, submitted_text, country, sublocation
+):
+    outcome = standardizer.standardize(
+        {
+            "accession": "NO_COUNTRY_AND_TEXT",
+            "loc_attr_orig": "lat_lon||geo_loc_name",
+            "loc_val_orig": f"{submitted}||{submitted_text}",
+        }
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert (outcome.country, outcome.sublocation) == (country, sublocation)
+    assert outcome.route == LocationResolutionRoute.INSDC_TERM
+    assert LocationDiagnostic.COORDINATE_WITHOUT_COUNTRY in outcome.diagnostics
+    assert outcome.coordinate == pytest.approx(parsed)
+    assert outcome.unresolved_inputs == ()
+    assert LocationDiagnostic.UNRESOLVED_PLACE not in outcome.diagnostics
+
+
+def test_the_first_parsed_coordinate_is_published_when_no_coordinate_resolved(standardizer):
+    outcome = standardizer.standardize(
+        {
+            "accession": "TWO_COORDINATES",
+            "loc_attr_orig": "lat_lon||lat_lon||geo_loc_name",
+            "loc_val_orig": "0.0, 0.0||9.56 N 44.06 E||Germany",
+        }
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.route == LocationResolutionRoute.INSDC_TERM
+    assert outcome.coordinate == pytest.approx((0.0, 0.0))
+
+
+def test_a_coordinate_country_outranks_submitted_text(standardizer):
+    # Coordinate is Belgium, next to a Dutch place name.
+    # The coordinate wins even though the text carries a sublocation.
+    outcome = standardizer.standardize(
+        {
+            "accession": "ROUTE_ORDER",
+            "loc_attr_orig": "geo_loc_name||lat_lon",
+            "loc_val_orig": "Netherlands: Breda||51.34 N 4.48 E",
+        }
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.country == "Belgium"
+    assert outcome.route == LocationResolutionRoute.COORDINATE
+    assert outcome.selected_pair_positions == (2,)
+    assert LocationDiagnostic.COUNTRY_CONFLICT in outcome.diagnostics
 
 
 # =============================================================================
@@ -245,7 +475,7 @@ def test_coordinate_parsed_only_on_full_value_match(
 
     def record(coordinate_pair):
         decoded.append(coordinate_pair)
-        return {"country": "Germany", "city": "Berlin"}
+        return {"country_code": "DE", "city": "Berlin"}
 
     monkeypatch.setattr(location_module.reverse_geocode, "get", record)
 
@@ -324,18 +554,13 @@ def test_a_later_segment_is_never_a_country_lookup_key(standardizer):
 # =============================================================================
 
 
-def test_unmappable_coordinate_country_does_not_contribute_sublocation(monkeypatch, standardizer):
-    monkeypatch.setattr(
-        location_module.reverse_geocode,
-        "get",
-        lambda _coordinates: {"country": "Vatican", "city": "Vatican City"},
-    )
-
+def test_unmappable_coordinate_country_does_not_contribute_sublocation(standardizer):
+    """The Vatican map unit converts to a name outside the INSDC location vocabulary."""
     outcome = standardizer.standardize(
         {
             "accession": "UNMAPPABLE_COORDINATE",
             "loc_attr_orig": "lat_lon||geo_loc_name",
-            "loc_val_orig": "41.98/12.47||Italy",
+            "loc_val_orig": "41.9038/12.4536||Italy",
         }
     )
 
@@ -346,13 +571,14 @@ def test_unmappable_coordinate_country_does_not_contribute_sublocation(monkeypat
         LocationDiagnostic.UNMAPPABLE_RESULT,
         LocationDiagnostic.UNRESOLVED_PLACE,
     )
+    assert outcome.coordinate_decodes == 1
 
 
 def test_conflicting_countries_pick_coordinate_and_flag_conflict(monkeypatch, standardizer):
     monkeypatch.setattr(
         location_module.reverse_geocode,
         "get",
-        lambda _coordinates: {"country": "Italy", "city": "Rome"},
+        lambda _coordinates: {"country_code": "IT", "city": "Rome"},
     )
 
     outcome = standardizer.standardize(
@@ -374,7 +600,8 @@ def test_conflicting_countries_pick_coordinate_and_flag_conflict(monkeypatch, st
 # =============================================================================
 
 
-def test_coordinate_service_failure_is_recoverable(monkeypatch, standardizer, caplog):
+def test_coordinate_service_failure_costs_only_the_sublocation(monkeypatch, standardizer, caplog):
+
     def fail(_coordinates):
         raise RuntimeError("reverse geocoder unavailable")
 
@@ -384,15 +611,14 @@ def test_coordinate_service_failure_is_recoverable(monkeypatch, standardizer, ca
         {
             "accession": "COORDINATE_FAILURE",
             "loc_attr_orig": "lat_lon",
-            "loc_val_orig": "48.2, 16.3",
+            "loc_val_orig": "52.52, 13.405",
         }
     )
 
-    assert isinstance(outcome, LocationRejection)
-    assert outcome.diagnostics == (
-        LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE,
-        LocationDiagnostic.UNRESOLVED_PLACE,
-    )
+    assert isinstance(outcome, LocationOutcome)
+    assert (outcome.country, outcome.sublocation) == ("Germany", None)
+    assert outcome.route == LocationResolutionRoute.COORDINATE
+    assert outcome.diagnostics == (LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE,)
     assert caplog.messages == []
 
 
@@ -417,6 +643,7 @@ def test_record_standardization_retains_coordinate_failure_when_place_name_resol
     assert outcome.route == LocationResolutionRoute.INSDC_TERM
     assert outcome.diagnostics == (
         LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE,
+        LocationDiagnostic.UNMAPPABLE_RESULT,
         LocationDiagnostic.UNRESOLVED_PLACE,
     )
 

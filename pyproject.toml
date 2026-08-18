@@ -26,13 +26,11 @@ dependencies = [
     "PyYAML~=6.0.2",
     "reverse-geocode~=1.6.6",
     "tqdm~=4.70",
+    "shapely~=2.1",
+    "pytest>=9.1.1",
+    "ruff>=0.16.1"
 ]
 
-[project.optional-dependencies]
-dev = [
-    "pytest>=9.1.1",
-    "ruff>=0.16.1",
-]
 
 [project.urls]
 Repository = "https://github.com/ELTEbioinformatics/BacCurate.git"
@@ -44,6 +42,7 @@ baccurate = "baccurate.run.main:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["baccurate*"]
+
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
