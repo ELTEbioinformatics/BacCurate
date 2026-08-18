@@ -70,7 +70,9 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -e .
 ```
 
-> [!NOTE] The commands below use `uv`. With a `venv` activated instead, drop the `uv run` prefix.
+<!-- prettier-ignore -->
+> [!NOTE]
+> The commands below use `uv`. With a `venv` activated instead, drop the `uv run` prefix.
 
 Verify the installation:
 
