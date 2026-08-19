@@ -19,6 +19,9 @@ from baccurate.extraction import ExtractionReport
 from baccurate.paths import (
     DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
     DEFAULT_BIOPROJECT_XML_INPUT,
+    DEFAULT_GENBANK_ASSEMBLY_SNAPSHOT_MANIFEST,
+    DEFAULT_REFSEQ_ASSEMBLY_SNAPSHOT_MANIFEST,
+    DEFAULT_SRA_SNAPSHOT_MANIFEST,
     REPO_ROOT,
 )
 from baccurate.provenance.source_snapshot import (
@@ -31,6 +34,13 @@ from baccurate.run.outputs import RunOutputs
 from baccurate.run.statistics import DatasetBuildProgress, DatasetBuildStatistics
 from baccurate.standardization.isolation_source import IsolationSourceProvenance
 from baccurate.standardization_target.specifications import TARGET_SPECS, StandardizationTarget
+
+# Snapshot manifests for the three sequence-accession data sources (SRA, GenBank, RefSeq).
+SEQUENCE_ACCESSION_SNAPSHOT_MANIFESTS: Mapping[str, Path] = {
+    "sra": DEFAULT_SRA_SNAPSHOT_MANIFEST,
+    "genbank_assembly": DEFAULT_GENBANK_ASSEMBLY_SNAPSHOT_MANIFEST,
+    "refseq_assembly": DEFAULT_REFSEQ_ASSEMBLY_SNAPSHOT_MANIFEST,
+}
 
 
 def _local_timestamp() -> str:
@@ -95,7 +105,7 @@ class RunReport:
         }
         timestamp = _local_timestamp()
         self._document: dict[str, object] = {
-            "schema_version": 8,
+            "schema_version": 9,
             "status": RunStatus.RUNNING.value,
             "phase": RunPhase.STARTING.value,
             "started_at": timestamp,
@@ -140,10 +150,11 @@ class RunReport:
                 "path": str(outputs.prompt_snapshot),
                 "sha256": sha256_file(outputs.prompt_snapshot),
             }
+        self._update_provenance(_sequence_accession_provenance())
         if context.isolation_source_provenance is not None:
-            self._document["provenance"] = {
-                "isolation_source": _stable_json_value(context.isolation_source_provenance)
-            }
+            self._update_provenance(
+                {"isolation_source": _stable_json_value(context.isolation_source_provenance)}
+            )
         self._write()
 
     def transition(self, phase: RunPhase) -> None:
@@ -440,6 +451,18 @@ def _extraction_document(
     if inclusion_route_counts is not None:
         document["inclusion_route_counts"] = dict(inclusion_route_counts)
     return document
+
+
+def _sequence_accession_provenance() -> dict[str, object]:
+    """Build provenance entries for the SRA, GenBank, and RefSeq sequence-accession snapshots."""
+    provenance: dict[str, object] = {}
+    for name, path in SEQUENCE_ACCESSION_SNAPSHOT_MANIFESTS.items():
+        manifest = SourceSnapshotManifest.load(path)
+        provenance[name] = {
+            "snapshot_id": manifest.snapshot_id,
+            "metadata_reference_date": manifest.metadata_reference_date.isoformat(),
+        }
+    return provenance
 
 
 def _provenance_document(

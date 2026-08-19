@@ -27,9 +27,11 @@ from baccurate.pathogen_registry.species_label_matching import (
     sylph_to_keyword,
 )
 from baccurate.paths import (
-    CONFIG_DIR,
     DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
+    DEFAULT_GENBANK_ASSEMBLY_SNAPSHOT_MANIFEST,
     DEFAULT_INDEX_TSV,
+    DEFAULT_REFSEQ_ASSEMBLY_SNAPSHOT_MANIFEST,
+    DEFAULT_SRA_SNAPSHOT_MANIFEST,
     RAW_DIR,
 )
 from baccurate.provenance.source_snapshot import SourceSnapshotManifest, sha256_file
@@ -146,19 +148,19 @@ def main() -> int:
     ap.add_argument(
         "--sra-manifest",
         type=Path,
-        default=CONFIG_DIR / "sra_accessions_snapshot.yaml",
+        default=DEFAULT_SRA_SNAPSHOT_MANIFEST,
         help="SRA source snapshot manifest",
     )
     ap.add_argument(
         "--genbank-manifest",
         type=Path,
-        default=CONFIG_DIR / "assembly_summary_genbank_snapshot.yaml",
+        default=DEFAULT_GENBANK_ASSEMBLY_SNAPSHOT_MANIFEST,
         help="GenBank Assembly source snapshot manifest",
     )
     ap.add_argument(
         "--refseq-manifest",
         type=Path,
-        default=CONFIG_DIR / "assembly_summary_refseq_snapshot.yaml",
+        default=DEFAULT_REFSEQ_ASSEMBLY_SNAPSHOT_MANIFEST,
         help="RefSeq Assembly source snapshot manifest",
     )
     args = ap.parse_args()

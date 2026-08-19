@@ -350,7 +350,14 @@ def test_isolation_source_run_report_adds_loaded_policy_provenance_to_snapshot_p
     expected = asdict(
         IsolationSourcePromptPolicy.load(config_dir / "isolation_source.yaml").provenance
     )
-    assert set(run_report["provenance"]) == {"biosample", "bioproject", "isolation_source"}
+    assert set(run_report["provenance"]) == {
+        "biosample",
+        "bioproject",
+        "sra",
+        "genbank_assembly",
+        "refseq_assembly",
+        "isolation_source",
+    }
     assert run_report["provenance"]["isolation_source"] == expected
 
 

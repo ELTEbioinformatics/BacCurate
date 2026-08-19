@@ -4,9 +4,28 @@ import json
 from datetime import date
 from pathlib import Path
 
+import yaml
+
 from baccurate.extraction import CurationCounters, ExtractionReport
 from baccurate.run.outputs import RunOutputs
-from baccurate.run.report import RunContext, RunReport
+from baccurate.run.report import (
+    SEQUENCE_ACCESSION_SNAPSHOT_MANIFESTS,
+    RunContext,
+    RunReport,
+)
+
+
+def _expected_sequence_accession_provenance() -> dict[str, dict[str, str]]:
+    """Load expected snapshot provenance from raw YAML, bypassing the report code path."""
+    expected = {}
+    for name, path in SEQUENCE_ACCESSION_SNAPSHOT_MANIFESTS.items():
+        manifest = yaml.safe_load(path.read_text(encoding="utf-8"))
+        expected[name] = {
+            "snapshot_id": manifest["snapshot_id"],
+            # Mirror the fallback in SourceSnapshotManifest.metadata_reference_date.
+            "metadata_reference_date": str(manifest["snapshot_as_of"] or manifest["retrieved_on"]),
+        }
+    return expected
 
 
 def _run_report_for_extraction(
@@ -78,7 +97,7 @@ def test_performed_extraction_report_publishes_mode_paths_and_paired_provenance(
 
     document = json.loads(outputs.run_report.read_text(encoding="utf-8"))
     extraction = document["extraction"]
-    assert document["schema_version"] == 8
+    assert document["schema_version"] == 9
     assert extraction["mode"] == "performed"
     assert extraction["prepared_input_paths"] == [str(sources.biosample), str(sources.bioproject)]
     assert extraction["bundle_provenance_path"] == str(tmp_path / "extracted.provenance.yaml")
@@ -86,7 +105,7 @@ def test_performed_extraction_report_publishes_mode_paths_and_paired_provenance(
         "biosample_taxonomy": 10,
         "allthebacteria": 2,
     }
-    assert document["provenance"] == {
+    assert document["provenance"] == _expected_sequence_accession_provenance() | {
         "biosample": {
             "snapshot_id": "biosample-test",
             "metadata_reference_date": "2026-07-19",
@@ -118,7 +137,7 @@ def test_reused_extraction_report_publishes_mode_and_acquired_snapshot_files(
     assert extraction["acquired_snapshot_files"] == ["biosample.xml.gz", "bioproject.xml.gz"]
     assert extraction["bundle_provenance_path"] == str(bundle.provenance)
     assert "inclusion_route_counts" not in extraction
-    assert document["provenance"] == {
+    assert document["provenance"] == _expected_sequence_accession_provenance() | {
         "biosample": {
             "snapshot_id": "fixture-biosample-2026-01-01",
             "metadata_reference_date": "2026-01-01",
