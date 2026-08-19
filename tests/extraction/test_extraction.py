@@ -317,7 +317,9 @@ def test_extraction_publishes_provenance_bound_metadata_bundle(
     _configure_internal_paths(monkeypatch, sources)
     index = tmp_path / "biosample_index.tsv"
     index.write_text(
-        "accession\tpathogen_biosample\nSAMN00000001\tecoli\n",
+        "accession\tpathogen_biosample\tsra_run_accessions\t"
+        "genbank_assembly_accessions\trefseq_assembly_accessions\n"
+        "SAMN00000001\tecoli\tSRR1,SRR2\tGCA_1.1\tNA\n",
         encoding="utf-8",
     )
     extracted = tmp_path / "custom_metadata.tsv"
@@ -335,8 +337,11 @@ def test_extraction_publishes_provenance_bound_metadata_bundle(
     with extracted.open(newline="", encoding="utf-8") as stream:
         rows = list(csv.DictReader(stream, delimiter="\t"))
     assert len(rows) == 1
-    assert rows[0]["bioproject_id"] == "1050647"
     assert rows[0]["bioproject_accession"] == "PRJNA1050647"
+    assert "bioproject_id" not in rows[0]
+    assert rows[0]["sra_run_accessions"] == "SRR1||SRR2"
+    assert rows[0]["genbank_assembly_accessions"] == "GCA_1.1"
+    assert rows[0]["refseq_assembly_accessions"] == ""
     assert rows[0]["biosample_last_update"] == "2025-06-30T12:34:56.000"
     assert "title" not in rows[0]
     assert "description" not in rows[0]
@@ -417,13 +422,9 @@ def test_extraction_preserves_linked_project_sets_and_unresolved_evidence(
 
     with extracted.open(newline="", encoding="utf-8") as stream:
         rows = {row["accession"]: row for row in csv.DictReader(stream, delimiter="\t")}
-    assert rows["SAMN00000001"]["bioproject_id"] == "1||2||3"
     assert rows["SAMN00000001"]["bioproject_accession"] == ("PRJNA100||PRJNA200||PRJNA300")
-    assert rows["SAMN00000002"]["bioproject_id"] == "2||99"
     assert rows["SAMN00000002"]["bioproject_accession"] == "PRJNA200"
-    assert rows["SAMN00000003"]["bioproject_id"] == "98"
     assert rows["SAMN00000003"]["bioproject_accession"] == ""
-    assert rows["SAMN00000004"]["bioproject_id"] == ""
     assert rows["SAMN00000004"]["bioproject_accession"] == ""
     assert "SAMN00000005" not in rows
     unresolved = tmp_path / "unresolved_bioproject_links.tsv"

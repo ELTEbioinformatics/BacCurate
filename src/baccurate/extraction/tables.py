@@ -3,16 +3,22 @@
 from collections.abc import Iterable
 
 from baccurate.extraction.curation import CurationDecision
+from baccurate.extraction.io import SEQUENCE_ACCESSION_COLUMNS
 from baccurate.extraction.metadata_types import EXTRACTION_TARGET_ORDER
 
 COLUMNS = [
     "accession",
-    "bioproject_id",
     "bioproject_accession",
+    *SEQUENCE_ACCESSION_COLUMNS,
     "pathogen",
     "biosample_last_update",
     "date_category",
 ] + [f"{target}_{kind}_orig" for target in EXTRACTION_TARGET_ORDER for kind in ("attr", "val")]
+
+# The numeric BioProject IDs a BioSample links to exist only to look up their accessions in the
+# BioProject XML, which happens after all BioSample rows are written to a temporary file. They
+# are written alongside the row but dropped from the published table.
+INTERMEDIATE_COLUMNS = ["bioproject_id", *COLUMNS]
 
 
 def extracted_metadata_row(
@@ -21,9 +27,10 @@ def extracted_metadata_row(
     pathogen: str,
     bioproject_id: str,
     bioproject_accession: str,
+    sequence_accessions: tuple[str, ...],
     decisions: Iterable[CurationDecision],
 ) -> list[str] | None:
-    """Return one extracted metadata row for one BioSample record, or None."""
+    """Return one intermediate extracted-metadata row for a BioSample record, or None."""
     raw_pairs: dict[str, tuple[list[str], list[str]]] = {
         target: ([], []) for target in EXTRACTION_TARGET_ORDER
     }
@@ -46,9 +53,10 @@ def extracted_metadata_row(
         return None
 
     extracted_metadata_values = [
-        accession,
         bioproject_id,
+        accession,
         bioproject_accession,
+        *sequence_accessions,
         pathogen,
         biosample_last_update,
         "||".join(date_categories),

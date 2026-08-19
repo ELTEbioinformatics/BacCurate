@@ -16,7 +16,12 @@ from instructor.core import InstructorRetryException
 from pydantic import ValidationError
 
 from baccurate.adapters.llm.client import LLMSettings
-from baccurate.extraction import CurationDecision, CurationEvent, CurationSchema
+from baccurate.extraction import (
+    SEQUENCE_ACCESSION_COLUMNS,
+    CurationDecision,
+    CurationEvent,
+    CurationSchema,
+)
 from baccurate.pathogen_registry.registry import load_pathogen_registry
 from baccurate.provenance.source_snapshot import (
     DerivedBundleProvenance,
@@ -100,8 +105,8 @@ HOST_COLUMNS = (
 EXTRACTED_COLUMNS = (
     "accession",
     "pathogen",
-    "bioproject_id",
     "bioproject_accession",
+    *SEQUENCE_ACCESSION_COLUMNS,
     "biosample_last_update",
     "date_attr_orig",
     "date_val_orig",
@@ -264,6 +269,25 @@ def test_in_atb_is_membership_for_the_resolved_target_pathogen(tmp_path: Path) -
     )
 
     assert [record["in_ATB"] for record in built.records] == ["True", "False"]
+
+
+def test_sequence_accessions_pass_through_from_extracted_metadata(tmp_path: Path) -> None:
+    built = _build_dataset(
+        tmp_path,
+        [
+            _dated_record(
+                "LINKED", sra_run_accessions="SRR1||SRR2", refseq_assembly_accessions="GCF_1.1"
+            ),
+            _dated_record("UNLINKED"),
+        ],
+        (StandardizationTarget.DATE,),
+    )
+
+    linked, unlinked = built.records
+    assert linked["sra_run_accessions"] == "SRR1||SRR2"
+    assert linked["genbank_assembly_accessions"] == ""
+    assert linked["refseq_assembly_accessions"] == "GCF_1.1"
+    assert unlinked["sra_run_accessions"] == ""
 
 
 def _location_policy(_tmp_path: Path) -> LocationPolicy:
@@ -628,6 +652,7 @@ def test_unrequested_targets_omit_columns_instead_of_serializing_empty(
         "pathogen_scientific_name",
         "in_ATB",
         "bioproject",
+        *SEQUENCE_ACCESSION_COLUMNS,
         *DATE_COLUMNS,
     )
     unrequested_columns = LOCATION_COLUMNS + ISOLATION_SOURCE_COLUMNS + HOST_COLUMNS

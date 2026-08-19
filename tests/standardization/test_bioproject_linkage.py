@@ -197,7 +197,7 @@ def test_dataset_build_limits_evidence_to_biosample_pairs(
             {
                 "accession": "UNRESOLVED_PROJECT",
                 "pathogen": "ecoli",
-                "bioproject_id": "999",
+                "bioproject_accession": "",
             },
         ],
         client=client,
@@ -255,7 +255,6 @@ def test_dataset_build_request_identity_uses_only_biosample_pairs(
             {
                 "accession": "FIRST_CONTEXT",
                 "pathogen": "ecoli",
-                "bioproject_id": "3||1||999",
                 "bioproject_accession": "PRJNA300||PRJNA100",
                 "iso_attr_orig": "isolation_source",
                 "iso_val_orig": "wound patient 161803",
@@ -263,7 +262,6 @@ def test_dataset_build_request_identity_uses_only_biosample_pairs(
             {
                 "accession": "SECOND_CONTEXT",
                 "pathogen": "ecoli",
-                "bioproject_id": "2",
                 "bioproject_accession": "PRJNA200",
                 "iso_attr_orig": "isolation_source",
                 "iso_val_orig": "wound patient 161803",

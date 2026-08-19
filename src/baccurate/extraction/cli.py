@@ -19,7 +19,7 @@ from baccurate.extraction.bioproject import (
 from baccurate.extraction.curation import CurationSchema
 from baccurate.extraction.io import InclusionRoute, load_pathogen_map
 from baccurate.extraction.manual_review import ReviewWorklists
-from baccurate.extraction.tables import COLUMNS, extracted_metadata_row
+from baccurate.extraction.tables import COLUMNS, INTERMEDIATE_COLUMNS, extracted_metadata_row
 from baccurate.extraction.xml import CurationCounters, process_biosample_xml
 from baccurate.pathogen_registry.registry import PathogenRegistry, load_pathogen_registry
 from baccurate.provenance.source_snapshot import (
@@ -99,7 +99,7 @@ def run_extraction(
 
         with spool_path.open("w", newline="", encoding="utf-8") as spool_stream:
             writer = csv.writer(spool_stream, delimiter="\t")
-            writer.writerow(COLUMNS)
+            writer.writerow(INTERMEDIATE_COLUMNS)
             with make_progress_bar(
                 len(biosample_paths), "extracting BioSample XML", disable=disable_progress
             ) as bar:
@@ -118,6 +118,7 @@ def run_extraction(
                             pathogen=assignment.pathogen_key,
                             bioproject_id="||".join(bioproject_ids),
                             bioproject_accession="",
+                            sequence_accessions=assignment.sequence_accessions,
                             decisions=decisions,
                         )
                         if extracted_metadata_values is not None:
@@ -198,6 +199,7 @@ def _write_resolved_rows(
             fieldnames=COLUMNS,
             delimiter="\t",
             lineterminator="\n",
+            extrasaction="ignore",
         )
         writer.writeheader()
         for row in reader:

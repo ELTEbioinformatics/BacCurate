@@ -8,6 +8,7 @@ from baccurate.extraction.curation import (
     CurationSchemaError,
 )
 from baccurate.extraction.io import (
+    SEQUENCE_ACCESSION_COLUMNS,
     InclusionRoute,
     TargetPathogenAssignment,
     load_pathogen_map,
@@ -19,6 +20,7 @@ from baccurate.extraction.xml import CurationCounters
 
 __all__ = [
     "COLUMNS",
+    "SEQUENCE_ACCESSION_COLUMNS",
     "CurationCounters",
     "CurationDecision",
     "CurationEvent",

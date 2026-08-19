@@ -7,16 +7,24 @@ from pathlib import Path
 from typing import Literal
 
 from baccurate.adapters.compressed_io import open_text
+from baccurate.pathogen_registry.species_label_matching import NA
 
 InclusionRoute = Literal["biosample_taxonomy", "allthebacteria"]
+
+SEQUENCE_ACCESSION_COLUMNS = (
+    "sra_run_accessions",
+    "genbank_assembly_accessions",
+    "refseq_assembly_accessions",
+)
 
 
 @dataclass(frozen=True, slots=True)
 class TargetPathogenAssignment:
-    """A target pathogen key and the route that included it."""
+    """A target pathogen key, the route that included it, and its linked sequence accessions."""
 
     pathogen_key: str
     inclusion_route: InclusionRoute
+    sequence_accessions: tuple[str, ...] = ("",) * len(SEQUENCE_ACCESSION_COLUMNS)
 
 
 def resolve_pathogen_assignment(
@@ -25,12 +33,18 @@ def resolve_pathogen_assignment(
 ) -> TargetPathogenAssignment | None:
     """Return the registered target pathogen from a prepared-index row, preferring BioSample
     taxonomy."""
+    sequence_accessions = tuple(
+        "" if (cell := (row.get(column) or "").strip()) in ("", NA) else cell.replace(",", "||")
+        for column in SEQUENCE_ACCESSION_COLUMNS
+    )
     biosample_pathogen_key = (row.get("pathogen_biosample") or "").strip()
     if biosample_pathogen_key in registered_pathogen_keys:
-        return TargetPathogenAssignment(biosample_pathogen_key, "biosample_taxonomy")
+        return TargetPathogenAssignment(
+            biosample_pathogen_key, "biosample_taxonomy", sequence_accessions
+        )
     atb_pathogen_key = (row.get("pathogen_ATB") or "").strip()
     if atb_pathogen_key in registered_pathogen_keys:
-        return TargetPathogenAssignment(atb_pathogen_key, "allthebacteria")
+        return TargetPathogenAssignment(atb_pathogen_key, "allthebacteria", sequence_accessions)
     return None
 
 

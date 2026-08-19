@@ -12,6 +12,7 @@ from typing import Protocol, TextIO
 
 from baccurate.adapters.llm.client import LLMSettings, load_llm_settings
 from baccurate.adapters.progress import make_progress_bar
+from baccurate.extraction import SEQUENCE_ACCESSION_COLUMNS
 from baccurate.pathogen_registry.registry import PathogenRegistry
 from baccurate.pathogen_registry.species_label_matching import load_atb_accessions_by_pathogen
 from baccurate.paths import DEFAULT_NAMES_DMP, DEFAULT_NODES_DMP
@@ -176,6 +177,7 @@ class _FinalRow:
     pathogen: str
     in_atb: bool
     bioproject: str
+    sequence_accessions: tuple[str, ...]
     date: DateOutcome | None
     location: LocationOutcome | LocationRejection | None
     isolation_source: IsolationSourceOutcome | None
@@ -196,6 +198,7 @@ class _FinalRowAssembler:
         "pathogen_scientific_name",
         "in_ATB",
         "bioproject",
+        *SEQUENCE_ACCESSION_COLUMNS,
     )
 
     def __init__(
@@ -243,6 +246,9 @@ class _FinalRowAssembler:
             pathogen=self._pathogen_registry.scientific_name(pathogen),
             in_atb=accession in self.atb_by_pathogen.get(pathogen, set()),
             bioproject=extracted_record.get("bioproject_accession", ""),
+            sequence_accessions=tuple(
+                extracted_record.get(column, "") for column in SEQUENCE_ACCESSION_COLUMNS
+            ),
             date=date,
             location=location,
             isolation_source=isolation_source,
@@ -256,6 +262,7 @@ class _FinalRowAssembler:
             final_row.pathogen,
             final_row.in_atb,
             final_row.bioproject,
+            *final_row.sequence_accessions,
         )
         if StandardizationTarget.DATE in self._selected_targets:
             if final_row.date is None:
@@ -1090,6 +1097,7 @@ def _require_columns(
         "accession",
         "pathogen",
         "bioproject_accession",
+        *SEQUENCE_ACCESSION_COLUMNS,
     }
     for target in targets:
         required.update(target_specifications.TARGET_SPECS[target].input_columns)
