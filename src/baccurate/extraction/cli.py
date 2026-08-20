@@ -115,10 +115,9 @@ def run_extraction(
                             continue
                         extracted_metadata_values = extracted_metadata_row(
                             accession=accession,
-                            pathogen=assignment.pathogen_key,
+                            assignment=assignment,
                             bioproject_id="||".join(bioproject_ids),
                             bioproject_accession="",
-                            sequence_accessions=assignment.sequence_accessions,
                             decisions=decisions,
                         )
                         if extracted_metadata_values is not None:

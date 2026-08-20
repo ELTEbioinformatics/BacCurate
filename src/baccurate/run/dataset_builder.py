@@ -14,7 +14,7 @@ from baccurate.adapters.llm.client import LLMSettings, load_llm_settings
 from baccurate.adapters.progress import make_progress_bar
 from baccurate.extraction import SEQUENCE_ACCESSION_COLUMNS
 from baccurate.pathogen_registry.registry import PathogenRegistry
-from baccurate.pathogen_registry.species_label_matching import load_atb_accessions_by_pathogen
+from baccurate.pathogen_registry.species_label_matching import NA
 from baccurate.paths import DEFAULT_NAMES_DMP, DEFAULT_NODES_DMP
 from baccurate.provenance.source_snapshot import validate_extracted_metadata_bundle
 from baccurate.run.location_review_worklist import (
@@ -104,7 +104,6 @@ class DatasetBuildRequest:
     requested_pathogens: tuple[str, ...]
     requested_targets: tuple[StandardizationTarget, ...]
     final_destination: Path
-    atb_index: Path
     pathogen_registry: PathogenRegistry
     host_policy: HostPolicy | None = None
     location_policy: LocationPolicy | None = None
@@ -175,7 +174,8 @@ class _MutableIsolationSourceStatistics:
 class _FinalRow:
     accession: str
     pathogen: str
-    in_atb: bool
+    ncbi_organism: str
+    sylph_species: str
     bioproject: str
     sequence_accessions: tuple[str, ...]
     date: DateOutcome | None
@@ -196,19 +196,18 @@ class _FinalRowAssembler:
     base_columns = (
         "accession",
         "pathogen_scientific_name",
-        "in_ATB",
+        "ncbi_organism",
+        "sylph_species",
         "bioproject",
         *SEQUENCE_ACCESSION_COLUMNS,
     )
 
     def __init__(
         self,
-        atb_by_pathogen: Mapping[str, set[str]],
         targets: Sequence[StandardizationTarget],
         pathogen_registry: PathogenRegistry,
         isolation_source_facets: Sequence[IsolationSourceFacet] = (),
     ):
-        self.atb_by_pathogen = atb_by_pathogen
         self._pathogen_registry = pathogen_registry
         self._selected_targets = tuple(targets)
         self._isolation_source_facets = tuple(isolation_source_facets)
@@ -244,7 +243,8 @@ class _FinalRowAssembler:
         return _FinalRow(
             accession=accession,
             pathogen=self._pathogen_registry.scientific_name(pathogen),
-            in_atb=accession in self.atb_by_pathogen.get(pathogen, set()),
+            ncbi_organism=extracted_record.get("ncbi_organism", NA),
+            sylph_species=extracted_record.get("sylph_species", NA),
             bioproject=extracted_record.get("bioproject_accession", ""),
             sequence_accessions=tuple(
                 extracted_record.get(column, "") for column in SEQUENCE_ACCESSION_COLUMNS
@@ -260,7 +260,8 @@ class _FinalRowAssembler:
         values: tuple[object, ...] = (
             final_row.accession,
             final_row.pathogen,
-            final_row.in_atb,
+            final_row.ncbi_organism,
+            final_row.sylph_species,
             final_row.bioproject,
             *final_row.sequence_accessions,
         )
@@ -431,7 +432,6 @@ class DatasetBuilder:
             writer = csv.writer(destination_stream, delimiter="\t", lineterminator="\n")
             writer.writerow(
                 _FinalRowAssembler(
-                    {},
                     targets,
                     request.pathogen_registry,
                     isolation_source_facets,
@@ -446,9 +446,7 @@ class DatasetBuilder:
             extracted_row_counts = self._count_selected_extracted_rows(
                 request.extracted_metadata, pathogens
             )
-            atb_by_pathogen = load_atb_accessions_by_pathogen(request.atb_index)
             assembler = _FinalRowAssembler(
-                atb_by_pathogen,
                 targets,
                 request.pathogen_registry,
                 isolation_source_facets,

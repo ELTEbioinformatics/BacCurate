@@ -485,7 +485,7 @@ def _prepare_empty_extracted_bundle(
         bioproject_manifest_sha256=sha256_file(bioproject_manifest_path),
         extracted_metadata_sha256=sha256_file(extracted_metadata),
     ).write(provenance_path_for(extracted_metadata))
-    atb_index = tmp_path / "biosample_index.tsv"
-    atb_index.write_text("accession\tin_ATB\tpathogen_ATB\n", encoding="utf-8")
-    monkeypatch.setattr(invocation_module, "DEFAULT_INDEX_TSV", atb_index)
+    prepared_index = tmp_path / "biosample_index.tsv"
+    prepared_index.write_text("accession\tpathogen_biosample\tpathogen_ATB\n", encoding="utf-8")
+    monkeypatch.setattr(invocation_module, "DEFAULT_INDEX_TSV", prepared_index)
     return extracted_metadata

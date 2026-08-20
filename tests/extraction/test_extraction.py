@@ -157,6 +157,12 @@ def test_extraction_reports_inclusion_routes_for_records_present_in_snapshot(
   <BioSample accession="atb"><Attributes>
     <Attribute attribute="isolation_source">water</Attribute>
   </Attributes></BioSample>
+  <BioSample accession="reassigned"><Attributes>
+    <Attribute attribute="isolation_source">blood</Attribute>
+  </Attributes></BioSample>
+  <BioSample accession="agreeing"><Attributes>
+    <Attribute attribute="isolation_source">stool</Attribute>
+  </Attributes></BioSample>
 </BioSampleSet>
 """,
         bioproject_xml=b"<PackageSet />",
@@ -164,24 +170,35 @@ def test_extraction_reports_inclusion_routes_for_records_present_in_snapshot(
     _configure_internal_paths(monkeypatch, sources)
     index = tmp_path / "biosample_index.tsv"
     index.write_text(
-        "accession\tpathogen_biosample\tpathogen_ATB\n"
-        "taxonomy\tecoli\tNA\n"
-        "atb\tNA\tecoli\n"
-        "absent-from-snapshot\tNA\tecoli\n",
+        "accession\tpathogen_biosample\tpathogen_ATB\torganism_value\tsylph_species\n"
+        "taxonomy\tecoli\tNA\tEscherichia coli\tNA\n"
+        "atb\tNA\tecoli\tNA\tEscherichia coli\n"
+        "reassigned\tefaecium\tecoli\tEnterococcus faecium\tEscherichia coli\n"
+        "agreeing\tecoli\tecoli\tEscherichia coli\tEscherichia coli\n"
+        "absent-from-snapshot\tNA\tecoli\tNA\tEscherichia coli\n",
         encoding="utf-8",
     )
+    extracted = tmp_path / "extracted.tsv"
 
     report = run_extraction(
-        output_path=tmp_path / "extracted.tsv",
+        output_path=extracted,
         index_path=index,
         disable_progress=True,
     )
 
-    assert report.extracted_record_count == 2
+    # The agreeing record reassigns nothing, so it counts against the NCBI taxonomy route.
+    assert report.extracted_record_count == 4
     assert report.inclusion_route_counts == {
-        "biosample_taxonomy": 1,
-        "allthebacteria": 1,
+        "biosample_taxonomy": 2,
+        "allthebacteria": 2,
     }
+    with extracted.open(newline="", encoding="utf-8") as stream:
+        published = {row["accession"]: row for row in csv.DictReader(stream, delimiter="\t")}
+    assert published["reassigned"]["pathogen"] == "ecoli"
+    assert published["reassigned"]["ncbi_organism"] == "Enterococcus faecium"
+    assert published["reassigned"]["sylph_species"] == "Escherichia coli"
+    assert published["taxonomy"]["sylph_species"] == "NA"
+    assert published["atb"]["ncbi_organism"] == "NA"
 
 
 def test_extraction_report_preserves_production_curation_review_counters(

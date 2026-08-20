@@ -28,7 +28,6 @@ def test_dataset_builder_rejects_changed_extracted_metadata_before_streaming(
                 requested_pathogens=("ecoli",),
                 requested_targets=(StandardizationTarget.DATE,),
                 final_destination=tmp_path / "standardized.tsv",
-                atb_index=standardization_fixture_resources.atb_index,
                 pathogen_registry=fixture_pathogen_registry,
                 disable_progress=True,
             )

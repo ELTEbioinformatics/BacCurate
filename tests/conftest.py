@@ -73,10 +73,6 @@ class StandardizationFixtureResources:
     def extracted_metadata(self) -> Path:
         return self.root / "extracted.tsv"
 
-    @property
-    def atb_index(self) -> Path:
-        return self.root / "atb.tsv"
-
 
 @dataclass(frozen=True, slots=True)
 class ExtractedMetadataBundle:

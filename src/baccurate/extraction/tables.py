@@ -3,7 +3,7 @@
 from collections.abc import Iterable
 
 from baccurate.extraction.curation import CurationDecision
-from baccurate.extraction.io import SEQUENCE_ACCESSION_COLUMNS
+from baccurate.extraction.io import SEQUENCE_ACCESSION_COLUMNS, TargetPathogenAssignment
 from baccurate.extraction.metadata_types import EXTRACTION_TARGET_ORDER
 
 COLUMNS = [
@@ -11,6 +11,8 @@ COLUMNS = [
     "bioproject_accession",
     *SEQUENCE_ACCESSION_COLUMNS,
     "pathogen",
+    "ncbi_organism",
+    "sylph_species",
     "biosample_last_update",
     "date_category",
 ] + [f"{target}_{kind}_orig" for target in EXTRACTION_TARGET_ORDER for kind in ("attr", "val")]
@@ -24,10 +26,9 @@ INTERMEDIATE_COLUMNS = ["bioproject_id", *COLUMNS]
 def extracted_metadata_row(
     *,
     accession: str,
-    pathogen: str,
+    assignment: TargetPathogenAssignment,
     bioproject_id: str,
     bioproject_accession: str,
-    sequence_accessions: tuple[str, ...],
     decisions: Iterable[CurationDecision],
 ) -> list[str] | None:
     """Return one intermediate extracted-metadata row for a BioSample record, or None."""
@@ -56,8 +57,10 @@ def extracted_metadata_row(
         bioproject_id,
         accession,
         bioproject_accession,
-        *sequence_accessions,
-        pathogen,
+        *assignment.sequence_accessions,
+        assignment.pathogen_key,
+        assignment.ncbi_organism,
+        assignment.sylph_species,
         biosample_last_update,
         "||".join(date_categories),
     ]

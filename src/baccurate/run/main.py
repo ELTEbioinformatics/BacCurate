@@ -129,7 +129,6 @@ def main(
                 requested_pathogens=tuple(names),
                 requested_targets=active_targets,
                 final_destination=outputs.dataset,
-                atb_index=index_path,
                 pathogen_registry=registry,
                 host_policy=effective_policy.host_policy,
                 location_policy=effective_policy.location_policy,

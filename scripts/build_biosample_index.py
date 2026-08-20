@@ -1,10 +1,10 @@
 """Assemble the BioSample index and its build log.
 
 Builds the index from:
-  - accessions in ``data/raw/id_lists/<pathogen_key>.tsv`` (from
-    ``parse_biosample_xml.py``). Supplies ``pathogen_biosample`` and ``organism_value``.
-  - accessions in the ATB metadata whose ``sylph_species`` maps to a target
-    pathogen key. Supplies ``pathogen_ATB``, ``in_ATB`` and ``osf_tarball_filename``.
+  - accessions in data/raw/id_lists/<pathogen_key>.tsv (created by
+    parse_biosample_xml.py). Supplies pathogen_biosample and organism_value.
+  - accessions in the ATB metadata whose sylph_species maps to a target
+    pathogen key. Supplies sylph_species, pathogen_ATB and in_ATB.
 """
 
 from __future__ import annotations
@@ -51,6 +51,7 @@ COLUMNS = [
     "in_ATB",
     "pathogen_biosample",
     "pathogen_ATB",
+    "sylph_species",
     "taxid",
     "organism_value",
     "osf_tarball_filename",
@@ -245,6 +246,7 @@ def main() -> int:
     }
     atb = atb.assign(_kw=atb["sylph_species"].map(keyword_of))
     tarball_by_acc = dict(zip(atb["accession"], atb["osf_tarball_filename"]))
+    sylph_by_acc = dict(zip(atb["accession"], atb["sylph_species"]))
     keyword_by_acc = dict(zip(atb["accession"], atb["_kw"]))
     atb_target_acc = set(atb.loc[atb["_kw"] != NA, "accession"])
     log.info(
@@ -267,6 +269,8 @@ def main() -> int:
     df["in_ATB"] = df["accession"].map(lambda a: "True" if a in tarball_by_acc else "False")
     df["pathogen_biosample"] = df["accession"].map(bio_by_acc).fillna(NA)
     df["pathogen_ATB"] = df["accession"].map(keyword_by_acc).fillna(NA)
+    # Raw GTDB label, kept unchanged so that a reader can recover the AllTheBacteria call itself.
+    df["sylph_species"] = df["accession"].map(sylph_by_acc).fillna(NA)
     df["taxid"] = (
         df["accession"].map(taxid_by_acc).fillna(NA).replace("", NA)
     )  # NA for ATB-only records

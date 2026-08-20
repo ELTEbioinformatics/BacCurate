@@ -13,6 +13,7 @@ This folder contains immutable pipeline inputs.
     appear only through AllTheBacteria.
   - `pathogen_ATB` - Pathogen key from the AllTheBacteria classification, or `NA` when its
     `sylph_species` maps to no target pathogen.
+  - `sylph_species` - GTDB-style classification label.
   - `taxid` - NCBI Taxonomy ID from the BioSample `Organism`, or `NA` for records that appear only
     through AllTheBacteria.
   - `organism_value` - Unchanged BioSample `Organism` value, or `NA` for records that appear only

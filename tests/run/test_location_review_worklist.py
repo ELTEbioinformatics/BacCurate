@@ -185,7 +185,6 @@ def _build(
             requested_pathogens=("ecoli",),
             requested_targets=targets,
             final_destination=destination,
-            atb_index=standardization_fixture_resources.atb_index,
             pathogen_registry=fixture_pathogen_registry,
             location_policy=location_policy,
             disable_progress=True,

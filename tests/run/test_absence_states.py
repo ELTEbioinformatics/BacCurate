@@ -105,6 +105,8 @@ HOST_COLUMNS = (
 EXTRACTED_COLUMNS = (
     "accession",
     "pathogen",
+    "ncbi_organism",
+    "sylph_species",
     "bioproject_accession",
     *SEQUENCE_ACCESSION_COLUMNS,
     "biosample_last_update",
@@ -204,16 +206,10 @@ def _build_dataset(
     location_standardizer_factory: Callable[..., LocationStandardizer] | None = None,
     host_standardizer_factory: Callable[..., HostStandardizer] | None = None,
     isolation_source_standardizer_factory: Callable[..., IsolationSourceStandardizer] | None = None,
-    atb_index_rows: str = "",
 ) -> _BuiltDataset:
     extracted_path, biosample_manifest, bioproject_manifest = _write_extracted_bundle(
         tmp_path,
         rows,
-    )
-    atb_index = tmp_path / "atb.tsv"
-    atb_index.write_text(
-        "accession\tpathogen_ATB\tin_ATB\n" + atb_index_rows,
-        encoding="utf-8",
     )
     destination = tmp_path / "final.tsv"
     statistics = DatasetBuilder(
@@ -232,7 +228,6 @@ def _build_dataset(
             requested_pathogens=("ecoli",),
             requested_targets=targets,
             final_destination=destination,
-            atb_index=atb_index,
             pathogen_registry=load_pathogen_registry(),
             host_policy=host_policy,
             location_policy=location_policy,
@@ -260,15 +255,34 @@ def _dated_record(accession: str, **metadata: str) -> dict[str, str]:
     }
 
 
-def test_in_atb_is_membership_for_the_resolved_target_pathogen(tmp_path: Path) -> None:
+def test_ncbi_organism_and_sylph_species_pass_through_from_extracted_metadata(
+    tmp_path: Path,
+) -> None:
     built = _build_dataset(
         tmp_path,
-        [_dated_record("MATCHING"), _dated_record("CONFLICTING")],
+        [
+            _dated_record(
+                "AGREEING",
+                ncbi_organism="Escherichia coli",
+                sylph_species="Escherichia coli",
+            ),
+            _dated_record(
+                "REASSIGNED",
+                ncbi_organism="Klebsiella pneumoniae",
+                sylph_species="Escherichia coli",
+            ),
+        ],
         (StandardizationTarget.DATE,),
-        atb_index_rows=("MATCHING\tecoli\tTrue\nCONFLICTING\tefaecium\tTrue\n"),
     )
 
-    assert [record["in_ATB"] for record in built.records] == ["True", "False"]
+    assert [record["ncbi_organism"] for record in built.records] == [
+        "Escherichia coli",
+        "Klebsiella pneumoniae",
+    ]
+    assert [record["sylph_species"] for record in built.records] == [
+        "Escherichia coli",
+        "Escherichia coli",
+    ]
 
 
 def test_sequence_accessions_pass_through_from_extracted_metadata(tmp_path: Path) -> None:
@@ -650,7 +664,8 @@ def test_unrequested_targets_omit_columns_instead_of_serializing_empty(
     assert built.columns == (
         "accession",
         "pathogen_scientific_name",
-        "in_ATB",
+        "ncbi_organism",
+        "sylph_species",
         "bioproject",
         *SEQUENCE_ACCESSION_COLUMNS,
         *DATE_COLUMNS,
