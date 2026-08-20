@@ -14,7 +14,7 @@ node_modules/
 *.dmp
 *.log
 data/cache/
-data/raw
+data/raw/*
 !data/raw/README.md
 output/
 *_snapshot.yaml
