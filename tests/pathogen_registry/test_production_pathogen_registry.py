@@ -9,8 +9,8 @@ from baccurate.pathogen_registry.registry import (
 )
 from baccurate.pathogen_registry.species_label_matching import (
     NA,
-    build_keyword_maps,
-    sylph_to_keyword,
+    build_pathogen_key_maps,
+    sylph_to_pathogen_key,
 )
 
 ROOT = Path(__file__).parents[2]
@@ -84,12 +84,12 @@ def test_pathogen_key_table_uses_the_supplied_registry() -> None:
 
 
 def test_species_label_mappings_use_the_supplied_registry() -> None:
-    genus_map, species_map = build_keyword_maps(_example_registry())
+    genus_map, species_map = build_pathogen_key_maps(_example_registry())
 
     assert genus_map == {"alpha": "alpha"}
     assert species_map == {("zeta", "example"): "zeta"}
     assert {
-        classification: sylph_to_keyword(classification, genus_map, species_map)
+        classification: sylph_to_pathogen_key(classification, genus_map, species_map)
         for classification in (
             "Zeta example",
             "Zeta example_A",

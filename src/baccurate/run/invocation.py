@@ -12,6 +12,7 @@ from baccurate.adapters.compressed_io import open_text
 from baccurate.adapters.llm.client import LLMSettings, load_llm_settings
 from baccurate.extraction import CurationSchema, resolve_pathogen_assignment
 from baccurate.pathogen_registry.registry import PathogenRegistry, load_pathogen_registry
+from baccurate.pathogen_registry.species_label_matching import build_pathogen_key_maps
 from baccurate.paths import (
     CONFIG_DIR,
     DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
@@ -74,11 +75,12 @@ def _discover_pathogens(
     pathogen_registry: PathogenRegistry,
 ) -> list[str]:
     keys = set(pathogen_registry.pathogen_keys)
+    genus_map, species_map = build_pathogen_key_maps(pathogen_registry)
     found = set()
     with open_text(index_path, newline="") as f:
         reader = csv.DictReader(f, delimiter="\t")
         for row in reader:
-            assignment = resolve_pathogen_assignment(row, keys)
+            assignment = resolve_pathogen_assignment(row, keys, genus_map, species_map)
             if assignment is not None:
                 found.add(assignment.pathogen_key)
     return [

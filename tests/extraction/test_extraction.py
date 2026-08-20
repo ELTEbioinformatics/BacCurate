@@ -170,12 +170,12 @@ def test_extraction_reports_inclusion_routes_for_records_present_in_snapshot(
     _configure_internal_paths(monkeypatch, sources)
     index = tmp_path / "biosample_index.tsv"
     index.write_text(
-        "accession\tpathogen_biosample\tpathogen_ATB\torganism_value\tsylph_species\n"
-        "taxonomy\tecoli\tNA\tEscherichia coli\tNA\n"
-        "atb\tNA\tecoli\tNA\tEscherichia coli\n"
-        "reassigned\tefaecium\tecoli\tEnterococcus faecium\tEscherichia coli\n"
-        "agreeing\tecoli\tecoli\tEscherichia coli\tEscherichia coli\n"
-        "absent-from-snapshot\tNA\tecoli\tNA\tEscherichia coli\n",
+        "accession\tpathogen_biosample\torganism_value\tsylph_species\n"
+        "taxonomy\tecoli\tEscherichia coli\tNA\n"
+        "atb\tNA\tNA\tEscherichia coli\n"
+        "reassigned\tefaecium\tEnterococcus faecium\tEscherichia coli\n"
+        "agreeing\tecoli\tEscherichia coli\tEscherichia coli\n"
+        "absent-from-snapshot\tNA\tNA\tEscherichia coli\n",
         encoding="utf-8",
     )
     extracted = tmp_path / "extracted.tsv"

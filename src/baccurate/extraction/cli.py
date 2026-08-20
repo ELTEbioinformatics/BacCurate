@@ -79,9 +79,7 @@ def run_extraction(
     review_worklists = ReviewWorklists()
 
     registry = pathogen_registry or load_pathogen_registry()
-    target_pathogen_assignment_by_accession = load_pathogen_map(
-        index_path, registry.pathogen_keys, names
-    )
+    target_pathogen_assignment_by_accession = load_pathogen_map(index_path, registry, names)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     bundle_provenance_path = provenance_path_for(output_path)

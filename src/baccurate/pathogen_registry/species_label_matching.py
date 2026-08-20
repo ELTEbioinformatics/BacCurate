@@ -20,10 +20,10 @@ def _norm(token: str) -> str:
     return _GTDB_SUFFIX.sub("", token).lower()
 
 
-def build_keyword_maps(
+def build_pathogen_key_maps(
     pathogen_registry: PathogenRegistry,
 ) -> tuple[dict[str, str], dict[tuple[str, str], str]]:
-    """Build (genus -> keyword) and ((genus, species) -> keyword) lookups from the registry."""
+    """Build (genus -> pathogen key) and ((genus, species) -> pathogen key) lookups."""
     genus_map: dict[str, str] = {}
     species_map: dict[tuple[str, str], str] = {}
     for p in pathogen_registry.target_pathogens.values():
@@ -36,7 +36,7 @@ def build_keyword_maps(
     return genus_map, species_map
 
 
-def sylph_to_keyword(
+def sylph_to_pathogen_key(
     sylph: str,
     genus_map: dict[str, str],
     species_map: dict[tuple[str, str], str],

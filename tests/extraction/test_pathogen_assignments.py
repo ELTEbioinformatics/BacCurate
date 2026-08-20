@@ -3,8 +3,20 @@
 from pathlib import Path
 
 from baccurate.extraction import TargetPathogenAssignment, load_pathogen_map
+from baccurate.pathogen_registry.registry import Pathogen, PathogenRegistry
 
-_HEADER = "accession\tpathogen_biosample\tpathogen_ATB\torganism_value\tsylph_species\n"
+_HEADER = "accession\tpathogen_biosample\torganism_value\tsylph_species\n"
+
+_ECOLI = Pathogen("ecoli", "Escherichia coli", 562, "species")
+_EFAECIUM = Pathogen("efaecium", "Enterococcus faecium", 1352, "species")
+
+
+def _registry(*target_pathogens: Pathogen) -> PathogenRegistry:
+    return PathogenRegistry(
+        schema_version=1,
+        target_pathogens={pathogen.key: pathogen for pathogen in target_pathogens},
+        pathogen_groups={},
+    )
 
 
 def test_load_pathogen_map_resolves_registered_assignments_before_filtering(
@@ -13,16 +25,16 @@ def test_load_pathogen_map_resolves_registered_assignments_before_filtering(
     index = tmp_path / "biosample_index.tsv"
     index.write_text(
         _HEADER
-        + "taxonomy-only\tecoli\tNA\tEscherichia coli\tNA\n"
-        + "atb-only\tNA\tefaecium\tNA\tEnterococcus_B faecium\n"
-        + "agreeing-dual\tecoli\tecoli\tEscherichia coli\tEscherichia coli\n"
-        + "disagreeing-dual\tecoli\tefaecium\tEscherichia coli\tEnterococcus_B faecium\n"
-        + "unknown\tnot-registered\talso-not-registered\tOther species\tOther species\n"
-        + "off-target-sylph\tefaecium\tNA\tEnterococcus faecium\tEnterococcus_B lactis\n",
+        + "taxonomy-only\tecoli\tEscherichia coli\tNA\n"
+        + "atb-only\tNA\tNA\tEnterococcus_B faecium\n"
+        + "agreeing-dual\tecoli\tEscherichia coli\tEscherichia coli\n"
+        + "disagreeing-dual\tecoli\tEscherichia coli\tEnterococcus_B faecium\n"
+        + "unknown\tnot-registered\tOther species\tOther species\n"
+        + "off-target-sylph\tefaecium\tEnterococcus faecium\tEnterococcus_B lactis\n",
         encoding="utf-8",
     )
 
-    assignments = load_pathogen_map(index, {"ecoli", "efaecium"})
+    assignments = load_pathogen_map(index, _registry(_ECOLI, _EFAECIUM))
 
     assert assignments == {
         "taxonomy-only": TargetPathogenAssignment(
@@ -61,13 +73,13 @@ def test_load_pathogen_map_filters_the_resolved_assignment(
     index = tmp_path / "biosample_index.tsv"
     index.write_text(
         _HEADER
-        + "selected-by-atb\tefaecium\tecoli\tEnterococcus faecium\tEscherichia coli\n"
-        + "selected-by-taxonomy\tecoli\tNA\tEscherichia coli\tNA\n"
-        + "excluded-after-resolution\tecoli\tefaecium\tEscherichia coli\tEnterococcus_B faecium\n",
+        + "selected-by-atb\tefaecium\tEnterococcus faecium\tEscherichia coli\n"
+        + "selected-by-taxonomy\tecoli\tEscherichia coli\tNA\n"
+        + "excluded-after-resolution\tecoli\tEscherichia coli\tEnterococcus_B faecium\n",
         encoding="utf-8",
     )
 
-    assignments = load_pathogen_map(index, {"ecoli", "efaecium"}, names=["ecoli"])
+    assignments = load_pathogen_map(index, _registry(_ECOLI, _EFAECIUM), names=["ecoli"])
 
     assert assignments == {
         "selected-by-atb": TargetPathogenAssignment(

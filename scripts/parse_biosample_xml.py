@@ -23,8 +23,8 @@ from baccurate.adapters.compressed_io import open_binary, open_text
 from baccurate.pathogen_registry.registry import PathogenRegistry, load_pathogen_registry
 from baccurate.pathogen_registry.species_label_matching import (
     NA,
-    build_keyword_maps,
-    sylph_to_keyword,
+    build_pathogen_key_maps,
+    sylph_to_pathogen_key,
 )
 from baccurate.paths import DEFAULT_NODES_DMP, DEFAULT_XML_INPUT, RAW_DIR
 
@@ -125,8 +125,8 @@ def build_closure(nodes_dmp: Path, merged_dmp: Path, seeds: dict[int, str]) -> d
 def load_atb_scope(atb_path: Path, pathogen_registry: PathogenRegistry) -> set[str]:
     """Accessions whose sylph_species maps to a target pathogen key."""
     log.info("loading ATB scope from %s", atb_path)
-    genus_map, species_map = build_keyword_maps(pathogen_registry)
-    keyword_cache: dict[str, str] = {}
+    genus_map, species_map = build_pathogen_key_maps(pathogen_registry)
+    pathogen_key_of: dict[str, str] = {}
     scope: set[str] = set()
     with atb_path.open("r", encoding="utf-8", newline="") as f:
         header = f.readline().rstrip("\n").split("\t")
@@ -137,11 +137,11 @@ def load_atb_scope(atb_path: Path, pathogen_registry: PathogenRegistry) -> set[s
             if len(row) <= sp_i:
                 continue
             sp = row[sp_i]
-            kw = keyword_cache.get(sp)
-            if kw is None:
-                kw = sylph_to_keyword(sp, genus_map, species_map)
-                keyword_cache[sp] = kw
-            if kw != NA:
+            pathogen_key = pathogen_key_of.get(sp)
+            if pathogen_key is None:
+                pathogen_key = sylph_to_pathogen_key(sp, genus_map, species_map)
+                pathogen_key_of[sp] = pathogen_key
+            if pathogen_key != NA:
                 scope.add(row[acc_i])
     log.info("ATB scope: %d accessions map to a target pathogen key", len(scope))
     return scope

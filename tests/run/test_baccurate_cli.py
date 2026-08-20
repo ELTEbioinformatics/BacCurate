@@ -93,10 +93,10 @@ def test_pipeline_cli_discovers_pathogens_in_supplied_registry_order(
 ) -> None:
     index = tmp_path / "index.tsv"
     index.write_text(
-        "accession\tpathogen_biosample\tpathogen_ATB\n"
+        "accession\tpathogen_biosample\tsylph_species\n"
         "SAMN1\talpha\tNA\n"
         "SAMN2\tnot-targeted\tNA\n"
-        "SAMN3\tNA\tzeta\n"
+        "SAMN3\tNA\tZeta example\n"
         "SAMN4\talpha\tNA\n",
         encoding="utf-8",
     )
@@ -486,6 +486,6 @@ def _prepare_empty_extracted_bundle(
         extracted_metadata_sha256=sha256_file(extracted_metadata),
     ).write(provenance_path_for(extracted_metadata))
     prepared_index = tmp_path / "biosample_index.tsv"
-    prepared_index.write_text("accession\tpathogen_biosample\tpathogen_ATB\n", encoding="utf-8")
+    prepared_index.write_text("accession\tpathogen_biosample\tsylph_species\n", encoding="utf-8")
     monkeypatch.setattr(invocation_module, "DEFAULT_INDEX_TSV", prepared_index)
     return extracted_metadata

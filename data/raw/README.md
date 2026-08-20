@@ -4,26 +4,27 @@ This folder contains immutable pipeline inputs.
 - `biosamples.xml.gz` - Filtered [BioSample XML metadata](https://ftp.ncbi.nlm.nih.gov/biosample/)
   streamed directly by the pipeline.
 
-- `biosample_index.tsv.gz` - Contains one row for each BioSample accession. The pipeline streams it
-  directly. Its columns are:
-
-  - `accession` - BioSample accession and pipeline-wide join key.
-  - `in_ATB` - `True` if the BioSample accession is present in AllTheBacteria.
+- `biosample_index.tsv.gz` - Contains one row for each BioSample accession that the NCBI
+  taxonomy queries or the 2025-05 AllTheBacteria release names. Its columns are:
+  - `accession` - Pipeline-wide join key.
   - `pathogen_biosample` - Pathogen key from the BioSample `Organism`, or `NA` for records that
     appear only through AllTheBacteria.
-  - `pathogen_ATB` - Pathogen key from the AllTheBacteria classification, or `NA` when its
-    `sylph_species` maps to no target pathogen.
-  - `sylph_species` - GTDB-style classification label.
-  - `taxid` - NCBI Taxonomy ID from the BioSample `Organism`, or `NA` for records that appear only
-    through AllTheBacteria.
+  - `sylph_species` - Raw GTDB-style classification label from AllTheBacteria. `NA` when
+    AllTheBacteria does not include the accession.
+  - `taxid` - NCBI Taxonomy ID from the BioSample `Organism` field, or `NA` for records that appear 
+    only through AllTheBacteria.
   - `organism_value` - Unchanged BioSample `Organism` value, or `NA` for records that appear only
     through AllTheBacteria.
   - `osf_tarball_filename` - AllTheBacteria assembly tarball filename, or `NA`.
-  - `sra_run_accessions` - Retrievable public SRA run accessions joined with `||`, or `NA`.
-  - `genbank_assembly_accessions` - Current GenBank genome assembly accessions joined with `||`, or
+  - `sra_run_accessions` - SRA run accessions joined with `||`, or `NA`.
+  - `genbank_assembly_accessions` - Genome assembly accessions joined with `||`, or
     `NA`.
-  - `refseq_assembly_accessions` - Current RefSeq genome assembly accessions joined with `||`, or
+  - `refseq_assembly_accessions` - RefSeq genome assembly accessions joined with `||`, or
     `NA`.
+
+- `id_lists/` - One `<pathogen_key>.tsv` per NCBI taxonomy query, written by
+  `scripts/parse_biosample_xml.py`. Its `manifest.tsv` records the pathogen keys and their
+  taxids. `scripts/build_biosample_index.py` reads that manifest.
 
 - `sequence_accessions/` - Compressed two-column intermediate files generated
   from the SRA, GenBank Assembly, and RefSeq Assembly bulk reports.

@@ -7,7 +7,12 @@ from pathlib import Path
 from typing import Literal
 
 from baccurate.adapters.compressed_io import open_text
-from baccurate.pathogen_registry.species_label_matching import NA
+from baccurate.pathogen_registry.registry import PathogenRegistry
+from baccurate.pathogen_registry.species_label_matching import (
+    NA,
+    build_pathogen_key_maps,
+    sylph_to_pathogen_key,
+)
 
 InclusionRoute = Literal["biosample_taxonomy", "allthebacteria"]
 
@@ -34,6 +39,8 @@ class TargetPathogenAssignment:
 def resolve_pathogen_assignment(
     row: Mapping[str, str | None],
     registered_pathogen_keys: Collection[str],
+    genus_map: dict[str, str],
+    species_map: dict[tuple[str, str], str],
 ) -> TargetPathogenAssignment | None:
     """
     Return the target pathogen assignment for a prepared-index row.
@@ -47,7 +54,7 @@ def resolve_pathogen_assignment(
     )
     ncbi_organism = (row.get("organism_value") or "").strip() or NA
     sylph_species = (row.get("sylph_species") or "").strip() or NA
-    atb_pathogen_key = (row.get("pathogen_ATB") or "").strip()
+    atb_pathogen_key = sylph_to_pathogen_key(sylph_species, genus_map, species_map)
     biosample_pathogen_key = (row.get("pathogen_biosample") or "").strip()
     pathogen_key = (
         atb_pathogen_key if atb_pathogen_key in registered_pathogen_keys else biosample_pathogen_key
@@ -64,17 +71,21 @@ def resolve_pathogen_assignment(
 
 def load_pathogen_map(
     index_path: Path,
-    registered_pathogen_keys: Collection[str],
+    pathogen_registry: PathogenRegistry,
     names: list[str] | None = None,
 ) -> dict[str, TargetPathogenAssignment]:
     """Load target pathogen assignments for BioSample accessions in a prepared index."""
     selected = set(names) if names else None
+    registered_pathogen_keys = frozenset(pathogen_registry.pathogen_keys)
+    genus_map, species_map = build_pathogen_key_maps(pathogen_registry)
     assignment_by_biosample_accession: dict[str, TargetPathogenAssignment] = {}
     with open_text(index_path, newline="") as f:
         reader = csv.DictReader(f, delimiter="\t")
         for row in reader:
             accession = (row.get("accession") or "").strip()
-            assignment = resolve_pathogen_assignment(row, registered_pathogen_keys)
+            assignment = resolve_pathogen_assignment(
+                row, registered_pathogen_keys, genus_map, species_map
+            )
             if not accession or assignment is None:
                 continue
             if selected is not None and assignment.pathogen_key not in selected:
