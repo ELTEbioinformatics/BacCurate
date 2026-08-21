@@ -15,7 +15,7 @@ def _registry(*target_pathogens: Pathogen) -> PathogenRegistry:
     return PathogenRegistry(
         schema_version=1,
         target_pathogens={pathogen.key: pathogen for pathogen in target_pathogens},
-        pathogen_groups={},
+        containers={},
     )
 
 

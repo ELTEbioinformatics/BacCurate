@@ -28,7 +28,7 @@ class Pathogen:
     scientific_name: str
     ncbi_taxid: int
     rank: PathogenRank
-    group: str | None = None
+    container: str | None = None
     also_taxids: tuple[int, ...] = field(default_factory=tuple)
 
     @property
@@ -43,7 +43,7 @@ class PathogenRegistry:
 
     schema_version: int
     target_pathogens: Mapping[str, Pathogen]
-    pathogen_groups: Mapping[str, tuple[str, ...]]
+    containers: Mapping[str, tuple[str, ...]]
 
     def __post_init__(self) -> None:
         """Detach registry collections from caller-owned mutable mappings."""
@@ -54,11 +54,11 @@ class PathogenRegistry:
         )
         object.__setattr__(
             self,
-            "pathogen_groups",
+            "containers",
             MappingProxyType(
                 {
-                    pathogen_group_key: tuple(pathogen_keys)
-                    for pathogen_group_key, pathogen_keys in self.pathogen_groups.items()
+                    container_key: tuple(pathogen_keys)
+                    for container_key, pathogen_keys in self.containers.items()
                 }
             ),
         )
@@ -69,20 +69,20 @@ class PathogenRegistry:
         return tuple(self.target_pathogens)
 
     @property
-    def pathogen_group_keys(self) -> tuple[str, ...]:
-        """Return pathogen-group keys in registry order."""
-        return tuple(self.pathogen_groups)
+    def container_keys(self) -> tuple[str, ...]:
+        """Return container keys in registry order."""
+        return tuple(self.containers)
 
     @property
     def keywords(self) -> tuple[str, ...]:
         """Return every command keyword in compatibility order."""
-        return (*self.pathogen_keys, *self.pathogen_group_keys)
+        return (*self.pathogen_keys, *self.container_keys)
 
     def expand(self, registry_identifiers: Sequence[str]) -> tuple[str, ...]:
-        """Expand pathogen groups with first-seen pathogen-key deduplication."""
+        """Expand containers with first-seen pathogen-key deduplication."""
         expanded: list[str] = []
         for registry_identifier in registry_identifiers:
-            for pathogen_key in self.pathogen_groups.get(
+            for pathogen_key in self.containers.get(
                 registry_identifier,
                 (registry_identifier,),
             ):
@@ -105,10 +105,10 @@ class PathogenRegistry:
 
     def pathogen_key_table(self) -> str:
         """Serialize the flattened pathogen-key table used by preparation tooling."""
-        lines = ["pathogen_key\ttaxids\trank\tgroup"]
+        lines = ["pathogen_key\ttaxids\trank\tcontainer"]
         for pathogen in self.target_pathogens.values():
             taxids = " ".join(str(taxid) for taxid in pathogen.taxids)
-            lines.append(f"{pathogen.key}\t{taxids}\t{pathogen.rank}\t{pathogen.group or ''}")
+            lines.append(f"{pathogen.key}\t{taxids}\t{pathogen.rank}\t{pathogen.container or ''}")
         return "\n".join(lines)
 
     def serialize(self) -> str:
@@ -122,17 +122,17 @@ class PathogenRegistry:
                         "scientific_name": pathogen.scientific_name,
                         "ncbi_taxid": pathogen.ncbi_taxid,
                         "rank": pathogen.rank,
-                        "group": pathogen.group,
+                        "container": pathogen.container,
                         "also_taxids": list(pathogen.also_taxids),
                     }
                     for pathogen in self.target_pathogens.values()
                 ],
-                "pathogen_groups": [
+                "containers": [
                     {
-                        "key": pathogen_group_key,
+                        "key": container_key,
                         "pathogen_keys": list(pathogen_keys),
                     }
-                    for pathogen_group_key, pathogen_keys in self.pathogen_groups.items()
+                    for container_key, pathogen_keys in self.containers.items()
                 ],
             },
             ensure_ascii=False,
@@ -162,7 +162,7 @@ def _parse_target_pathogen(
     path: Path,
     pathogen_key: str,
     target_pathogen_policy: Mapping[object, object],
-    pathogen_group_key: str | None,
+    container_key: str | None,
     policy_key: str,
 ) -> Pathogen:
     unknown_keys = [
@@ -216,7 +216,7 @@ def _parse_target_pathogen(
         scientific_name=scientific_name,
         ncbi_taxid=ncbi_taxid,
         rank=cast(PathogenRank, rank),
-        group=pathogen_group_key,
+        container=container_key,
         also_taxids=tuple(also_taxids),
     )
 
@@ -235,11 +235,11 @@ def load_pathogen_registry(path: Path = PATHOGENS_YAML) -> PathogenRegistry:
         raise _error(source, "schema_version", detail)
 
     target_pathogens: dict[str, Pathogen] = {}
-    pathogen_groups: dict[str, tuple[str, ...]] = {}
+    containers: dict[str, tuple[str, ...]] = {}
     taxid_owners: dict[int, str] = {}
 
     def register(pathogen: Pathogen, policy_key: str) -> None:
-        if pathogen.key in target_pathogens or pathogen.key in pathogen_groups:
+        if pathogen.key in target_pathogens or pathogen.key in containers:
             raise _error(source, policy_key, f"pathogen key {pathogen.key!r} collides")
         for taxid in pathogen.taxids:
             owner = taxid_owners.get(taxid)
@@ -269,7 +269,7 @@ def load_pathogen_registry(path: Path = PATHOGENS_YAML) -> PathogenRegistry:
                     source,
                     registry_identifier,
                     registry_entry_policy,
-                    pathogen_group_key=None,
+                    container_key=None,
                     policy_key=registry_identifier,
                 ),
                 registry_identifier,
@@ -280,15 +280,15 @@ def load_pathogen_registry(path: Path = PATHOGENS_YAML) -> PathogenRegistry:
             raise _error(
                 source,
                 registry_identifier,
-                "pathogen group must not be empty",
+                "container must not be empty",
             )
         if registry_identifier in target_pathogens:
             raise _error(
                 source,
                 registry_identifier,
-                f"pathogen group key {registry_identifier!r} collides",
+                f"container key {registry_identifier!r} collides",
             )
-        group_pathogen_keys: list[str] = []
+        container_pathogen_keys: list[str] = []
         for pathogen_key, target_pathogen_policy in registry_entry_policy.items():
             child_key = _validate_identifier(
                 source,
@@ -303,24 +303,24 @@ def load_pathogen_registry(path: Path = PATHOGENS_YAML) -> PathogenRegistry:
                     source,
                     child_key,
                     target_pathogen_policy,
-                    pathogen_group_key=registry_identifier,
+                    container_key=registry_identifier,
                     policy_key=child_policy_key,
                 ),
                 child_policy_key,
             )
-            group_pathogen_keys.append(child_key)
+            container_pathogen_keys.append(child_key)
         if registry_identifier in target_pathogens:
             raise _error(
                 source,
                 registry_identifier,
-                f"pathogen group key {registry_identifier!r} collides with a pathogen key",
+                f"container key {registry_identifier!r} collides with a pathogen key",
             )
-        pathogen_groups[registry_identifier] = tuple(group_pathogen_keys)
+        containers[registry_identifier] = tuple(container_pathogen_keys)
 
     return PathogenRegistry(
         schema_version=_SUPPORTED_SCHEMA_VERSION,
         target_pathogens=target_pathogens,
-        pathogen_groups=pathogen_groups,
+        containers=containers,
     )
 
 
@@ -333,7 +333,7 @@ if __name__ == "__main__":
     ap.add_argument(
         "--pathogen-keys",
         action="store_true",
-        help="emit pathogen_key/taxids/rank/group TSV",
+        help="emit pathogen_key/taxids/rank/container TSV",
     )
     ap.parse_args()
     registry = load_pathogen_registry()

@@ -139,8 +139,8 @@ def resolve_invocation(
         help="One or more target pathogens to process (see config/pathogens.yaml). "
         "Pathogen keys: "
         + ", ".join(registry.pathogen_keys)
-        + ". Groups (expand to their pathogen keys): "
-        + ", ".join(registry.pathogen_group_keys)
+        + ". Containers (expand to their pathogen keys): "
+        + ", ".join(registry.container_keys)
         + ". If omitted, every pathogen is processed.",
     )
     parser.add_argument(

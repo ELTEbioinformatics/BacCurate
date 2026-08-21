@@ -21,10 +21,12 @@ def _example_registry() -> PathogenRegistry:
     return PathogenRegistry(
         schema_version=1,
         target_pathogens={
-            "zeta": Pathogen("zeta", "Zeta example", 30, "species", group="examples"),
-            "alpha": Pathogen("alpha", "Alpha", 10, "genus", group="examples", also_taxids=(11,)),
+            "zeta": Pathogen("zeta", "Zeta example", 30, "species", container="examples"),
+            "alpha": Pathogen(
+                "alpha", "Alpha", 10, "genus", container="examples", also_taxids=(11,)
+            ),
         },
-        pathogen_groups={"examples": ("alpha", "zeta")},
+        containers={"examples": ("alpha", "zeta")},
     )
 
 
@@ -62,7 +64,7 @@ def test_production_target_pathogen_registry_is_preserved() -> None:
 
     assert registry.schema_version == 1
     assert registry.target_pathogens == expected
-    assert registry.pathogen_groups == {
+    assert registry.containers == {
         "kpsc": (
             "kpneumoniae",
             "kquasipneumoniae",
@@ -77,7 +79,7 @@ def test_production_target_pathogen_registry_is_preserved() -> None:
 def test_pathogen_key_table_uses_the_supplied_registry() -> None:
     registry = _example_registry()
     assert registry.pathogen_key_table() == (
-        "pathogen_key\ttaxids\trank\tgroup\n"
+        "pathogen_key\ttaxids\trank\tcontainer\n"
         "zeta\t30\tspecies\texamples\n"
         "alpha\t10 11\tgenus\texamples"
     )

@@ -63,7 +63,7 @@ def _example_registry() -> PathogenRegistry:
             "zeta": Pathogen("zeta", "Zeta example", 30, "species"),
             "alpha": Pathogen("alpha", "Alpha", 10, "genus"),
         },
-        pathogen_groups={"examples": ("alpha", "zeta")},
+        containers={"examples": ("alpha", "zeta")},
     )
 
 
@@ -84,7 +84,7 @@ def test_pipeline_cli_help_uses_supplied_registry_order(
     assert exit_info.value.code == 0
     help_text = capsys.readouterr().out
     assert "Pathogen keys: zeta, alpha." in help_text
-    assert "Groups (expand to their pathogen keys): examples." in help_text
+    assert "Containers (expand to their pathogen keys): examples." in help_text
 
 
 def test_pipeline_cli_discovers_pathogens_in_supplied_registry_order(
