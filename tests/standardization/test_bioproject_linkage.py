@@ -95,7 +95,7 @@ def _build_isolation_source_run(
     fixture_dataset_builder_factory,
     fixture_host_policy: HostPolicy,
     fixture_isolation_source_prompt_policy: IsolationSourcePromptPolicy,
-    fixture_pathogen_registry,
+    fixture_taxon_registry,
     standardization_fixture_resources,
     targets: tuple[StandardizationTarget, ...] = (StandardizationTarget.ISOLATION_SOURCE,),
 ):
@@ -123,11 +123,11 @@ def _build_isolation_source_run(
             extracted_metadata=bundle.extracted_metadata,
             biosample_snapshot_manifest=bundle.biosample_snapshot_manifest,
             bioproject_snapshot_manifest=bundle.bioproject_snapshot_manifest,
-            requested_pathogens=("ecoli",),
+            requested_taxa=("ecoli",),
             requested_targets=targets,
             final_destination=dataset,
             isolation_source_reasoning_destination=reasoning,
-            pathogen_registry=fixture_pathogen_registry,
+            taxon_registry=fixture_taxon_registry,
             host_policy=fixture_host_policy,
             isolation_source_prompt_policy=fixture_isolation_source_prompt_policy,
             disable_progress=True,
@@ -155,7 +155,7 @@ def test_dataset_build_limits_evidence_to_biosample_pairs(
     fixture_dataset_builder_factory,
     fixture_host_policy,
     fixture_isolation_source_prompt_policy,
-    fixture_pathogen_registry,
+    fixture_taxon_registry,
     standardization_fixture_resources,
 ) -> None:
     client = ScriptedClient()
@@ -165,37 +165,37 @@ def test_dataset_build_limits_evidence_to_biosample_pairs(
         rows=[
             {
                 "accession": "SAMPLE_ONLY",
-                "pathogen": "ecoli",
+                "taxon_key": "ecoli",
                 "bioproject_accession": "PRJNA1",
                 "iso_attr_orig": "isolation_source",
                 "iso_val_orig": "stool",
             },
             {
                 "accession": "PROJECT_ONLY",
-                "pathogen": "ecoli",
+                "taxon_key": "ecoli",
                 "bioproject_accession": "PRJNA2",
             },
             {
                 "accession": "HOST_ONLY",
-                "pathogen": "ecoli",
+                "taxon_key": "ecoli",
                 "host_attr_orig": "host",
                 "host_val_orig": "Homo sapiens",
             },
             {
                 "accession": "SAMPLE_AND_PROJECT",
-                "pathogen": "ecoli",
+                "taxon_key": "ecoli",
                 "bioproject_accession": "PRJNA3",
                 "iso_attr_orig": "isolation_source||environment",
                 "iso_val_orig": "stool||farm material 777",
             },
             {
                 "accession": "UNINFORMATIVE_PROJECT",
-                "pathogen": "ecoli",
+                "taxon_key": "ecoli",
                 "bioproject_accession": "PRJNA4",
             },
             {
                 "accession": "UNRESOLVED_PROJECT",
-                "pathogen": "ecoli",
+                "taxon_key": "ecoli",
                 "bioproject_accession": "",
             },
         ],
@@ -204,7 +204,7 @@ def test_dataset_build_limits_evidence_to_biosample_pairs(
         fixture_dataset_builder_factory=fixture_dataset_builder_factory,
         fixture_host_policy=fixture_host_policy,
         fixture_isolation_source_prompt_policy=fixture_isolation_source_prompt_policy,
-        fixture_pathogen_registry=fixture_pathogen_registry,
+        fixture_taxon_registry=fixture_taxon_registry,
         standardization_fixture_resources=standardization_fixture_resources,
     )
 
@@ -243,7 +243,7 @@ def test_dataset_build_request_identity_uses_only_biosample_pairs(
     fixture_dataset_builder_factory,
     fixture_host_policy,
     fixture_isolation_source_prompt_policy,
-    fixture_pathogen_registry,
+    fixture_taxon_registry,
     standardization_fixture_resources,
 ) -> None:
     client = ScriptedClient()
@@ -253,14 +253,14 @@ def test_dataset_build_request_identity_uses_only_biosample_pairs(
         rows=[
             {
                 "accession": "FIRST_CONTEXT",
-                "pathogen": "ecoli",
+                "taxon_key": "ecoli",
                 "bioproject_accession": "PRJNA300||PRJNA100",
                 "iso_attr_orig": "isolation_source",
                 "iso_val_orig": "wound patient 161803",
             },
             {
                 "accession": "SECOND_CONTEXT",
-                "pathogen": "ecoli",
+                "taxon_key": "ecoli",
                 "bioproject_accession": "PRJNA200",
                 "iso_attr_orig": "isolation_source",
                 "iso_val_orig": "wound patient 161803",
@@ -271,7 +271,7 @@ def test_dataset_build_request_identity_uses_only_biosample_pairs(
         fixture_dataset_builder_factory=fixture_dataset_builder_factory,
         fixture_host_policy=fixture_host_policy,
         fixture_isolation_source_prompt_policy=fixture_isolation_source_prompt_policy,
-        fixture_pathogen_registry=fixture_pathogen_registry,
+        fixture_taxon_registry=fixture_taxon_registry,
         standardization_fixture_resources=standardization_fixture_resources,
     )
 
@@ -289,7 +289,7 @@ def test_dataset_build_rejects_bioproject_only_record_without_model_call(
     fixture_dataset_builder_factory,
     fixture_host_policy,
     fixture_isolation_source_prompt_policy,
-    fixture_pathogen_registry,
+    fixture_taxon_registry,
     standardization_fixture_resources,
 ) -> None:
     client = ScriptedClient()
@@ -298,7 +298,7 @@ def test_dataset_build_rejects_bioproject_only_record_without_model_call(
         rows=[
             {
                 "accession": "PROJECT_ONLY",
-                "pathogen": "ecoli",
+                "taxon_key": "ecoli",
                 "bioproject_accession": "PRJNA1",
             }
         ],
@@ -307,7 +307,7 @@ def test_dataset_build_rejects_bioproject_only_record_without_model_call(
         fixture_dataset_builder_factory=fixture_dataset_builder_factory,
         fixture_host_policy=fixture_host_policy,
         fixture_isolation_source_prompt_policy=fixture_isolation_source_prompt_policy,
-        fixture_pathogen_registry=fixture_pathogen_registry,
+        fixture_taxon_registry=fixture_taxon_registry,
         standardization_fixture_resources=standardization_fixture_resources,
     )
 
@@ -325,7 +325,7 @@ def test_host_recovery_uses_biosample_pairs_not_bioproject_linkage(
     fixture_dataset_builder_factory,
     fixture_host_policy,
     fixture_isolation_source_prompt_policy,
-    fixture_pathogen_registry,
+    fixture_taxon_registry,
     standardization_fixture_resources,
 ) -> None:
     bundle = extracted_metadata_bundle_factory(
@@ -333,14 +333,14 @@ def test_host_recovery_uses_biosample_pairs_not_bioproject_linkage(
         extracted_rows=[
             {
                 "accession": "RECORD_EVIDENCE",
-                "pathogen": "ecoli",
+                "taxon_key": "ecoli",
                 "bioproject_accession": "PRJNA1",
                 "iso_attr_orig": "food_source",
                 "iso_val_orig": "chicken meat",
             },
             {
                 "accession": "PROJECT_ONLY",
-                "pathogen": "ecoli",
+                "taxon_key": "ecoli",
                 "bioproject_accession": "PRJNA2",
             },
         ],
@@ -406,10 +406,10 @@ def test_host_recovery_uses_biosample_pairs_not_bioproject_linkage(
             extracted_metadata=bundle.extracted_metadata,
             biosample_snapshot_manifest=bundle.biosample_snapshot_manifest,
             bioproject_snapshot_manifest=bundle.bioproject_snapshot_manifest,
-            requested_pathogens=("ecoli",),
+            requested_taxa=("ecoli",),
             requested_targets=(StandardizationTarget.HOST, StandardizationTarget.ISOLATION_SOURCE),
             final_destination=dataset,
-            pathogen_registry=fixture_pathogen_registry,
+            taxon_registry=fixture_taxon_registry,
             host_policy=fixture_host_policy,
             isolation_source_prompt_policy=fixture_isolation_source_prompt_policy,
             disable_progress=True,

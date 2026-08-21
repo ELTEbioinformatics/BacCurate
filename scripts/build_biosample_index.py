@@ -1,8 +1,8 @@
 """Assemble the BioSample index and its build log.
 
 Builds the index from:
-  - accessions in data/raw/id_lists/<pathogen_key>.tsv (created by
-    parse_biosample_xml.py). Supplies pathogen_biosample and organism_value.
+  - accessions in data/raw/id_lists/<taxon_key>.tsv (created by
+    parse_biosample_xml.py). Supplies taxon_biosample and organism_value.
   - accessions in the ATB metadata. Supplies sylph_species and osf_tarball_filename.
 """
 
@@ -19,7 +19,6 @@ import pandas as pd
 
 # make the package importable when run as a plain script
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from baccurate.pathogen_registry.species_label_matching import NA
 from baccurate.paths import (
     DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
     DEFAULT_GENBANK_ASSEMBLY_SNAPSHOT_MANIFEST,
@@ -29,6 +28,7 @@ from baccurate.paths import (
     RAW_DIR,
 )
 from baccurate.provenance.source_snapshot import SourceSnapshotManifest, sha256_file
+from baccurate.taxon_registry.species_label_matching import NA
 
 log = logging.getLogger("build_biosample_index")
 
@@ -42,7 +42,7 @@ SEQUENCE_ACCESSION_INTERMEDIATES = (
 )
 COLUMNS = [
     "accession",
-    "pathogen_biosample",
+    "taxon_biosample",
     "sylph_species",
     "taxid",
     "organism_value",
@@ -53,55 +53,55 @@ COLUMNS = [
 ]
 
 
-def load_prepared_pathogen_keys(manifest_path: Path) -> list[str]:
-    """Return the pathogen keys of the prepared id_lists, in manifest order."""
+def load_prepared_taxon_keys(manifest_path: Path) -> list[str]:
+    """Return the taxon keys of the prepared id_lists, in manifest order."""
     manifest = pd.read_csv(manifest_path, sep="\t", dtype=str, keep_default_na=False)
-    if "pathogen_key" not in manifest.columns:
-        raise ValueError(f"{manifest_path}: expected a pathogen_key column")
+    if "taxon_key" not in manifest.columns:
+        raise ValueError(f"{manifest_path}: expected a taxon_key column")
     if "status" in manifest.columns:
-        incomplete = manifest.loc[manifest["status"] != "ok", "pathogen_key"].tolist()
+        incomplete = manifest.loc[manifest["status"] != "ok", "taxon_key"].tolist()
         if incomplete:
             log.warning(
-                "Manifest flags incomplete pathogen-key fetch(es). re-fetch: %s",
+                "Manifest flags incomplete taxon-key fetch(es). re-fetch: %s",
                 ", ".join(incomplete),
             )
-    return manifest["pathogen_key"].tolist()
+    return manifest["taxon_key"].tolist()
 
 
 def load_taxonomy_branch(
     id_lists_dir: Path,
-    pathogen_keys: list[str],
+    taxon_keys: list[str],
 ) -> pd.DataFrame:
-    """Load the prepared pathogen-key TSVs. Resolve overlaps in manifest order.
+    """Load the prepared taxon-key TSVs. Resolve overlaps in manifest order.
 
     The function skips missing files.
     """
     frames = []
-    for pathogen_key in pathogen_keys:
-        f = id_lists_dir / f"{pathogen_key}.tsv"
+    for taxon_key in taxon_keys:
+        f = id_lists_dir / f"{taxon_key}.tsv"
         if not f.exists():
             continue
         d = pd.read_csv(f, sep="\t", dtype=str, keep_default_na=False)
         if d.empty:
             continue
         d = d.rename(columns={"organism": "organism_value"})
-        d["pathogen_biosample"] = pathogen_key
-        frames.append(d[["accession", "taxid", "pathogen_biosample", "organism_value"]])
+        d["taxon_biosample"] = taxon_key
+        frames.append(d[["accession", "taxid", "taxon_biosample", "organism_value"]])
 
     if not frames:
-        return pd.DataFrame(columns=["accession", "taxid", "pathogen_biosample", "organism_value"])
+        return pd.DataFrame(columns=["accession", "taxid", "taxon_biosample", "organism_value"])
 
     tax = pd.concat(frames, ignore_index=True)
     conflicts = tax[tax.duplicated("accession", keep=False)]
     if not conflicts.empty:
         n = conflicts["accession"].nunique()
         log.warning(
-            "%d accession(s) matched more than one pathogen-key query. "
+            "%d accession(s) matched more than one taxon-key query. "
             "Keeping first by manifest order",
             n,
         )
     tax = tax.drop_duplicates("accession", keep="first")
-    log.info("NCBI taxonomy: %d accessions across %d pathogen-key files", len(tax), len(frames))
+    log.info("NCBI taxonomy: %d accessions across %d taxon-key files", len(tax), len(frames))
     return tax
 
 
@@ -146,7 +146,7 @@ def setup_logging(out_dir: Path) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
-        "--id-lists-dir", type=Path, default=ID_LISTS_DIR, help="directory of per-pathogen-key TSVs"
+        "--id-lists-dir", type=Path, default=ID_LISTS_DIR, help="directory of per-taxon-key TSVs"
     )
     ap.add_argument("--output", type=Path, default=DEFAULT_INDEX_TSV, help="output index path")
     ap.add_argument(
@@ -216,10 +216,10 @@ def main() -> int:
         for filename, column in SEQUENCE_ACCESSION_INTERMEDIATES
     }
 
-    pathogen_keys = load_prepared_pathogen_keys(args.id_lists_dir / "manifest.tsv")
+    taxon_keys = load_prepared_taxon_keys(args.id_lists_dir / "manifest.tsv")
 
     # taxonomy branch
-    tax = load_taxonomy_branch(args.id_lists_dir, pathogen_keys)
+    tax = load_taxonomy_branch(args.id_lists_dir, taxon_keys)
     tax_acc = set(tax["accession"])
 
     # ATB branch
@@ -236,11 +236,11 @@ def main() -> int:
         return 1
 
     org_by_acc = dict(zip(tax["accession"], tax["organism_value"]))
-    bio_by_acc = dict(zip(tax["accession"], tax["pathogen_biosample"]))
+    bio_by_acc = dict(zip(tax["accession"], tax["taxon_biosample"]))
     taxid_by_acc = dict(zip(tax["accession"], tax["taxid"]))
 
     df = pd.DataFrame({"accession": scope})
-    df["pathogen_biosample"] = df["accession"].map(bio_by_acc).fillna(NA)
+    df["taxon_biosample"] = df["accession"].map(bio_by_acc).fillna(NA)
     # Raw GTDB label, kept unchanged so that a reader can recover the AllTheBacteria call itself.
     df["sylph_species"] = df["accession"].map(sylph_by_acc).fillna(NA)
     df["taxid"] = (
@@ -264,12 +264,12 @@ def main() -> int:
         both,
     )
     log.info(
-        "sylph_species present: %d | pathogen_biosample=NA (atb-only): %d",
+        "sylph_species present: %d | taxon_biosample=NA (atb-only): %d",
         int((df["sylph_species"] != NA).sum()),
-        int((df["pathogen_biosample"] == NA).sum()),
+        int((df["taxon_biosample"] == NA).sum()),
     )
-    counts = df["pathogen_biosample"].value_counts().to_dict()
-    log.info("pathogen_biosample counts: %s", {k: counts[k] for k in sorted(counts)})
+    counts = df["taxon_biosample"].value_counts().to_dict()
+    log.info("taxon_biosample counts: %s", {k: counts[k] for k in sorted(counts)})
 
     if out_path.exists():
         suffixes = "".join(out_path.suffixes)

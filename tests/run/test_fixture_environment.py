@@ -12,7 +12,7 @@ def test_fixture_dataset_builder_standardizes_host_without_production_taxonomy(
     extracted_metadata_bundle,
     fixture_dataset_builder: DatasetBuilder,
     fixture_host_policy: HostPolicy,
-    fixture_pathogen_registry,
+    fixture_taxon_registry,
     standardization_fixture_resources,
 ) -> None:
     destination = tmp_path / "standardized.tsv"
@@ -22,17 +22,17 @@ def test_fixture_dataset_builder_standardizes_host_without_production_taxonomy(
             extracted_metadata=extracted_metadata_bundle.extracted_metadata,
             biosample_snapshot_manifest=extracted_metadata_bundle.biosample_snapshot_manifest,
             bioproject_snapshot_manifest=extracted_metadata_bundle.bioproject_snapshot_manifest,
-            requested_pathogens=("ecoli",),
+            requested_taxa=("ecoli",),
             requested_targets=(StandardizationTarget.HOST,),
             final_destination=destination,
-            pathogen_registry=fixture_pathogen_registry,
+            taxon_registry=fixture_taxon_registry,
             host_policy=fixture_host_policy,
             disable_progress=True,
         )
     )
 
     assert destination.read_text(encoding="utf-8") == (
-        "accession\tpathogen_scientific_name\tncbi_organism\tsylph_species\t"
+        "accession\ttaxon_scientific_name\tncbi_organism\tsylph_species\t"
         "bioproject\t"
         "sra_run_accessions\tgenbank_assembly_accessions\t"
         "refseq_assembly_accessions\t"

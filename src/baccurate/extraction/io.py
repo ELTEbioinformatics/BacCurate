@@ -7,11 +7,11 @@ from pathlib import Path
 from typing import Literal
 
 from baccurate.adapters.compressed_io import open_text
-from baccurate.pathogen_registry.registry import PathogenRegistry
-from baccurate.pathogen_registry.species_label_matching import (
+from baccurate.taxon_registry.registry import TaxonRegistry
+from baccurate.taxon_registry.species_label_matching import (
     NA,
-    build_pathogen_key_maps,
-    sylph_to_pathogen_key,
+    build_taxon_key_maps,
+    sylph_to_taxon_key,
 )
 
 InclusionRoute = Literal["biosample_taxonomy", "allthebacteria"]
@@ -24,29 +24,29 @@ SEQUENCE_ACCESSION_COLUMNS = (
 
 
 @dataclass(frozen=True, slots=True)
-class TargetPathogenAssignment:
+class TaxonAssignment:
     """
-    A target pathogen key, the route that included it, and the classification each route gave.
+    A taxon key, the route that included it, and the classification each route gave.
     """
 
-    pathogen_key: str
+    taxon_key: str
     inclusion_route: InclusionRoute
     sequence_accessions: tuple[str, ...] = ("",) * len(SEQUENCE_ACCESSION_COLUMNS)
     ncbi_organism: str = NA
     sylph_species: str = NA
 
 
-def resolve_pathogen_assignment(
+def resolve_taxon_assignment(
     row: Mapping[str, str | None],
-    registered_pathogen_keys: Collection[str],
+    registered_taxon_keys: Collection[str],
     genus_map: dict[str, str],
     species_map: dict[tuple[str, str], str],
-) -> TargetPathogenAssignment | None:
+) -> TaxonAssignment | None:
     """
-    Return the target pathogen assignment for a prepared-index row.
+    Return the taxon assignment for a prepared-index row.
 
     Prefers the sylph_species classification over BioSample NCBI taxonomy (ncbi_organism).
-    Falls back to biosample_taxonomy when sylph_species does not name a registered pathogen.
+    Falls back to biosample_taxonomy when sylph_species does not name a registered taxon.
     """
     sequence_accessions = tuple(
         "" if (cell := (row.get(column) or "").strip()) in ("", NA) else cell.replace(",", "||")
@@ -54,41 +54,37 @@ def resolve_pathogen_assignment(
     )
     ncbi_organism = (row.get("organism_value") or "").strip() or NA
     sylph_species = (row.get("sylph_species") or "").strip() or NA
-    atb_pathogen_key = sylph_to_pathogen_key(sylph_species, genus_map, species_map)
-    biosample_pathogen_key = (row.get("pathogen_biosample") or "").strip()
-    pathogen_key = (
-        atb_pathogen_key if atb_pathogen_key in registered_pathogen_keys else biosample_pathogen_key
-    )
-    if pathogen_key not in registered_pathogen_keys:
+    atb_taxon_key = sylph_to_taxon_key(sylph_species, genus_map, species_map)
+    biosample_taxon_key = (row.get("taxon_biosample") or "").strip()
+    taxon_key = atb_taxon_key if atb_taxon_key in registered_taxon_keys else biosample_taxon_key
+    if taxon_key not in registered_taxon_keys:
         return None
     route: InclusionRoute = (
-        "biosample_taxonomy" if pathogen_key == biosample_pathogen_key else "allthebacteria"
+        "biosample_taxonomy" if taxon_key == biosample_taxon_key else "allthebacteria"
     )
-    return TargetPathogenAssignment(
-        pathogen_key, route, sequence_accessions, ncbi_organism, sylph_species
-    )
+    return TaxonAssignment(taxon_key, route, sequence_accessions, ncbi_organism, sylph_species)
 
 
-def load_pathogen_map(
+def load_taxon_map(
     index_path: Path,
-    pathogen_registry: PathogenRegistry,
+    taxon_registry: TaxonRegistry,
     names: list[str] | None = None,
-) -> dict[str, TargetPathogenAssignment]:
-    """Load target pathogen assignments for BioSample accessions in a prepared index."""
+) -> dict[str, TaxonAssignment]:
+    """Load taxon assignments for BioSample accessions in a prepared index."""
     selected = set(names) if names else None
-    registered_pathogen_keys = frozenset(pathogen_registry.pathogen_keys)
-    genus_map, species_map = build_pathogen_key_maps(pathogen_registry)
-    assignment_by_biosample_accession: dict[str, TargetPathogenAssignment] = {}
+    registered_taxon_keys = frozenset(taxon_registry.taxon_keys)
+    genus_map, species_map = build_taxon_key_maps(taxon_registry)
+    assignment_by_biosample_accession: dict[str, TaxonAssignment] = {}
     with open_text(index_path, newline="") as f:
         reader = csv.DictReader(f, delimiter="\t")
         for row in reader:
             accession = (row.get("accession") or "").strip()
-            assignment = resolve_pathogen_assignment(
-                row, registered_pathogen_keys, genus_map, species_map
+            assignment = resolve_taxon_assignment(
+                row, registered_taxon_keys, genus_map, species_map
             )
             if not accession or assignment is None:
                 continue
-            if selected is not None and assignment.pathogen_key not in selected:
+            if selected is not None and assignment.taxon_key not in selected:
                 continue
             assignment_by_biosample_accession[accession] = assignment
     return assignment_by_biosample_accession

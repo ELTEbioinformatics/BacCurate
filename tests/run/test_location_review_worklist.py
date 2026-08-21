@@ -28,13 +28,13 @@ def _write_worklist(
     tmp_path: Path,
     observations: Sequence[tuple[str, str, str, str]],
 ) -> tuple[Path, list[dict[str, str]]]:
-    """Observe (accession, pathogen_key, attribute, value) tuples and write the table."""
+    """Observe (accession, taxon_key, attribute, value) tuples and write the table."""
     worklist = LocationReviewWorklist()
-    for accession, pathogen_key, attribute, value in observations:
+    for accession, taxon_key, attribute, value in observations:
         worklist.observe(
             (UnresolvedLocationInput(attribute, value),),
             accession=accession,
-            pathogen_key=pathogen_key,
+            taxon_key=taxon_key,
         )
     tmp_path.mkdir(parents=True, exist_ok=True)
     destination = tmp_path / LOCATION_REVIEW_WORKLIST_FILENAME
@@ -61,12 +61,12 @@ def test_worklist_row_summarizes_one_normalized_value_across_the_complete_run(
     assert row["normalized_submitted_value"] == UNREVIEWED_ALPHA
     assert row["biosample_record_count"] == "2"
     assert row["occurrence_count"] == "3"
-    assert json.loads(row["pathogen_counts"]) == {"abaumannii": 1, "ecoli": 2}
+    assert json.loads(row["taxon_counts"]) == {"abaumannii": 1, "ecoli": 2}
     assert json.loads(row["submitted_attribute_counts"]) == {
         "collection_site": 1,
         "geo_loc_name": 2,
     }
-    assert sum(json.loads(row["pathogen_counts"]).values()) == 3
+    assert sum(json.loads(row["taxon_counts"]).values()) == 3
     assert sum(json.loads(row["submitted_attribute_counts"]).values()) == 3
 
 
@@ -107,7 +107,7 @@ def test_worklist_keeps_three_examples_chosen_independently_of_input_order(
     assert json.loads(rows[0]["representative_examples"]) == [
         {
             "biosample_accession": accession,
-            "pathogen_key": "ecoli",
+            "taxon_key": "ecoli",
             "submitted_attribute": "geo_loc_name",
             "submitted_value": UNREVIEWED_ALPHA,
         }
@@ -154,7 +154,7 @@ def reviewed_location_policy(
 def _located_record(accession: str, submitted_value: str, **overrides: str) -> dict[str, str]:
     return {
         "accession": accession,
-        "pathogen": "ecoli",
+        "taxon_key": "ecoli",
         "bioproject_accession": "",
         "biosample_last_update": "2020-02-29T00:00:00",
         "date_attr_orig": "collection_date",
@@ -174,7 +174,7 @@ def _build(
     location_policy: LocationPolicy | None,
     targets: tuple[StandardizationTarget, ...],
     standardization_fixture_resources,
-    fixture_pathogen_registry,
+    fixture_taxon_registry,
 ) -> tuple[Path, DatasetBuildStatistics]:
     destination = tmp_path / name / "run.tsv"
     statistics = DatasetBuilder().build(
@@ -182,10 +182,10 @@ def _build(
             extracted_metadata=bundle.extracted_metadata,
             biosample_snapshot_manifest=bundle.biosample_snapshot_manifest,
             bioproject_snapshot_manifest=bundle.bioproject_snapshot_manifest,
-            requested_pathogens=("ecoli",),
+            requested_taxa=("ecoli",),
             requested_targets=targets,
             final_destination=destination,
-            pathogen_registry=fixture_pathogen_registry,
+            taxon_registry=fixture_taxon_registry,
             location_policy=location_policy,
             disable_progress=True,
         )
@@ -216,7 +216,7 @@ def test_location_run_writes_the_worklist_and_reports_its_totals(
     worklist_bundle,
     reviewed_location_policy: LocationPolicy,
     standardization_fixture_resources,
-    fixture_pathogen_registry,
+    fixture_taxon_registry,
 ) -> None:
     destination, statistics = _build(
         tmp_path,
@@ -225,7 +225,7 @@ def test_location_run_writes_the_worklist_and_reports_its_totals(
         location_policy=reviewed_location_policy,
         targets=(StandardizationTarget.LOCATION,),
         standardization_fixture_resources=standardization_fixture_resources,
-        fixture_pathogen_registry=fixture_pathogen_registry,
+        fixture_taxon_registry=fixture_taxon_registry,
     )
 
     worklist_path = destination.parent / LOCATION_REVIEW_WORKLIST_FILENAME
@@ -252,7 +252,7 @@ def test_location_run_without_unresolved_inputs_writes_the_header_only_worklist(
     extracted_metadata_bundle_factory,
     reviewed_location_policy: LocationPolicy,
     standardization_fixture_resources,
-    fixture_pathogen_registry,
+    fixture_taxon_registry,
 ) -> None:
     bundle = extracted_metadata_bundle_factory(
         "resolved", [_located_record("SAMN_STANDARDIZED", "Germany")]
@@ -265,7 +265,7 @@ def test_location_run_without_unresolved_inputs_writes_the_header_only_worklist(
         location_policy=reviewed_location_policy,
         targets=(StandardizationTarget.LOCATION,),
         standardization_fixture_resources=standardization_fixture_resources,
-        fixture_pathogen_registry=fixture_pathogen_registry,
+        fixture_taxon_registry=fixture_taxon_registry,
     )
 
     worklist_path = destination.parent / LOCATION_REVIEW_WORKLIST_FILENAME
@@ -279,7 +279,7 @@ def test_run_without_the_location_target_writes_no_worklist(
     tmp_path: Path,
     worklist_bundle,
     standardization_fixture_resources,
-    fixture_pathogen_registry,
+    fixture_taxon_registry,
 ) -> None:
     destination, statistics = _build(
         tmp_path,
@@ -288,7 +288,7 @@ def test_run_without_the_location_target_writes_no_worklist(
         location_policy=None,
         targets=(StandardizationTarget.DATE,),
         standardization_fixture_resources=standardization_fixture_resources,
-        fixture_pathogen_registry=fixture_pathogen_registry,
+        fixture_taxon_registry=fixture_taxon_registry,
     )
 
     assert statistics.location is None
@@ -300,7 +300,7 @@ def test_repeated_location_runs_produce_identical_datasets_and_worklists(
     worklist_bundle,
     reviewed_location_policy: LocationPolicy,
     standardization_fixture_resources,
-    fixture_pathogen_registry,
+    fixture_taxon_registry,
 ) -> None:
     outputs = [
         _build(
@@ -310,7 +310,7 @@ def test_repeated_location_runs_produce_identical_datasets_and_worklists(
             location_policy=reviewed_location_policy,
             targets=(StandardizationTarget.LOCATION,),
             standardization_fixture_resources=standardization_fixture_resources,
-            fixture_pathogen_registry=fixture_pathogen_registry,
+            fixture_taxon_registry=fixture_taxon_registry,
         )[0]
         for name in ("first", "second")
     ]

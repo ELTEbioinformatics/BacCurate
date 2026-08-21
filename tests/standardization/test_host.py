@@ -6,13 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from baccurate.pathogen_registry.registry import load_pathogen_registry
 from baccurate.standardization.host import HostDiagnostic, HostPolicy, HostStandardizer
 from baccurate.standardization.host_lineage import HostLineageEnricher
+from baccurate.taxon_registry.registry import load_taxon_registry
 
 ROOT = Path(__file__).parents[2]
 CONFIG_PATH = ROOT / "config" / "host.yaml"
-PATHOGEN_REGISTRY_PATH = ROOT / "config" / "pathogens.yaml"
+TAXON_REGISTRY_PATH = ROOT / "config" / "taxa.yaml"
 NCBI_PATH = ROOT / "data" / "reference" / "taxonomy" / "taxids_ncbi.tsv"
 
 
@@ -32,7 +32,7 @@ def classify(standardizer: HostStandardizer, value: str, attribute: str = "host"
 
 def test_production_host_policy_and_taxonomy_have_required_semantics() -> None:
     """Smoke-test production resources once, including rejection vocabulary semantics."""
-    registry = load_pathogen_registry(PATHOGEN_REGISTRY_PATH)
+    registry = load_taxon_registry(TAXON_REGISTRY_PATH)
     standardizer = HostStandardizer(HostPolicy.load(CONFIG_PATH, registry), NCBI_PATH)
 
     taxonomic_match = classify(standardizer, "Homo sapiens")
@@ -41,7 +41,7 @@ def test_production_host_policy_and_taxonomy_have_required_semantics() -> None:
 
     for submitted_value in (
         "Bovine_sWine-Pool!",  # normalized rejection
-        "Escherichia coli",  # target-pathogen-derived rejection
+        "Escherichia coli",  # target-taxon-derived rejection
         "cancer",  # deliberately curated rejection
     ):
         outcome = standardizer.standardize(

@@ -321,11 +321,11 @@ def _complete_build_statistics(tmp_path: Path) -> DatasetBuildStatistics:
         rows_written=1,
         date=DateBuildStatistics(
             aggregate=date_statistics,
-            by_pathogen={"ecoli": date_statistics},
+            by_taxon={"ecoli": date_statistics},
         ),
         location=LocationBuildStatistics(
             aggregate=location_statistics,
-            by_pathogen={"ecoli": location_statistics},
+            by_taxon={"ecoli": location_statistics},
             review_worklist=LocationReviewWorklistSummary(
                 path=tmp_path / "run" / "location_review_worklist.tsv",
                 row_count=1,
@@ -335,18 +335,18 @@ def _complete_build_statistics(tmp_path: Path) -> DatasetBuildStatistics:
         ),
         host=HostBuildStatistics(
             aggregate=host_statistics,
-            by_pathogen={"ecoli": host_statistics},
+            by_taxon={"ecoli": host_statistics},
         ),
         isolation_source=IsolationSourceBuildStatistics(
             aggregate=isolation_source_statistics,
-            by_pathogen={"ecoli": isolation_source_statistics},
+            by_taxon={"ecoli": isolation_source_statistics},
         ),
     )
 
 
 def _run_context(tmp_path: Path) -> RunContext:
     return RunContext(
-        requested_pathogens=("ecoli",),
+        requested_taxa=("ecoli",),
         requested_standardization_targets=("date",),
         extracted_metadata=tmp_path / "extracted.tsv",
         options={},

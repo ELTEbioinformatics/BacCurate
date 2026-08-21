@@ -1,2 +1,2 @@
-accession	bioproject_accession	sra_run_accessions	genbank_assembly_accessions	refseq_assembly_accessions	pathogen	ncbi_organism	sylph_species	biosample_last_update	date_category	date_attr_orig	date_val_orig	loc_attr_orig	loc_val_orig	host_attr_orig	host_val_orig	iso_attr_orig	iso_val_orig
+accession	bioproject_accession	sra_run_accessions	genbank_assembly_accessions	refseq_assembly_accessions	taxon_key	ncbi_organism	sylph_species	biosample_last_update	date_category	date_attr_orig	date_val_orig	loc_attr_orig	loc_val_orig	host_attr_orig	host_val_orig	iso_attr_orig	iso_val_orig
 FIXTURE_HUMAN	PRJNA1				ecoli	Escherichia coli	Escherichia coli	2020-02-29T00:00:00	c	collection_date	2020-02	geo_loc_name	Germany: Berlin	host	human	isolation_source	stool

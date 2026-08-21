@@ -17,11 +17,10 @@ from baccurate.extraction.bioproject import (
     write_unresolved_bioproject_links,
 )
 from baccurate.extraction.curation import CurationSchema
-from baccurate.extraction.io import InclusionRoute, load_pathogen_map
+from baccurate.extraction.io import InclusionRoute, load_taxon_map
 from baccurate.extraction.manual_review import ReviewWorklists
 from baccurate.extraction.tables import COLUMNS, INTERMEDIATE_COLUMNS, extracted_metadata_row
 from baccurate.extraction.xml import CurationCounters, process_biosample_xml
-from baccurate.pathogen_registry.registry import PathogenRegistry, load_pathogen_registry
 from baccurate.provenance.source_snapshot import (
     DerivedBundleProvenance,
     _publish_bundle,
@@ -29,6 +28,7 @@ from baccurate.provenance.source_snapshot import (
     validate_paired_source_contract,
 )
 from baccurate.standardization_target.policy_slot import POLICY_FILENAMES, PolicySlot
+from baccurate.taxon_registry.registry import TaxonRegistry, load_taxon_registry
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ def run_extraction(
     disable_progress: bool = False,
     *,
     curation_schema: CurationSchema,
-    pathogen_registry: PathogenRegistry | None = None,
+    taxon_registry: TaxonRegistry | None = None,
 ) -> ExtractionReport:
     logging.basicConfig(
         level=log_level.upper(),
@@ -78,8 +78,8 @@ def run_extraction(
     counters = CurationCounters()
     review_worklists = ReviewWorklists()
 
-    registry = pathogen_registry or load_pathogen_registry()
-    target_pathogen_assignment_by_accession = load_pathogen_map(index_path, registry, names)
+    registry = taxon_registry or load_taxon_registry()
+    taxon_assignment_by_accession = load_taxon_map(index_path, registry, names)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     bundle_provenance_path = provenance_path_for(output_path)
@@ -108,7 +108,7 @@ def run_extraction(
                     ):
                         for decision in decisions:
                             review_worklists.observe(decision, accession=accession)
-                        assignment = target_pathogen_assignment_by_accession.get(accession)
+                        assignment = taxon_assignment_by_accession.get(accession)
                         if assignment is None:
                             continue
                         extracted_metadata_values = extracted_metadata_row(
@@ -218,7 +218,7 @@ def cli(argv: Sequence[str] | None = None) -> None:
     parser.add_argument(
         "--index",
         default=str(paths.DEFAULT_INDEX_TSV),
-        help="TSV mapping accession to pathogen.",
+        help="TSV mapping accession to taxon.",
     )
     parser.add_argument("--names", nargs="*")
     parser.add_argument("--log-level", default="INFO")

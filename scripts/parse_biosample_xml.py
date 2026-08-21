@@ -1,7 +1,7 @@
 """Parses the full NCBI BioSample dump (`biosample_set.xml.gz`).
 
 Produces:
-  1. ``data/raw/id_lists/<pathogen_key>.tsv`` (accession, taxid, organism)
+  1. ``data/raw/id_lists/<taxon_key>.tsv`` (accession, taxid, organism)
   2. ``data/raw/biosamples.xml.gz`` a filtered subset of the dump
 """
 
@@ -20,13 +20,13 @@ from lxml import etree
 # make the package importable when run as a plain script
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from baccurate.adapters.compressed_io import open_binary, open_text
-from baccurate.pathogen_registry.registry import PathogenRegistry, load_pathogen_registry
-from baccurate.pathogen_registry.species_label_matching import (
-    NA,
-    build_pathogen_key_maps,
-    sylph_to_pathogen_key,
-)
 from baccurate.paths import DEFAULT_NODES_DMP, DEFAULT_XML_INPUT, RAW_DIR
+from baccurate.taxon_registry.registry import TaxonRegistry, load_taxon_registry
+from baccurate.taxon_registry.species_label_matching import (
+    NA,
+    build_taxon_key_maps,
+    sylph_to_taxon_key,
+)
 
 log = logging.getLogger("parse_biosample_xml")
 
@@ -46,22 +46,22 @@ def sha256(path: Path) -> str:
 
 
 def target_seeds(
-    pathogen_registry: PathogenRegistry,
+    taxon_registry: TaxonRegistry,
 ) -> tuple[dict[int, str], list[str], dict[str, str]]:
-    """Return (seed_taxid -> pathogen_key), the pathogen-key order, and pathogen_key -> space-joined taxids."""
+    """Return (seed_taxid -> taxon_key), the taxon-key order, and taxon_key -> space-joined taxids."""
     seeds: dict[int, str] = {}
-    pathogen_keys: list[str] = []
+    taxon_keys: list[str] = []
     taxids_of: dict[str, str] = {}
-    for p in pathogen_registry.target_pathogens.values():
-        pathogen_keys.append(p.key)
+    for p in taxon_registry.included_taxa.values():
+        taxon_keys.append(p.key)
         taxids_of[p.key] = " ".join(str(t) for t in p.taxids)
         for t in p.taxids:
             seeds[t] = p.key
-    return seeds, pathogen_keys, taxids_of
+    return seeds, taxon_keys, taxids_of
 
 
 def build_closure(nodes_dmp: Path, merged_dmp: Path, seeds: dict[int, str]) -> dict[int, str]:
-    """Map every taxid in the subtree of a seed to that seed's pathogen key."""
+    """Map every taxid in the subtree of a seed to that seed's taxon key."""
     log.info("loading %s", nodes_dmp)
     children: dict[int, list[int]] = defaultdict(list)
     with nodes_dmp.open("r", encoding="utf-8") as f:
@@ -78,22 +78,22 @@ def build_closure(nodes_dmp: Path, merged_dmp: Path, seeds: dict[int, str]) -> d
                 children[parent].append(taxid)
 
     closure: dict[int, str] = {}
-    for seed, pathogen_key in seeds.items():
+    for seed, taxon_key in seeds.items():
         stack = deque([seed])
         while stack:
             t = stack.popleft()
             prev = closure.get(t)
             if prev is not None:
-                if prev != pathogen_key:
+                if prev != taxon_key:
                     log.warning(
                         "taxid %d in subtrees of both %s and %s; keeping %s",
                         t,
                         prev,
-                        pathogen_key,
+                        taxon_key,
                         prev,
                     )
                 continue
-            closure[t] = pathogen_key
+            closure[t] = taxon_key
             stack.extend(children.get(t, ()))
     del children
 
@@ -110,23 +110,23 @@ def build_closure(nodes_dmp: Path, merged_dmp: Path, seeds: dict[int, str]) -> d
                     new = int(parts[1])
                 except ValueError:
                     continue
-                pathogen_key = closure.get(new)
-                if pathogen_key is not None and old not in closure:
-                    closure[old] = pathogen_key
+                taxon_key = closure.get(new)
+                if taxon_key is not None and old not in closure:
+                    closure[old] = taxon_key
                     added += 1
         log.info("merged.dmp: mapped %d retired taxid(s) into scope", added)
     else:
         log.warning("merged.dmp not found at %s. Retired taxids won't resolve", merged_dmp)
 
-    log.info("closure: %d taxids across %d pathogen keys", len(closure), len(set(closure.values())))
+    log.info("closure: %d taxids across %d taxon keys", len(closure), len(set(closure.values())))
     return closure
 
 
-def load_atb_scope(atb_path: Path, pathogen_registry: PathogenRegistry) -> set[str]:
-    """Accessions whose sylph_species maps to a target pathogen key."""
+def load_atb_scope(atb_path: Path, taxon_registry: TaxonRegistry) -> set[str]:
+    """Accessions whose sylph_species maps to a registered taxon key."""
     log.info("loading ATB scope from %s", atb_path)
-    genus_map, species_map = build_pathogen_key_maps(pathogen_registry)
-    pathogen_key_of: dict[str, str] = {}
+    genus_map, species_map = build_taxon_key_maps(taxon_registry)
+    taxon_key_of: dict[str, str] = {}
     scope: set[str] = set()
     with atb_path.open("r", encoding="utf-8", newline="") as f:
         header = f.readline().rstrip("\n").split("\t")
@@ -137,13 +137,13 @@ def load_atb_scope(atb_path: Path, pathogen_registry: PathogenRegistry) -> set[s
             if len(row) <= sp_i:
                 continue
             sp = row[sp_i]
-            pathogen_key = pathogen_key_of.get(sp)
-            if pathogen_key is None:
-                pathogen_key = sylph_to_pathogen_key(sp, genus_map, species_map)
-                pathogen_key_of[sp] = pathogen_key
-            if pathogen_key != NA:
+            taxon_key = taxon_key_of.get(sp)
+            if taxon_key is None:
+                taxon_key = sylph_to_taxon_key(sp, genus_map, species_map)
+                taxon_key_of[sp] = taxon_key
+            if taxon_key != NA:
                 scope.add(row[acc_i])
-    log.info("ATB scope: %d accessions map to a target pathogen key", len(scope))
+    log.info("ATB scope: %d accessions map to a registered taxon key", len(scope))
     return scope
 
 
@@ -151,18 +151,18 @@ def stream(
     dump: Path,
     closure: dict[int, str],
     atb_scope: set[str],
-    pathogen_keys: list[str],
+    taxon_keys: list[str],
     out_dir: Path,
     subset_path: Path | None,
 ) -> dict[str, int]:
-    """Single pass over the dump: write per-pathogen-key id_lists and (optionally) the union-scope subset."""
+    """Single pass over the dump: write per-taxon-key id_lists and (optionally) the union-scope subset."""
     out_dir.mkdir(parents=True, exist_ok=True)
     handles = {
-        m: (out_dir / f"{m}.tsv").open("w", encoding="utf-8", newline="\n") for m in pathogen_keys
+        m: (out_dir / f"{m}.tsv").open("w", encoding="utf-8", newline="\n") for m in taxon_keys
     }
     for h in handles.values():
         h.write("accession\ttaxid\torganism\n")
-    counts = dict.fromkeys(pathogen_keys, 0)
+    counts = dict.fromkeys(taxon_keys, 0)
 
     subset = None
     subset_kept = 0
@@ -177,19 +177,19 @@ def stream(
             for _event, elem in context:
                 seen += 1
                 accession = elem.get("accession")
-                pathogen_key = None
+                taxon_key = None
                 if accession:
                     org = elem.find("Description/Organism")
                     if org is not None:
                         raw = org.get("taxonomy_id")
                         if raw and raw.isdigit():
-                            pathogen_key = closure.get(int(raw))
-                            if pathogen_key is not None:
-                                handles[pathogen_key].write(
+                            taxon_key = closure.get(int(raw))
+                            if taxon_key is not None:
+                                handles[taxon_key].write(
                                     f"{accession}\t{raw}\t{org.get('taxonomy_name', '')}\n"
                                 )
-                                counts[pathogen_key] += 1
-                    if subset is not None and (pathogen_key is not None or accession in atb_scope):
+                                counts[taxon_key] += 1
+                    if subset is not None and (taxon_key is not None or accession in atb_scope):
                         subset.write(etree.tostring(elem, encoding="unicode", with_tail=False))
                         subset.write("\n")
                         subset_kept += 1
@@ -230,10 +230,10 @@ def write_manifest(
     run = date.today().isoformat()
     src = dump.name
     with manifest.open("w", encoding="utf-8", newline="\n") as f:
-        f.write("pathogen_key\trun_date\ttaxids\tsource\trows\tstatus\tsha256\n")
-        for pathogen_key, n in counts.items():
-            digest = sha256(out_dir / f"{pathogen_key}.tsv")
-            f.write(f"{pathogen_key}\t{run}\t{taxids_of[pathogen_key]}\t{src}\t{n}\tok\t{digest}\n")
+        f.write("taxon_key\trun_date\ttaxids\tsource\trows\tstatus\tsha256\n")
+        for taxon_key, n in counts.items():
+            digest = sha256(out_dir / f"{taxon_key}.tsv")
+            f.write(f"{taxon_key}\t{run}\t{taxids_of[taxon_key]}\t{src}\t{n}\tok\t{digest}\n")
     log.info("wrote manifest -> %s", manifest)
 
 
@@ -275,8 +275,8 @@ def main() -> int:
             return 1
 
     log.info("dump: %s (%d bytes)", args.dump, args.dump.stat().st_size)
-    pathogen_registry = load_pathogen_registry()
-    seeds, pathogen_keys, taxids_of = target_seeds(pathogen_registry)
+    taxon_registry = load_taxon_registry()
+    seeds, taxon_keys, taxids_of = target_seeds(taxon_registry)
     closure = build_closure(args.nodes_dmp, args.merged_dmp, seeds)
 
     subset_path = None if args.no_subset else args.subset
@@ -285,12 +285,12 @@ def main() -> int:
         if not args.atb.exists():
             log.error("ATB metadata not found: %s (pass --no-subset to skip)", args.atb)
             return 1
-        atb_scope = load_atb_scope(args.atb, pathogen_registry)
+        atb_scope = load_atb_scope(args.atb, taxon_registry)
 
-    counts = stream(args.dump, closure, atb_scope, pathogen_keys, args.id_lists_dir, subset_path)
+    counts = stream(args.dump, closure, atb_scope, taxon_keys, args.id_lists_dir, subset_path)
     write_manifest(args.id_lists_dir, counts, taxids_of, args.dump)
 
-    log.info("per-pathogen-key rows: %s", {m: counts[m] for m in pathogen_keys})
+    log.info("per-taxon-key rows: %s", {m: counts[m] for m in taxon_keys})
     return 0
 
 

@@ -1346,24 +1346,24 @@ value_rejections:
     - Lama glama and Vicugna pacos
     - Non-Animal
     - Escherichia
-    - pathogen_key: ecoli
+    - taxon_key: ecoli
     - E. coli
     - E coli
     - Model bacteria E. coli C60
     - Proteus mirabilis
     - Enterococcus
-    - pathogen_key: efaecium
-    - pathogen_key: efaecalis
+    - taxon_key: efaecium
+    - taxon_key: efaecalis
     - Staphylococcus
-    - pathogen_key: saureus
+    - taxon_key: saureus
     - Klebsiella
-    - pathogen_key: kpneumoniae
+    - taxon_key: kpneumoniae
     - Acinetobacter
-    - pathogen_key: abaumannii
+    - taxon_key: abaumannii
     - Pseudomonas
-    - pathogen_key: paeruginosa
+    - taxon_key: paeruginosa
     - Pseudomonas aeruginosa PAO
-    - pathogen_key: enterobacter
+    - taxon_key: enterobacter
     - Gallionellaceae
     - Mycobacterium tuberculosis
     - Proteus mirabilis

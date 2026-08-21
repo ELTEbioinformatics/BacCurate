@@ -6,7 +6,6 @@ from time import monotonic
 
 from baccurate.adapters.progress import progress_context
 from baccurate.extraction import run_extraction
-from baccurate.pathogen_registry.registry import PathogenRegistry
 from baccurate.paths import DEFAULT_BIOPROJECT_XML_INPUT
 from baccurate.run.dataset_builder import DatasetBuilder, DatasetBuildRequest
 from baccurate.run.invocation import resolve_invocation
@@ -14,6 +13,7 @@ from baccurate.run.logging import LIFECYCLE_LOGGER_NAME, configure_run_logging
 from baccurate.run.prompt_snapshot import write_prompt_snapshot
 from baccurate.run.report import RunContext, RunPhase, RunReport, RunStatus
 from baccurate.run.statistics import DatasetBuildProgress, processed_rows
+from baccurate.taxon_registry.registry import TaxonRegistry
 
 logger = logging.getLogger(LIFECYCLE_LOGGER_NAME)
 pipeline_logger = logging.getLogger("baccurate.pipeline")
@@ -22,9 +22,9 @@ pipeline_logger = logging.getLogger("baccurate.pipeline")
 def main(
     argv: Sequence[str] | None = None,
     *,
-    pathogen_registry: PathogenRegistry | None = None,
+    taxon_registry: TaxonRegistry | None = None,
 ) -> None:
-    invocation = resolve_invocation(argv, pathogen_registry=pathogen_registry)
+    invocation = resolve_invocation(argv, taxon_registry=taxon_registry)
     args = invocation
     registry = invocation.registry
     log_level = invocation.log_level
@@ -35,8 +35,8 @@ def main(
     outputs = invocation.outputs
     biosample_input_path = invocation.biosample_input_path
     index_path = invocation.index_path
-    names = invocation.pathogen_keys
-    extraction_names = invocation.extraction_pathogen_keys
+    names = invocation.taxon_keys
+    extraction_names = invocation.extraction_taxon_keys
     disable_progress = invocation.disable_progress
     configuration_paths = invocation.configuration_paths
     normalized_options = invocation.normalized_options
@@ -56,7 +56,7 @@ def main(
     run_report = RunReport(
         outputs,
         RunContext(
-            requested_pathogens=tuple(names),
+            requested_taxa=tuple(names),
             requested_standardization_targets=tuple(target.value for target in active_targets),
             extracted_metadata=extracted_metadata_path,
             options=normalized_options,
@@ -73,7 +73,7 @@ def main(
     )
     started = monotonic()
     logger.info(
-        "Run started: pathogens=%s standardization_targets=%s",
+        "Run started: taxa=%s standardization_targets=%s",
         ",".join(names),
         ",".join(target.value for target in active_targets),
     )
@@ -101,7 +101,7 @@ def main(
                     curation_schema=curation_schema,
                     index_path=index_path,
                     names=extraction_names,
-                    pathogen_registry=registry,
+                    taxon_registry=registry,
                     log_level=log_level,
                     disable_progress=disable_progress,
                 )
@@ -126,10 +126,10 @@ def main(
                 extracted_metadata=extracted_metadata_path,
                 biosample_snapshot_manifest=DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
                 bioproject_snapshot_manifest=DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
-                requested_pathogens=tuple(names),
+                requested_taxa=tuple(names),
                 requested_targets=active_targets,
                 final_destination=outputs.dataset,
-                pathogen_registry=registry,
+                taxon_registry=registry,
                 host_policy=effective_policy.host_policy,
                 location_policy=effective_policy.location_policy,
                 isolation_source_prompt_policy=effective_policy.isolation_source_prompt_policy,

@@ -1,13 +1,13 @@
-# Registry of target pathogen groups.
+# Taxonomic registry of samples to be selected from BioSample.
 #
 # A top-level key is either a LEAF (has scientific_name / ncbi_taxid / rank)
-# or a CONTAINER (a map of leaf pathogens, e.g. kpsc).
+# or a CONTAINER (a map of leaf taxa, e.g. kpsc).
 #
-# A pathogen key is the unit of identity, used as:
+# A taxon key is used as:
 #   - a CLI argument (`uv run baccurate abaumannii ecoli`),
-#   - the stem of the input files (data/raw/id_lists/<pathogen_key>.tsv),
-#   - the value written to the `pathogen` output column and `pathogen_biosample`.
-# A container key is a convenience group: `uv run baccurate kpsc` runs all its pathogen keys.
+#   - the stem of the input files (data/raw/id_lists/<taxon_key>.tsv),
+#   - the value written to the `taxon_key` output column and `taxon_biosample`.
+# A container key is for convenience: `uv run baccurate kpsc` runs all its taxon keys.
 #
 # Optional `also_taxids` adds extra NCBI taxid subtrees when parsing the BioSample XML dump
 

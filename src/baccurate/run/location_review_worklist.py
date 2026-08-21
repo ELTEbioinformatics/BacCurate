@@ -21,14 +21,14 @@ COLUMNS = (
     "normalized_submitted_value",
     "biosample_record_count",
     "occurrence_count",
-    "pathogen_counts",
+    "taxon_counts",
     "submitted_attribute_counts",
     "representative_examples",
 )
 
 _REPRESENTATIVE_LIMIT = 3
 
-# (biosample_accession, pathogen_key, submitted_attribute, submitted_value)
+# (biosample_accession, taxon_key, submitted_attribute, submitted_value)
 type _Example = tuple[str, str, str, str]
 
 
@@ -48,7 +48,7 @@ class _WorklistRow:
 
     accessions: set[str] = field(default_factory=set)
     occurrence_count: int = 0
-    pathogen_counts: dict[str, int] = field(default_factory=dict)
+    taxon_counts: dict[str, int] = field(default_factory=dict)
     submitted_attribute_counts: dict[str, int] = field(default_factory=dict)
     examples: set[_Example] = field(default_factory=set)
 
@@ -57,17 +57,17 @@ class _WorklistRow:
         unresolved: UnresolvedLocationInput,
         *,
         accession: str,
-        pathogen_key: str,
+        taxon_key: str,
     ) -> None:
         self.accessions.add(accession)
         self.occurrence_count += 1
-        self.pathogen_counts[pathogen_key] = self.pathogen_counts.get(pathogen_key, 0) + 1
+        self.taxon_counts[taxon_key] = self.taxon_counts.get(taxon_key, 0) + 1
         self.submitted_attribute_counts[unresolved.attribute] = (
             self.submitted_attribute_counts.get(unresolved.attribute, 0) + 1
         )
         # Keeping the lexically smallest examples makes the set deterministic
         # regardless of input order.
-        self.examples.add((accession, pathogen_key, unresolved.attribute, unresolved.value))
+        self.examples.add((accession, taxon_key, unresolved.attribute, unresolved.value))
         if len(self.examples) > _REPRESENTATIVE_LIMIT:
             self.examples.remove(max(self.examples))
 
@@ -76,11 +76,11 @@ class _WorklistRow:
             [
                 {
                     "biosample_accession": accession,
-                    "pathogen_key": pathogen_key,
+                    "taxon_key": taxon_key,
                     "submitted_attribute": attribute,
                     "submitted_value": value,
                 }
-                for accession, pathogen_key, attribute, value in sorted(self.examples)
+                for accession, taxon_key, attribute, value in sorted(self.examples)
             ]
         )
 
@@ -96,7 +96,7 @@ class LocationReviewWorklist:
         unresolved_inputs: Iterable[UnresolvedLocationInput],
         *,
         accession: str,
-        pathogen_key: str,
+        taxon_key: str,
     ) -> None:
         """Record one BioSample record's unresolved geographic-location inputs."""
         for unresolved in unresolved_inputs:
@@ -104,7 +104,7 @@ class LocationReviewWorklist:
             self._rows.setdefault(normalized, _WorklistRow()).observe(
                 unresolved,
                 accession=accession,
-                pathogen_key=pathogen_key,
+                taxon_key=taxon_key,
             )
 
     def write(self, destination: Path) -> LocationReviewWorklistSummary:
@@ -122,7 +122,7 @@ class LocationReviewWorklist:
                         normalized_value,
                         len(row.accessions),
                         row.occurrence_count,
-                        _compact_json(dict(sorted(row.pathogen_counts.items()))),
+                        _compact_json(dict(sorted(row.taxon_counts.items()))),
                         _compact_json(dict(sorted(row.submitted_attribute_counts.items()))),
                         row.render_examples(),
                     )

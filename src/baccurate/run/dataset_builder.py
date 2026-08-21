@@ -13,8 +13,6 @@ from typing import Protocol, TextIO
 from baccurate.adapters.llm.client import LLMSettings, load_llm_settings
 from baccurate.adapters.progress import make_progress_bar
 from baccurate.extraction import SEQUENCE_ACCESSION_COLUMNS
-from baccurate.pathogen_registry.registry import PathogenRegistry
-from baccurate.pathogen_registry.species_label_matching import NA
 from baccurate.paths import DEFAULT_NAMES_DMP, DEFAULT_NODES_DMP
 from baccurate.provenance.source_snapshot import validate_extracted_metadata_bundle
 from baccurate.run.location_review_worklist import (
@@ -81,6 +79,8 @@ from baccurate.standardization_target.specifications import (
     StandardizationTarget,
     required_policy_slots,
 )
+from baccurate.taxon_registry.registry import TaxonRegistry
+from baccurate.taxon_registry.species_label_matching import NA
 
 logger = logging.getLogger(__name__)
 
@@ -101,10 +101,10 @@ class DatasetBuildRequest:
     extracted_metadata: Path
     biosample_snapshot_manifest: Path
     bioproject_snapshot_manifest: Path
-    requested_pathogens: tuple[str, ...]
+    requested_taxa: tuple[str, ...]
     requested_targets: tuple[StandardizationTarget, ...]
     final_destination: Path
-    pathogen_registry: PathogenRegistry
+    taxon_registry: TaxonRegistry
     host_policy: HostPolicy | None = None
     location_policy: LocationPolicy | None = None
     isolation_source_prompt_policy: IsolationSourcePromptPolicy | None = None
@@ -173,7 +173,7 @@ class _MutableIsolationSourceStatistics:
 @dataclass(frozen=True, slots=True)
 class _FinalRow:
     accession: str
-    pathogen: str
+    taxon: str
     ncbi_organism: str
     sylph_species: str
     bioproject: str
@@ -195,7 +195,7 @@ class _FinalRowAssembler:
 
     base_columns = (
         "accession",
-        "pathogen_scientific_name",
+        "taxon_scientific_name",
         "ncbi_organism",
         "sylph_species",
         "bioproject",
@@ -205,10 +205,10 @@ class _FinalRowAssembler:
     def __init__(
         self,
         targets: Sequence[StandardizationTarget],
-        pathogen_registry: PathogenRegistry,
+        taxon_registry: TaxonRegistry,
         isolation_source_facets: Sequence[IsolationSourceFacet] = (),
     ):
-        self._pathogen_registry = pathogen_registry
+        self._taxon_registry = taxon_registry
         self._selected_targets = tuple(targets)
         self._isolation_source_facets = tuple(isolation_source_facets)
         selected = set(targets)
@@ -238,11 +238,11 @@ class _FinalRowAssembler:
 
         Inputs are one extracted metadata record and its standardized outcomes.
         """
-        pathogen = extracted_record["pathogen"]
+        taxon = extracted_record["taxon_key"]
         accession = extracted_record["accession"]
         return _FinalRow(
             accession=accession,
-            pathogen=self._pathogen_registry.scientific_name(pathogen),
+            taxon=self._taxon_registry.scientific_name(taxon),
             ncbi_organism=extracted_record.get("ncbi_organism", NA),
             sylph_species=extracted_record.get("sylph_species", NA),
             bioproject=extracted_record.get("bioproject_accession", ""),
@@ -259,7 +259,7 @@ class _FinalRowAssembler:
     def project(self, final_row: _FinalRow) -> tuple[object, ...]:
         values: tuple[object, ...] = (
             final_row.accession,
-            final_row.pathogen,
+            final_row.taxon,
             final_row.ncbi_organism,
             final_row.sylph_species,
             final_row.bioproject,
@@ -385,7 +385,7 @@ class DatasetBuilder:
         self._isolation_source_standardizer_factory = isolation_source_standardizer_factory
 
     def build(self, request: DatasetBuildRequest) -> DatasetBuildStatistics:
-        pathogens, targets = self._validate_request(request)
+        taxa, targets = self._validate_request(request)
         llm_settings = request.llm_settings or load_llm_settings()
         request.progress.processed_rows = 0
         request.progress.rows_written = 0
@@ -433,7 +433,7 @@ class DatasetBuilder:
             writer.writerow(
                 _FinalRowAssembler(
                     targets,
-                    request.pathogen_registry,
+                    request.taxon_registry,
                     isolation_source_facets,
                 ).columns
             )
@@ -444,17 +444,17 @@ class DatasetBuilder:
                 request.bioproject_snapshot_manifest,
             )
             extracted_row_counts = self._count_selected_extracted_rows(
-                request.extracted_metadata, pathogens
+                request.extracted_metadata, taxa
             )
             assembler = _FinalRowAssembler(
                 targets,
-                request.pathogen_registry,
+                request.taxon_registry,
                 isolation_source_facets,
             )
             if StandardizationTarget.DATE in targets:
                 date_standardizers = {
-                    pathogen: RecordDateStandardizer(source_contract.metadata_reference_date)
-                    for pathogen in pathogens
+                    taxon: RecordDateStandardizer(source_contract.metadata_reference_date)
+                    for taxon in taxa
                 }
             else:
                 date_standardizers = {}
@@ -514,22 +514,20 @@ class DatasetBuilder:
                 else None
             )
             date_stats = (
-                {pathogen: _MutableDateStatistics() for pathogen in pathogens}
-                if date_standardizers
-                else {}
+                {taxon: _MutableDateStatistics() for taxon in taxa} if date_standardizers else {}
             )
             location_stats = (
-                {pathogen: _MutableLocationStatistics() for pathogen in pathogens}
+                {taxon: _MutableLocationStatistics() for taxon in taxa}
                 if location_standardizer is not None
                 else {}
             )
             host_stats = (
-                {pathogen: _MutableHostStatistics() for pathogen in pathogens}
+                {taxon: _MutableHostStatistics() for taxon in taxa}
                 if StandardizationTarget.HOST in targets
                 else {}
             )
             isolation_source_stats = (
-                {pathogen: _MutableIsolationSourceStatistics() for pathogen in pathogens}
+                {taxon: _MutableIsolationSourceStatistics() for taxon in taxa}
                 if isolation_source_standardizer is not None
                 else {}
             )
@@ -537,7 +535,7 @@ class DatasetBuilder:
             try:
                 rows_written = self._process_extracted_records(
                     request,
-                    pathogens,
+                    taxa,
                     targets,
                     extracted_row_counts,
                     date_standardizers,
@@ -598,11 +596,11 @@ class DatasetBuilder:
     def _validate_request(
         request: DatasetBuildRequest,
     ) -> tuple[tuple[str, ...], tuple[StandardizationTarget, ...]]:
-        pathogens = tuple(request.requested_pathogens)
-        if not pathogens:
-            raise ValueError("Need at least one pathogen")
-        if len(set(pathogens)) != len(pathogens):
-            raise ValueError("Pathogens must be unique")
+        taxa = tuple(request.requested_taxa)
+        if not taxa:
+            raise ValueError("Need at least one taxon")
+        if len(set(taxa)) != len(taxa):
+            raise ValueError("Taxa must be unique")
         targets = tuple(request.requested_targets)
         if not targets:
             raise ValueError("Need at least one standardization attribute")
@@ -620,25 +618,25 @@ class DatasetBuilder:
             raise ValueError(
                 "Isolation-source standardization requires an isolation-source prompt policy"
             )
-        return pathogens, targets
+        return taxa, targets
 
     @staticmethod
     def _count_selected_extracted_rows(
         input_path: Path,
-        pathogens: Sequence[str],
+        taxa: Sequence[str],
     ) -> dict[str, int]:
-        counts = dict.fromkeys(pathogens, 0)
+        counts = dict.fromkeys(taxa, 0)
         with Path(input_path).open("r", encoding="utf-8", newline="") as stream:
             for record in csv.DictReader(stream, delimiter="\t"):
-                pathogen = (record.get("pathogen") or "").strip()
-                if pathogen in counts:
-                    counts[pathogen] += 1
+                taxon = (record.get("taxon_key") or "").strip()
+                if taxon in counts:
+                    counts[taxon] += 1
         return counts
 
     @staticmethod
     def _process_extracted_records(
         request: DatasetBuildRequest,
-        pathogens: Sequence[str],
+        taxa: Sequence[str],
         targets: Sequence[StandardizationTarget],
         extracted_row_counts: Mapping[str, int],
         date_standardizers: Mapping[str, RecordDateStandardizer],
@@ -656,7 +654,7 @@ class DatasetBuilder:
         writer: _RowWriter,
         reasoning_stream: TextIO | None,
     ) -> int:
-        selected = set(pathogens)
+        selected = set(taxa)
         rows_written = 0
         total = sum(extracted_row_counts.values())
         with (
@@ -673,18 +671,18 @@ class DatasetBuilder:
             _require_columns(reader.fieldnames, targets)
             for row_number, extracted_record in enumerate(reader, start=1):
                 accession = (extracted_record.get("accession") or "").strip()
-                pathogen = (extracted_record.get("pathogen") or "").strip()
+                taxon = (extracted_record.get("taxon_key") or "").strip()
                 if not accession:
                     raise ValueError(f"Record {row_number} has no accession")
-                if not pathogen:
-                    raise ValueError(f"Record {accession} has no pathogen")
-                if pathogen not in selected:
+                if not taxon:
+                    raise ValueError(f"Record {accession} has no taxon")
+                if taxon not in selected:
                     continue
                 date_outcome = None
-                if pathogen in date_standardizers:
-                    stats = date_stats[pathogen]
+                if taxon in date_standardizers:
+                    stats = date_stats[taxon]
                     stats.processed += 1
-                    date_outcome = date_standardizers[pathogen].standardize(extracted_record)
+                    date_outcome = date_standardizers[taxon].standardize(extracted_record)
                     if date_outcome is None:
                         stats.rejected += 1
                     else:
@@ -697,7 +695,7 @@ class DatasetBuilder:
                 location_outcome = None
                 location_result: LocationOutcome | LocationRejection | None = None
                 if location_standardizer is not None:
-                    stats = location_stats[pathogen]
+                    stats = location_stats[taxon]
                     stats.processed += 1
                     location_result = location_standardizer.standardize(extracted_record)
                     stats.coordinate_decodes += location_result.coordinate_decodes
@@ -709,7 +707,7 @@ class DatasetBuilder:
                         location_review_worklist.observe(
                             location_result.unresolved_inputs,
                             accession=accession,
-                            pathogen_key=pathogen,
+                            taxon_key=taxon,
                         )
                     if isinstance(location_result, LocationRejection):
                         stats.rejected += 1
@@ -729,66 +727,64 @@ class DatasetBuilder:
                     isolation_source_result = host_isolation_source_result.isolation_source
 
                     if host_stats:
-                        host_pathogen_stats = host_stats[pathogen]
-                        host_pathogen_stats.processed += 1
-                        host_pathogen_stats.diagnostics.update(
+                        host_taxon_stats = host_stats[taxon]
+                        host_taxon_stats.processed += 1
+                        host_taxon_stats.diagnostics.update(
                             host_isolation_source_result.diagnostics.host
                         )
                         if (
                             host_isolation_source_result.routing.host_initial
                             is HostInitialRouting.MATCHED
                         ):
-                            host_pathogen_stats.standardized += 1
-                            host_pathogen_stats.needs_review += int(host_outcome.needs_review)
+                            host_taxon_stats.standardized += 1
+                            host_taxon_stats.needs_review += int(host_outcome.needs_review)
                         elif (
                             host_isolation_source_result.routing.host_initial
                             is HostInitialRouting.OVERFLOW
                         ):
-                            host_pathogen_stats.overflow += 1
+                            host_taxon_stats.overflow += 1
                         else:
-                            host_pathogen_stats.rejected += 1
+                            host_taxon_stats.rejected += 1
                         if (
                             host_isolation_source_result.routing.host_recovery
                             is not HostRecoveryRouting.NOT_ELIGIBLE
                         ):
-                            host_pathogen_stats.host_recovery_passes += 1
+                            host_taxon_stats.host_recovery_passes += 1
                             if host_outcome.standardized is not None:
-                                host_pathogen_stats.standardized += 1
-                                host_pathogen_stats.needs_review += int(host_outcome.needs_review)
+                                host_taxon_stats.standardized += 1
+                                host_taxon_stats.needs_review += int(host_outcome.needs_review)
                     if host_lineage is not None and host_outcome.standardized is not None:
                         lineage_outcome = host_lineage.enrich(host_outcome.standardized.taxid)
 
-                    isolation_source_pathogen_stats = isolation_source_stats[pathogen]
-                    isolation_source_pathogen_stats.processed += 1
-                    isolation_source_pathogen_stats.diagnostics.update(
+                    isolation_source_taxon_stats = isolation_source_stats[taxon]
+                    isolation_source_taxon_stats.processed += 1
+                    isolation_source_taxon_stats.diagnostics.update(
                         host_isolation_source_result.diagnostics.isolation_source
                     )
-                    isolation_source_pathogen_stats.ontology_gap_diagnostics.update(
+                    isolation_source_taxon_stats.ontology_gap_diagnostics.update(
                         isolation_source_result.ontology_gap_diagnostics
                     )
-                    isolation_source_pathogen_stats.host_recovery_passes += int(
+                    isolation_source_taxon_stats.host_recovery_passes += int(
                         host_isolation_source_result.routing.host_recovery
                         is not HostRecoveryRouting.NOT_ELIGIBLE
                     )
                     if isinstance(isolation_source_result, IsolationSourceRejection):
-                        isolation_source_pathogen_stats.rejected += 1
+                        isolation_source_taxon_stats.rejected += 1
                     else:
                         isolation_source_outcome = isolation_source_result
-                        isolation_source_pathogen_stats.standardized += 1
-                        isolation_source_pathogen_stats.exact_matches += (
+                        isolation_source_taxon_stats.standardized += 1
+                        isolation_source_taxon_stats.exact_matches += (
                             isolation_source_result.exact_matches
                         )
-                        isolation_source_pathogen_stats.cache_hits += (
+                        isolation_source_taxon_stats.cache_hits += (
                             isolation_source_result.cache_hits
                         )
-                        isolation_source_pathogen_stats.llm_calls += (
-                            isolation_source_result.llm_calls
-                        )
-                        isolation_source_pathogen_stats.evidence_levels[
+                        isolation_source_taxon_stats.llm_calls += isolation_source_result.llm_calls
+                        isolation_source_taxon_stats.evidence_levels[
                             isolation_source_result.evidence_level
                         ] += 1
                 elif host_standardizer is not None:
-                    stats = host_stats[pathogen]
+                    stats = host_stats[taxon]
                     stats.processed += 1
                     host_result = host_standardizer.standardize(extracted_record)
                     host_outcome = host_result
@@ -807,7 +803,7 @@ class DatasetBuilder:
                     host_isolation_source_standardizer is None
                     and isolation_source_standardizer is not None
                 ):
-                    stats = isolation_source_stats[pathogen]
+                    stats = isolation_source_stats[taxon]
                     stats.processed += 1
                     isolation_source_result = isolation_source_standardizer.standardize(
                         extracted_record,
@@ -836,7 +832,7 @@ class DatasetBuilder:
                     and isolation_source_outcome.host_recovery_eligible
                     and isolation_source_outcome.host_recovery_pairs
                 ):
-                    isolation_source_stats[pathogen].host_recovery_passes += 1
+                    isolation_source_stats[taxon].host_recovery_passes += 1
                     recovery_outcome = host_standardizer.recovery_pass(
                         accession,
                         "||".join(
@@ -846,12 +842,12 @@ class DatasetBuilder:
                             pair.value for pair in isolation_source_outcome.host_recovery_pairs
                         ),
                     )
-                    host_stats[pathogen].host_recovery_passes += 1
-                    host_stats[pathogen].diagnostics.update(recovery_outcome.diagnostics)
+                    host_stats[taxon].host_recovery_passes += 1
+                    host_stats[taxon].diagnostics.update(recovery_outcome.diagnostics)
                     host_outcome = recovery_outcome
                     if recovery_outcome.standardized is not None:
-                        host_stats[pathogen].standardized += 1
-                        host_stats[pathogen].needs_review += int(recovery_outcome.needs_review)
+                        host_stats[taxon].standardized += 1
+                        host_stats[taxon].needs_review += int(recovery_outcome.needs_review)
                         lineage_outcome = host_lineage.enrich(recovery_outcome.standardized.taxid)
 
                 if (
@@ -865,9 +861,7 @@ class DatasetBuilder:
                     )
                 ):
                     reasoning_json = (
-                        _isolation_source_reasoning_json(
-                            accession, pathogen, isolation_source_outcome
-                        )
+                        _isolation_source_reasoning_json(accession, taxon, isolation_source_outcome)
                         if isolation_source_outcome is not None and reasoning_stream is not None
                         else None
                     )
@@ -924,18 +918,18 @@ class DatasetBuilder:
     ) -> DateBuildStatistics | None:
         if not mutable_stats:
             return None
-        by_pathogen: dict[str, DateStatistics] = {}
+        by_taxon: dict[str, DateStatistics] = {}
         aggregate_diagnostics: Counter[DateDiagnostic] = Counter()
         aggregate_rejections: Counter[str] = Counter()
         aggregate_notices: Counter[str] = Counter()
-        for pathogen, stats in mutable_stats.items():
-            standardizer = standardizers[pathogen]
+        for taxon, stats in mutable_stats.items():
+            standardizer = standardizers[taxon]
             rejection_counts = dict(sorted(standardizer.rejection_counts.items()))
             notice_counts = dict(sorted(standardizer.notice_counts.items()))
             aggregate_rejections.update(rejection_counts)
             aggregate_notices.update(notice_counts)
             aggregate_diagnostics.update(getattr(standardizer, "diagnostic_counts", {}))
-            by_pathogen[pathogen] = DateStatistics(
+            by_taxon[taxon] = DateStatistics(
                 processed=stats.processed,
                 standardized=stats.standardized,
                 rejected=stats.rejected,
@@ -959,7 +953,7 @@ class DatasetBuilder:
             parsed_date_rejections=dict(sorted(aggregate_rejections.items())),
             notices=dict(sorted(aggregate_notices.items())),
         )
-        return DateBuildStatistics(aggregate=aggregate, by_pathogen=by_pathogen)
+        return DateBuildStatistics(aggregate=aggregate, by_taxon=by_taxon)
 
     @staticmethod
     def _make_location_statistics(
@@ -982,7 +976,7 @@ class DatasetBuilder:
                 diagnostics=dict(sorted(stats.diagnostics.items())),
             )
 
-        by_pathogen = {pathogen: freeze(stats) for pathogen, stats in mutable_stats.items()}
+        by_taxon = {taxon: freeze(stats) for taxon, stats in mutable_stats.items()}
         aggregate = LocationStatistics(
             processed=sum(stats.processed for stats in mutable_stats.values()),
             standardized=sum(stats.standardized for stats in mutable_stats.values()),
@@ -1002,7 +996,7 @@ class DatasetBuilder:
         )
         return LocationBuildStatistics(
             aggregate=aggregate,
-            by_pathogen=by_pathogen,
+            by_taxon=by_taxon,
             review_worklist=review_worklist,
         )
 
@@ -1024,7 +1018,7 @@ class DatasetBuilder:
                 diagnostics=dict(sorted(stats.diagnostics.items())),
             )
 
-        by_pathogen = {pathogen: freeze(stats) for pathogen, stats in mutable_stats.items()}
+        by_taxon = {taxon: freeze(stats) for taxon, stats in mutable_stats.items()}
         aggregate_diagnostics: Counter[HostDiagnostic] = Counter()
         for stats in mutable_stats.values():
             aggregate_diagnostics.update(stats.diagnostics)
@@ -1039,7 +1033,7 @@ class DatasetBuilder:
             ),
             diagnostics=dict(sorted(aggregate_diagnostics.items())),
         )
-        return HostBuildStatistics(aggregate=aggregate, by_pathogen=by_pathogen)
+        return HostBuildStatistics(aggregate=aggregate, by_taxon=by_taxon)
 
     @staticmethod
     def _make_isolation_source_statistics(
@@ -1062,7 +1056,7 @@ class DatasetBuilder:
                 invented_labels=invented_label_inventory(stats.ontology_gap_diagnostics),
             )
 
-        by_pathogen = {pathogen: freeze(stats) for pathogen, stats in mutable_stats.items()}
+        by_taxon = {taxon: freeze(stats) for taxon, stats in mutable_stats.items()}
         aggregate_diagnostics: Counter[IsolationSourceDiagnostic] = Counter()
         aggregate_evidence_levels: Counter[IsolationSourceEvidenceLevel] = Counter()
         aggregate_ontology_gaps: Counter[IsolationSourceOntologyGapDiagnostic] = Counter()
@@ -1084,7 +1078,7 @@ class DatasetBuilder:
             diagnostics=dict(sorted(aggregate_diagnostics.items())),
             invented_labels=invented_label_inventory(aggregate_ontology_gaps),
         )
-        return IsolationSourceBuildStatistics(aggregate=aggregate, by_pathogen=by_pathogen)
+        return IsolationSourceBuildStatistics(aggregate=aggregate, by_taxon=by_taxon)
 
 
 def _require_columns(
@@ -1093,7 +1087,7 @@ def _require_columns(
 ) -> None:
     required = {
         "accession",
-        "pathogen",
+        "taxon_key",
         "bioproject_accession",
         *SEQUENCE_ACCESSION_COLUMNS,
     }
@@ -1107,7 +1101,7 @@ def _require_columns(
 
 def _isolation_source_reasoning_json(
     accession: str,
-    pathogen: str,
+    taxon: str,
     outcome: IsolationSourceOutcome,
 ) -> str:
     """Render an extracted metadata record's isolation-source reasoning as a JSON line."""
@@ -1118,7 +1112,7 @@ def _isolation_source_reasoning_json(
         )
     reasoning_record = {
         "accession": accession,
-        "pathogen": pathogen,
+        "taxon_key": taxon,
         "origins": [
             {"attribute": pair.attribute, "value": pair.value} for pair in outcome.supporting_pairs
         ],

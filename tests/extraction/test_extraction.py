@@ -70,7 +70,7 @@ def test_extraction_uses_internal_paired_sources_without_raw_arguments(
 ) -> None:
     sources = paired_source_snapshots
     index = tmp_path / "biosample_index.tsv"
-    index.write_text("accession\tpathogen_biosample\n", encoding="utf-8")
+    index.write_text("accession\ttaxon_biosample\n", encoding="utf-8")
     _configure_internal_paths(monkeypatch, sources)
 
     report = run_extraction(
@@ -92,7 +92,7 @@ def test_extraction_cli_accepts_simplified_supported_invocation(
     sources = paired_source_snapshots
     _configure_internal_paths(monkeypatch, sources)
     index = tmp_path / "biosample_index.tsv"
-    index.write_text("accession\tpathogen_biosample\n", encoding="utf-8")
+    index.write_text("accession\ttaxon_biosample\n", encoding="utf-8")
     output = tmp_path / "extracted.tsv"
 
     extraction_facade.cli(["--output", str(output), "--index", str(index), "--quiet"])
@@ -128,7 +128,7 @@ def test_extraction_report_carries_both_validated_source_identities(
     sources = paired_source_snapshots
     _configure_internal_paths(monkeypatch, sources)
     index = tmp_path / "biosample_index.tsv"
-    index.write_text("accession\tpathogen_biosample\n", encoding="utf-8")
+    index.write_text("accession\ttaxon_biosample\n", encoding="utf-8")
 
     report = run_extraction(
         output_path=tmp_path / "extracted.tsv",
@@ -170,7 +170,7 @@ def test_extraction_reports_inclusion_routes_for_records_present_in_snapshot(
     _configure_internal_paths(monkeypatch, sources)
     index = tmp_path / "biosample_index.tsv"
     index.write_text(
-        "accession\tpathogen_biosample\torganism_value\tsylph_species\n"
+        "accession\ttaxon_biosample\torganism_value\tsylph_species\n"
         "taxonomy\tecoli\tEscherichia coli\tNA\n"
         "atb\tNA\tNA\tEscherichia coli\n"
         "reassigned\tefaecium\tEnterococcus faecium\tEscherichia coli\n"
@@ -194,7 +194,7 @@ def test_extraction_reports_inclusion_routes_for_records_present_in_snapshot(
     }
     with extracted.open(newline="", encoding="utf-8") as stream:
         published = {row["accession"]: row for row in csv.DictReader(stream, delimiter="\t")}
-    assert published["reassigned"]["pathogen"] == "ecoli"
+    assert published["reassigned"]["taxon_key"] == "ecoli"
     assert published["reassigned"]["ncbi_organism"] == "Enterococcus faecium"
     assert published["reassigned"]["sylph_species"] == "Escherichia coli"
     assert published["taxonomy"]["sylph_species"] == "NA"
@@ -235,7 +235,7 @@ def test_extraction_report_preserves_production_curation_review_counters(
     )
     _configure_internal_paths(monkeypatch, sources)
     index = tmp_path / "biosample_index.tsv"
-    index.write_text("accession\tpathogen_biosample\n", encoding="utf-8")
+    index.write_text("accession\ttaxon_biosample\n", encoding="utf-8")
 
     report = run_extraction(
         output_path=tmp_path / "extracted.tsv",
@@ -334,7 +334,7 @@ def test_extraction_publishes_provenance_bound_metadata_bundle(
     _configure_internal_paths(monkeypatch, sources)
     index = tmp_path / "biosample_index.tsv"
     index.write_text(
-        "accession\tpathogen_biosample\tsra_run_accessions\t"
+        "accession\ttaxon_biosample\tsra_run_accessions\t"
         "genbank_assembly_accessions\trefseq_assembly_accessions\n"
         "SAMN00000001\tecoli\tSRR1,SRR2\tGCA_1.1\tNA\n",
         encoding="utf-8",
@@ -421,7 +421,7 @@ def test_extraction_preserves_linked_project_sets_and_unresolved_evidence(
     _configure_internal_paths(monkeypatch, sources)
     index = tmp_path / "biosample_index.tsv"
     index.write_text(
-        "accession\tpathogen_biosample\n"
+        "accession\ttaxon_biosample\n"
         "SAMN00000001\tecoli\n"
         "SAMN00000002\tecoli\n"
         "SAMN00000003\tecoli\n"
@@ -462,7 +462,7 @@ def test_equivalent_link_and_project_order_produces_byte_stable_data_artifacts(
     _configure_internal_paths(monkeypatch, sources)
     index = tmp_path / "biosample_index.tsv"
     index.write_text(
-        "accession\tpathogen_biosample\nSAMN00000001\tecoli\n",
+        "accession\ttaxon_biosample\nSAMN00000001\tecoli\n",
         encoding="utf-8",
     )
     sample_template = """\
@@ -517,7 +517,7 @@ def test_interrupted_bundle_publication_cannot_leave_valid_provenance(
     sources = paired_source_snapshots
     _configure_internal_paths(monkeypatch, sources)
     index = tmp_path / "biosample_index.tsv"
-    index.write_text("accession\tpathogen_biosample\n", encoding="utf-8")
+    index.write_text("accession\ttaxon_biosample\n", encoding="utf-8")
     extracted = tmp_path / "interrupted.tsv"
     provenance = provenance_path_for(extracted)
     real_replace = replace

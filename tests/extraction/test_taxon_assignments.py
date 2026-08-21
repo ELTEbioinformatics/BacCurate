@@ -1,25 +1,25 @@
-"""Tests for target pathogen assignment from data/raw/biosample_index.tsv."""
+"""Tests for taxon assignment from data/raw/biosample_index.tsv."""
 
 from pathlib import Path
 
-from baccurate.extraction import TargetPathogenAssignment, load_pathogen_map
-from baccurate.pathogen_registry.registry import Pathogen, PathogenRegistry
+from baccurate.extraction import TaxonAssignment, load_taxon_map
+from baccurate.taxon_registry.registry import Taxon, TaxonRegistry
 
-_HEADER = "accession\tpathogen_biosample\torganism_value\tsylph_species\n"
+_HEADER = "accession\ttaxon_biosample\torganism_value\tsylph_species\n"
 
-_ECOLI = Pathogen("ecoli", "Escherichia coli", 562, "species")
-_EFAECIUM = Pathogen("efaecium", "Enterococcus faecium", 1352, "species")
+_ECOLI = Taxon("ecoli", "Escherichia coli", 562, "species")
+_EFAECIUM = Taxon("efaecium", "Enterococcus faecium", 1352, "species")
 
 
-def _registry(*target_pathogens: Pathogen) -> PathogenRegistry:
-    return PathogenRegistry(
+def _registry(*included_taxa: Taxon) -> TaxonRegistry:
+    return TaxonRegistry(
         schema_version=1,
-        target_pathogens={pathogen.key: pathogen for pathogen in target_pathogens},
+        included_taxa={taxon.key: taxon for taxon in included_taxa},
         containers={},
     )
 
 
-def test_load_pathogen_map_resolves_registered_assignments_before_filtering(
+def test_load_taxon_map_resolves_registered_assignments_before_filtering(
     tmp_path: Path,
 ) -> None:
     index = tmp_path / "biosample_index.tsv"
@@ -34,31 +34,31 @@ def test_load_pathogen_map_resolves_registered_assignments_before_filtering(
         encoding="utf-8",
     )
 
-    assignments = load_pathogen_map(index, _registry(_ECOLI, _EFAECIUM))
+    assignments = load_taxon_map(index, _registry(_ECOLI, _EFAECIUM))
 
     assert assignments == {
-        "taxonomy-only": TargetPathogenAssignment(
+        "taxonomy-only": TaxonAssignment(
             "ecoli", "biosample_taxonomy", ncbi_organism="Escherichia coli", sylph_species="NA"
         ),
-        "atb-only": TargetPathogenAssignment(
+        "atb-only": TaxonAssignment(
             "efaecium", "allthebacteria", ncbi_organism="NA", sylph_species="Enterococcus_B faecium"
         ),
         # Record keeps the NCBI taxonomy route on agreement.
-        "agreeing-dual": TargetPathogenAssignment(
+        "agreeing-dual": TaxonAssignment(
             "ecoli",
             "biosample_taxonomy",
             ncbi_organism="Escherichia coli",
             sylph_species="Escherichia coli",
         ),
         # The sylph call wins across a genus, and the NCBI call is written alongside it.
-        "disagreeing-dual": TargetPathogenAssignment(
+        "disagreeing-dual": TaxonAssignment(
             "efaecium",
             "allthebacteria",
             ncbi_organism="Escherichia coli",
             sylph_species="Enterococcus_B faecium",
         ),
         # A sylph call outside the registry does not remove a record.
-        "off-target-sylph": TargetPathogenAssignment(
+        "off-target-sylph": TaxonAssignment(
             "efaecium",
             "biosample_taxonomy",
             ncbi_organism="Enterococcus faecium",
@@ -67,7 +67,7 @@ def test_load_pathogen_map_resolves_registered_assignments_before_filtering(
     }
 
 
-def test_load_pathogen_map_filters_the_resolved_assignment(
+def test_load_taxon_map_filters_the_resolved_assignment(
     tmp_path: Path,
 ) -> None:
     index = tmp_path / "biosample_index.tsv"
@@ -79,16 +79,16 @@ def test_load_pathogen_map_filters_the_resolved_assignment(
         encoding="utf-8",
     )
 
-    assignments = load_pathogen_map(index, _registry(_ECOLI, _EFAECIUM), names=["ecoli"])
+    assignments = load_taxon_map(index, _registry(_ECOLI, _EFAECIUM), names=["ecoli"])
 
     assert assignments == {
-        "selected-by-atb": TargetPathogenAssignment(
+        "selected-by-atb": TaxonAssignment(
             "ecoli",
             "allthebacteria",
             ncbi_organism="Enterococcus faecium",
             sylph_species="Escherichia coli",
         ),
-        "selected-by-taxonomy": TargetPathogenAssignment(
+        "selected-by-taxonomy": TaxonAssignment(
             "ecoli", "biosample_taxonomy", ncbi_organism="Escherichia coli", sylph_species="NA"
         ),
     }

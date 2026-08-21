@@ -23,7 +23,7 @@ _ESKAPEE_ pathogens:
 
 ### Methodology in brief
 
-1. The NCBI BioSample XML dump is parsed and the records of the target pathogens are indexed.
+1. The NCBI BioSample XML dump is parsed and the records of the registered taxa are indexed.
 2. The attribute-value pairs of interest from each record are selected.
 3. Values are resolved against the reference vocabularies in [`data/reference/`](data/reference):
    - **Isolation source**: Large Language Model (LLM) assisted mapping to a purpose-built ontology
@@ -117,7 +117,7 @@ uv run python scripts/build_biosample_index.py
 
 ## Usage
 
-### Running all pipelines for each pathogen
+### Running all pipelines for each taxon
 
 ```bash
 uv run baccurate
@@ -125,10 +125,9 @@ uv run baccurate
 
 Outputs are in `output/<timestamp>/`.
 
-### Specifying pathogens
+### Specifying taxa
 
-You can provide pathogen keywords defined in `config/pathogens.yaml` to only process select
-pathogens.
+You can provide taxon keywords defined in `config/taxa.yaml` to only process select taxa.
 
 ```bash
 # Acinetobacter baumannii and Escherichia coli

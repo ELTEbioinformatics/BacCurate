@@ -22,7 +22,6 @@ from baccurate.extraction import (
     CurationEvent,
     CurationSchema,
 )
-from baccurate.pathogen_registry.registry import load_pathogen_registry
 from baccurate.provenance.source_snapshot import (
     DerivedBundleProvenance,
     SourceSnapshotManifest,
@@ -49,6 +48,7 @@ from baccurate.standardization.location import (
     LocationStandardizer,
 )
 from baccurate.standardization_target.specifications import StandardizationTarget
+from baccurate.taxon_registry.registry import load_taxon_registry
 
 ROOT = Path(__file__).parents[2]
 CURATION_SCHEMA_PATH = ROOT / "config" / "curation_schema.yaml"
@@ -104,7 +104,7 @@ HOST_COLUMNS = (
 )
 EXTRACTED_COLUMNS = (
     "accession",
-    "pathogen",
+    "taxon_key",
     "ncbi_organism",
     "sylph_species",
     "bioproject_accession",
@@ -225,10 +225,10 @@ def _build_dataset(
             extracted_metadata=extracted_path,
             biosample_snapshot_manifest=biosample_manifest,
             bioproject_snapshot_manifest=bioproject_manifest,
-            requested_pathogens=("ecoli",),
+            requested_taxa=("ecoli",),
             requested_targets=targets,
             final_destination=destination,
-            pathogen_registry=load_pathogen_registry(),
+            taxon_registry=load_taxon_registry(),
             host_policy=host_policy,
             location_policy=location_policy,
             isolation_source_prompt_policy=isolation_source_policy,
@@ -246,7 +246,7 @@ def _build_dataset(
 def _dated_record(accession: str, **metadata: str) -> dict[str, str]:
     return {
         "accession": accession,
-        "pathogen": "ecoli",
+        "taxon_key": "ecoli",
         "bioproject_accession": "",
         "date_attr_orig": "collection_date",
         "date_val_orig": "2020-01-02",
@@ -663,7 +663,7 @@ def test_unrequested_targets_omit_columns_instead_of_serializing_empty(
 
     assert built.columns == (
         "accession",
-        "pathogen_scientific_name",
+        "taxon_scientific_name",
         "ncbi_organism",
         "sylph_species",
         "bioproject",

@@ -10,9 +10,9 @@ from baccurate.extraction.curation import (
 from baccurate.extraction.io import (
     SEQUENCE_ACCESSION_COLUMNS,
     InclusionRoute,
-    TargetPathogenAssignment,
-    load_pathogen_map,
-    resolve_pathogen_assignment,
+    TaxonAssignment,
+    load_taxon_map,
+    resolve_taxon_assignment,
 )
 from baccurate.extraction.metadata_types import TargetMatch
 from baccurate.extraction.tables import COLUMNS
@@ -29,9 +29,9 @@ __all__ = [
     "ExtractionReport",
     "InclusionRoute",
     "TargetMatch",
-    "TargetPathogenAssignment",
+    "TaxonAssignment",
     "cli",
-    "load_pathogen_map",
-    "resolve_pathogen_assignment",
+    "load_taxon_map",
+    "resolve_taxon_assignment",
     "run_extraction",
 ]

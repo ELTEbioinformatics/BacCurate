@@ -44,7 +44,7 @@ def _run_report_for_extraction(
     return outputs, RunReport(
         outputs,
         RunContext(
-            requested_pathogens=("ecoli",),
+            requested_taxa=("ecoli",),
             requested_standardization_targets=("date",),
             extracted_metadata=extracted_metadata,
             options={},

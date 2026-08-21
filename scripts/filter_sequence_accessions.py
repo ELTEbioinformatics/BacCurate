@@ -1,6 +1,6 @@
 """Create sequence-accession tables from retained NCBI reports.
 
-Combines BioSample accessions from pathogen-key TSVs and AllTheBacteria metadata. It then filters retained SRA,
+Combines BioSample accessions from taxon-key TSVs and AllTheBacteria metadata. It then filters retained SRA,
 GenBank Assembly, and RefSeq Assembly reports for records linked to those BioSample accessions.
 """
 
@@ -77,17 +77,17 @@ def _hashed_lines(path: Path, source_digest) -> Iterator[str]:
             yield line.decode("utf-8")
 
 
-def _load_pathogen_key_biosample_accessions(directory: Path) -> tuple[set[str], list[Path]]:
+def _load_taxon_key_biosample_accessions(directory: Path) -> tuple[set[str], list[Path]]:
     biosample_accessions: set[str] = set()
-    pathogen_key_tsv_paths: list[Path] = []
+    taxon_key_tsv_paths: list[Path] = []
     for tsv_path in sorted(directory.glob("*.tsv")):
         with tsv_path.open("r", encoding="utf-8", newline="") as stream:
             reader = csv.DictReader(stream, delimiter="\t")
             if reader.fieldnames is None or "accession" not in reader.fieldnames:
                 continue
             biosample_accessions.update(row["accession"] for row in reader)
-            pathogen_key_tsv_paths.append(tsv_path)
-    return biosample_accessions, pathogen_key_tsv_paths
+            taxon_key_tsv_paths.append(tsv_path)
+    return biosample_accessions, taxon_key_tsv_paths
 
 
 def _load_atb_biosample_accessions(metadata_path: Path) -> set[str]:
@@ -359,17 +359,17 @@ def main() -> int:
                 raise FileNotFoundError(f"required input not found: {input_path}")
         if not ID_LISTS_DIR.is_dir():
             raise FileNotFoundError(f"required input directory not found: {ID_LISTS_DIR}")
-        pathogen_key_biosample_accessions, pathogen_key_tsv_paths = (
-            _load_pathogen_key_biosample_accessions(ID_LISTS_DIR)
+        taxon_key_biosample_accessions, taxon_key_tsv_paths = _load_taxon_key_biosample_accessions(
+            ID_LISTS_DIR
         )
         atb_biosample_accessions = _load_atb_biosample_accessions(ATB_METADATA)
-        biosample_accessions = pathogen_key_biosample_accessions | atb_biosample_accessions
+        biosample_accessions = taxon_key_biosample_accessions | atb_biosample_accessions
         log.info("ATB metadata: %s | sha256: %s", ATB_METADATA, sha256_file(ATB_METADATA))
-        for pathogen_key_tsv_path in pathogen_key_tsv_paths:
+        for taxon_key_tsv_path in taxon_key_tsv_paths:
             log.info(
-                "pathogen-key TSV: %s | sha256: %s",
-                pathogen_key_tsv_path,
-                sha256_file(pathogen_key_tsv_path),
+                "taxon-key TSV: %s | sha256: %s",
+                taxon_key_tsv_path,
+                sha256_file(taxon_key_tsv_path),
             )
         log.info("BioSample accession filter set: %d", len(biosample_accessions))
         for report_key, source_path in report_paths.items():

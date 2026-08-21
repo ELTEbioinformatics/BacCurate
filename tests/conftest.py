@@ -15,7 +15,6 @@ import pytest
 import yaml
 
 from baccurate.extraction import COLUMNS
-from baccurate.pathogen_registry.registry import PathogenRegistry, load_pathogen_registry
 from baccurate.provenance.source_snapshot import (
     DerivedBundleProvenance,
     SourceSnapshotManifest,
@@ -31,6 +30,7 @@ from baccurate.standardization.isolation_source import (
     IsolationSourcePromptPolicy,
 )
 from baccurate.standardization.location import LocationPolicy
+from baccurate.taxon_registry.registry import TaxonRegistry, load_taxon_registry
 
 # --- Fixture data structures ---
 
@@ -54,8 +54,8 @@ class StandardizationFixtureResources:
         return self.root / "geo_loc_list.txt"
 
     @property
-    def pathogen_registry(self) -> Path:
-        return self.root / "pathogens.yaml"
+    def taxon_registry(self) -> Path:
+        return self.root / "taxa.yaml"
 
     @property
     def host_policy(self) -> Path:
@@ -131,22 +131,22 @@ def standardization_fixture_resources() -> StandardizationFixtureResources:
 
 
 @pytest.fixture(scope="session")
-def fixture_pathogen_registry(
+def fixture_taxon_registry(
     standardization_fixture_resources: StandardizationFixtureResources,
-) -> PathogenRegistry:
-    """Load the fixture-sized target-pathogen registry through its public loader."""
-    return load_pathogen_registry(standardization_fixture_resources.pathogen_registry)
+) -> TaxonRegistry:
+    """Load the fixture-sized target-taxon registry through its public loader."""
+    return load_taxon_registry(standardization_fixture_resources.taxon_registry)
 
 
 @pytest.fixture(scope="session")
 def fixture_host_policy(
     standardization_fixture_resources: StandardizationFixtureResources,
-    fixture_pathogen_registry: PathogenRegistry,
+    fixture_taxon_registry: TaxonRegistry,
 ) -> HostPolicy:
     """Load fixture host policy through the same validation boundary as production policy."""
     return HostPolicy.load(
         standardization_fixture_resources.host_policy,
-        fixture_pathogen_registry,
+        fixture_taxon_registry,
     )
 
 

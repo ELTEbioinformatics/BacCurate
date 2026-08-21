@@ -7,7 +7,7 @@ This folder contains immutable pipeline inputs.
 - `biosample_index.tsv.gz` - Contains one row for each BioSample accession that the NCBI
   taxonomy queries or the 2025-05 AllTheBacteria release names. Its columns are:
   - `accession` - Pipeline-wide join key.
-  - `pathogen_biosample` - Pathogen key from the BioSample `Organism`, or `NA` for records that
+  - `taxon_biosample` - Taxon key from the BioSample `Organism`, or `NA` for records that
     appear only through AllTheBacteria.
   - `sylph_species` - Raw GTDB-style classification label from AllTheBacteria. `NA` when
     AllTheBacteria does not include the accession.
@@ -22,8 +22,8 @@ This folder contains immutable pipeline inputs.
   - `refseq_assembly_accessions` - RefSeq genome assembly accessions joined with `||`, or
     `NA`.
 
-- `id_lists/` - One `<pathogen_key>.tsv` per NCBI taxonomy query, written by
-  `scripts/parse_biosample_xml.py`. Its `manifest.tsv` records the pathogen keys and their
+- `id_lists/` - One `<taxon_key>.tsv` per NCBI taxonomy query, written by
+  `scripts/parse_biosample_xml.py`. Its `manifest.tsv` records the taxon keys and their
   taxids. `scripts/build_biosample_index.py` reads that manifest.
 
 - `sequence_accessions/` - Compressed two-column intermediate files generated

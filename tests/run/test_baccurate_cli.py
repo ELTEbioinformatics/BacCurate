@@ -13,7 +13,6 @@ import baccurate.run.invocation as invocation_module
 import baccurate.run.main as main_module
 from baccurate.adapters.policy_yaml import PolicyConfigurationError
 from baccurate.extraction import COLUMNS, CurationSchemaError
-from baccurate.pathogen_registry.registry import Pathogen, PathogenRegistry
 from baccurate.provenance.source_snapshot import (
     DerivedBundleProvenance,
     SourceSnapshotManifest,
@@ -23,6 +22,7 @@ from baccurate.provenance.source_snapshot import (
 from baccurate.run.logging import configure_run_logging
 from baccurate.run.main import main as pipeline_cli
 from baccurate.standardization.isolation_source import IsolationSourcePromptPolicy
+from baccurate.taxon_registry.registry import Taxon, TaxonRegistry
 
 
 def test_run_logging_keeps_only_pipeline_lifecycle_info(
@@ -56,12 +56,12 @@ def _guard_run_resources(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main_module.DatasetBuilder, "build", _fail_if_run_resources_started)
 
 
-def _example_registry() -> PathogenRegistry:
-    return PathogenRegistry(
+def _example_registry() -> TaxonRegistry:
+    return TaxonRegistry(
         schema_version=1,
-        target_pathogens={
-            "zeta": Pathogen("zeta", "Zeta example", 30, "species"),
-            "alpha": Pathogen("alpha", "Alpha", 10, "genus"),
+        included_taxa={
+            "zeta": Taxon("zeta", "Zeta example", 30, "species"),
+            "alpha": Taxon("alpha", "Alpha", 10, "genus"),
         },
         containers={"examples": ("alpha", "zeta")},
     )
@@ -79,21 +79,21 @@ def test_pipeline_cli_help_uses_supplied_registry_order(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     with pytest.raises(SystemExit) as exit_info:
-        pipeline_cli(["--help"], pathogen_registry=_example_registry())
+        pipeline_cli(["--help"], taxon_registry=_example_registry())
 
     assert exit_info.value.code == 0
-    help_text = capsys.readouterr().out
-    assert "Pathogen keys: zeta, alpha." in help_text
-    assert "Containers (expand to their pathogen keys): examples." in help_text
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert "Taxon keys: zeta, alpha." in help_text
+    assert "Containers (expand to their taxon keys): examples." in help_text
 
 
-def test_pipeline_cli_discovers_pathogens_in_supplied_registry_order(
+def test_pipeline_cli_discovers_taxa_in_supplied_registry_order(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     index = tmp_path / "index.tsv"
     index.write_text(
-        "accession\tpathogen_biosample\tsylph_species\n"
+        "accession\ttaxon_biosample\tsylph_species\n"
         "SAMN1\talpha\tNA\n"
         "SAMN2\tnot-targeted\tNA\n"
         "SAMN3\tNA\tZeta example\n"
@@ -116,13 +116,13 @@ def test_pipeline_cli_discovers_pathogens_in_supplied_registry_order(
             "--skip-llm",
             "--quiet",
         ],
-        pathogen_registry=_example_registry(),
+        taxon_registry=_example_registry(),
     )
 
     run_report = json.loads(
         (tmp_path / "runs" / "registry-order" / "run_report.json").read_text(encoding="utf-8")
     )
-    assert run_report["request"]["pathogens"] == ["zeta", "alpha"]
+    assert run_report["request"]["taxa"] == ["zeta", "alpha"]
 
 
 def test_pipeline_output_label_uses_supplied_registry(
@@ -135,7 +135,7 @@ def test_pipeline_output_label_uses_supplied_registry(
         records=[
             {
                 "accession": "SAMN1",
-                "pathogen": "zeta",
+                "taxon_key": "zeta",
                 "date_category": "c",
                 "date_attr_orig": "collection_date",
                 "date_val_orig": "2020",
@@ -157,13 +157,13 @@ def test_pipeline_output_label_uses_supplied_registry(
             "--skip-llm",
             "--quiet",
         ],
-        pathogen_registry=_example_registry(),
+        taxon_registry=_example_registry(),
     )
 
     output_path = tmp_path / "runs" / "supplied-registry" / "supplied-registry.tsv"
     with output_path.open(encoding="utf-8", newline="") as stream:
         row = next(csv.DictReader(stream, delimiter="\t"))
-    assert row["pathogen_scientific_name"] == "Zeta example"
+    assert row["taxon_scientific_name"] == "Zeta example"
 
 
 def test_pipeline_cli_uses_custom_extracted_metadata_bundle(
@@ -486,6 +486,6 @@ def _prepare_empty_extracted_bundle(
         extracted_metadata_sha256=sha256_file(extracted_metadata),
     ).write(provenance_path_for(extracted_metadata))
     prepared_index = tmp_path / "biosample_index.tsv"
-    prepared_index.write_text("accession\tpathogen_biosample\tsylph_species\n", encoding="utf-8")
+    prepared_index.write_text("accession\ttaxon_biosample\tsylph_species\n", encoding="utf-8")
     monkeypatch.setattr(invocation_module, "DEFAULT_INDEX_TSV", prepared_index)
     return extracted_metadata

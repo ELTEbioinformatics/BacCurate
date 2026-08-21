@@ -8,7 +8,7 @@ CONFIG_DIR = REPO_ROOT / "config"
 DATA_DIR = REPO_ROOT / "data"
 OUTPUT_DIR = REPO_ROOT / "output"
 
-PATHOGENS_YAML = CONFIG_DIR / "pathogens.yaml"
+TAXA_YAML = CONFIG_DIR / "taxa.yaml"
 DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST = CONFIG_DIR / "biosample_snapshot.yaml"
 DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST = CONFIG_DIR / "bioproject_snapshot.yaml"
 DEFAULT_SRA_SNAPSHOT_MANIFEST = CONFIG_DIR / "sra_accessions_snapshot.yaml"

@@ -1,15 +1,15 @@
 """
-Maps a ``sylph_species`` label (GTDB-style) back to the short pathogen key
+Maps a ``sylph_species`` label (GTDB-style) back to the short taxon key
 used across the project. GTDB splits polyphyletic taxa with an uppercase suffix
 (``Enterococcus_B``, ``kobei_A``) that is absent from NCBI names, so those suffixes
-are stripped before matching against the pathogen registry.
+are stripped before matching against the taxon registry.
 """
 
 from __future__ import annotations
 
 import re
 
-from baccurate.pathogen_registry.registry import PathogenRegistry
+from baccurate.taxon_registry.registry import TaxonRegistry
 
 NA = "NA"
 
@@ -20,13 +20,13 @@ def _norm(token: str) -> str:
     return _GTDB_SUFFIX.sub("", token).lower()
 
 
-def build_pathogen_key_maps(
-    pathogen_registry: PathogenRegistry,
+def build_taxon_key_maps(
+    taxon_registry: TaxonRegistry,
 ) -> tuple[dict[str, str], dict[tuple[str, str], str]]:
-    """Build (genus -> pathogen key) and ((genus, species) -> pathogen key) lookups."""
+    """Build (genus -> taxon key) and ((genus, species) -> taxon key) lookups."""
     genus_map: dict[str, str] = {}
     species_map: dict[tuple[str, str], str] = {}
-    for p in pathogen_registry.target_pathogens.values():
+    for p in taxon_registry.included_taxa.values():
         tokens = p.scientific_name.lower().split()
         genus = tokens[0]
         if p.rank == "genus":
@@ -36,12 +36,12 @@ def build_pathogen_key_maps(
     return genus_map, species_map
 
 
-def sylph_to_pathogen_key(
+def sylph_to_taxon_key(
     sylph: str,
     genus_map: dict[str, str],
     species_map: dict[tuple[str, str], str],
 ) -> str:
-    """Resolve a sylph_species label to a pathogen key, or ``NA`` if it maps to no target."""
+    """Resolve a sylph_species label to a taxon key, or ``NA`` if it maps to no target."""
     parts = sylph.split()
     if not parts:
         return NA

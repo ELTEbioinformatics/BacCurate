@@ -32,7 +32,7 @@ class DatasetBuildProgress:
 
 @dataclass(frozen=True, slots=True)
 class DateStatistics:
-    """Collection-date counts, either overall or for a single pathogen."""
+    """Collection-date counts, either overall or for a single taxon."""
 
     processed: int
     standardized: int
@@ -48,10 +48,10 @@ class DateStatistics:
 
 @dataclass(frozen=True, slots=True)
 class DateBuildStatistics:
-    """Aggregate and per-pathogen date statistics."""
+    """Aggregate and per-taxon date statistics."""
 
     aggregate: DateStatistics
-    by_pathogen: Mapping[str, DateStatistics]
+    by_taxon: Mapping[str, DateStatistics]
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,7 +68,7 @@ class DatasetBuildStatistics:
 
 @dataclass(frozen=True, slots=True)
 class LocationStatistics:
-    """Location counts, either overall or for a single pathogen."""
+    """Location counts, either overall or for a single taxon."""
 
     processed: int
     standardized: int
@@ -85,20 +85,20 @@ class LocationStatistics:
 
 @dataclass(frozen=True, slots=True)
 class LocationBuildStatistics:
-    """Aggregate and per-pathogen location statistics, plus the review worklist summary.
+    """Aggregate and per-taxon location statistics, plus the review worklist summary.
 
     Worklist totals live here (not in ``LocationStatistics``) because a single worklist row
-    can span multiple pathogens, so there is no per-pathogen breakdown.
+    can span multiple taxa, so there is no per-taxon breakdown.
     """
 
     aggregate: LocationStatistics
-    by_pathogen: Mapping[str, LocationStatistics]
+    by_taxon: Mapping[str, LocationStatistics]
     review_worklist: LocationReviewWorklistSummary | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class HostStatistics:
-    """Host counts, either overall or for a single pathogen."""
+    """Host counts, either overall or for a single taxon."""
 
     processed: int
     standardized: int
@@ -111,10 +111,10 @@ class HostStatistics:
 
 @dataclass(frozen=True, slots=True)
 class HostBuildStatistics:
-    """Aggregate and per-pathogen host statistics."""
+    """Aggregate and per-taxon host statistics."""
 
     aggregate: HostStatistics
-    by_pathogen: Mapping[str, HostStatistics]
+    by_taxon: Mapping[str, HostStatistics]
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,7 +127,7 @@ class InventedLabelStatistics:
 
 @dataclass(frozen=True, slots=True)
 class IsolationSourceStatistics:
-    """Isolation-source counts, either overall or for a single pathogen."""
+    """Isolation-source counts, either overall or for a single taxon."""
 
     processed: int
     standardized: int
@@ -145,10 +145,10 @@ class IsolationSourceStatistics:
 
 @dataclass(frozen=True, slots=True)
 class IsolationSourceBuildStatistics:
-    """Aggregate and per-pathogen isolation-source statistics."""
+    """Aggregate and per-taxon isolation-source statistics."""
 
     aggregate: IsolationSourceStatistics
-    by_pathogen: Mapping[str, IsolationSourceStatistics]
+    by_taxon: Mapping[str, IsolationSourceStatistics]
 
 
 def invented_label_inventory(

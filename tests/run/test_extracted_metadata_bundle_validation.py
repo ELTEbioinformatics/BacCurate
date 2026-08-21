@@ -13,7 +13,7 @@ def test_dataset_builder_rejects_changed_extracted_metadata_before_streaming(
     tmp_path: Path,
     extracted_metadata_bundle,
     fixture_dataset_builder: DatasetBuilder,
-    fixture_pathogen_registry,
+    fixture_taxon_registry,
     standardization_fixture_resources,
 ) -> None:
     bundle = extracted_metadata_bundle
@@ -25,10 +25,10 @@ def test_dataset_builder_rejects_changed_extracted_metadata_before_streaming(
                 extracted_metadata=bundle.extracted_metadata,
                 biosample_snapshot_manifest=bundle.biosample_snapshot_manifest,
                 bioproject_snapshot_manifest=bundle.bioproject_snapshot_manifest,
-                requested_pathogens=("ecoli",),
+                requested_taxa=("ecoli",),
                 requested_targets=(StandardizationTarget.DATE,),
                 final_destination=tmp_path / "standardized.tsv",
-                pathogen_registry=fixture_pathogen_registry,
+                taxon_registry=fixture_taxon_registry,
                 disable_progress=True,
             )
         )

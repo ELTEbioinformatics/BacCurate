@@ -8,24 +8,24 @@ import pytest
 import yaml
 
 from baccurate.adapters.policy_yaml import PolicyConfigurationError
-from baccurate.pathogen_registry.registry import load_pathogen_registry
 from baccurate.paths import (
     DEFAULT_ISOLATION_SOURCE_ONTOLOGY_DIRECTORY,
 )
 from baccurate.run.effective_policy import load_effective_policy
 from baccurate.standardization.isolation_source import IsolationSourcePromptPolicy
 from baccurate.standardization.location import LocationPolicy, LocationStandardizer
+from baccurate.taxon_registry.registry import load_taxon_registry
 
 ROOT = Path(__file__).parents[2]
 CONFIG_DIR = ROOT / "config"
-PATHOGEN_REGISTRY_PATH = CONFIG_DIR / "pathogens.yaml"
+TAXON_REGISTRY_PATH = CONFIG_DIR / "taxa.yaml"
 STANDARDIZATION_TARGETS = ("host", "date", "loc", "iso")
 
 
 def test_effective_policy_loads_selected_policies_and_ignores_unselected_policy(
     tmp_path: Path,
 ) -> None:
-    registry = load_pathogen_registry(PATHOGEN_REGISTRY_PATH)
+    registry = load_taxon_registry(TAXON_REGISTRY_PATH)
     test_root = tmp_path / "selective-loading"
     configuration_root = test_root / "config"
     configuration_root.mkdir(parents=True)
@@ -49,7 +49,7 @@ def test_effective_policy_loads_selected_policies_and_ignores_unselected_policy(
             destination.write_text("malformed: [\n", encoding="utf-8")
 
     policy = load_effective_policy(
-        pathogen_registry=registry,
+        taxon_registry=registry,
         configuration_root=configuration_root,
         requested_standardization_targets=("iso",),
         extraction_required=False,
@@ -62,16 +62,16 @@ def test_effective_policy_loads_selected_policies_and_ignores_unselected_policy(
 
 
 def test_effective_policy_loads_required_curation_schema() -> None:
-    registry = load_pathogen_registry(PATHOGEN_REGISTRY_PATH)
+    registry = load_taxon_registry(TAXON_REGISTRY_PATH)
 
     policy = load_effective_policy(
-        pathogen_registry=registry,
+        taxon_registry=registry,
         configuration_root=CONFIG_DIR,
         requested_standardization_targets=("date",),
         extraction_required=True,
     )
 
-    assert policy.pathogen_registry is registry
+    assert policy.taxon_registry is registry
     assert policy.curation_schema is not None
     assert policy.curation_schema.schema_version == 3
     with pytest.raises(AttributeError):
@@ -81,17 +81,17 @@ def test_effective_policy_loads_required_curation_schema() -> None:
 def test_effective_policy_does_not_load_curation_schema_for_reused_bundle(
     tmp_path: Path,
 ) -> None:
-    registry = load_pathogen_registry(PATHOGEN_REGISTRY_PATH)
+    registry = load_taxon_registry(TAXON_REGISTRY_PATH)
     (tmp_path / "curation_schema.yaml").write_text("broken: [\n", encoding="utf-8")
 
     policy = load_effective_policy(
-        pathogen_registry=registry,
+        taxon_registry=registry,
         configuration_root=tmp_path,
         requested_standardization_targets=("date",),
         extraction_required=False,
     )
 
-    assert policy.pathogen_registry is registry
+    assert policy.taxon_registry is registry
     assert policy.curation_schema is None
 
 
@@ -104,15 +104,15 @@ def test_registry_scientific_name_change_updates_derived_host_rejection(
         "routing": {"isolation_source_keywords": []},
         "curated_taxa": {},
         "value_rejections": {
-            "exact": ["literal rejection", {"pathogen_key": "target"}],
+            "exact": ["literal rejection", {"taxon_key": "target"}],
         },
     }
     (tmp_path / "host.yaml").write_text(
         yaml.safe_dump(host_policy, sort_keys=False),
         encoding="utf-8",
     )
-    first_registry_path = tmp_path / "first-pathogens.yaml"
-    second_registry_path = tmp_path / "second-pathogens.yaml"
+    first_registry_path = tmp_path / "first-taxa.yaml"
+    second_registry_path = tmp_path / "second-taxa.yaml"
     registry_policy = {
         "schema_version": 1,
         "target": {
@@ -132,13 +132,13 @@ def test_registry_scientific_name_change_updates_derived_host_rejection(
     )
 
     first = load_effective_policy(
-        pathogen_registry=load_pathogen_registry(first_registry_path),
+        taxon_registry=load_taxon_registry(first_registry_path),
         configuration_root=tmp_path,
         requested_standardization_targets=("host",),
         extraction_required=False,
     ).host_policy
     second = load_effective_policy(
-        pathogen_registry=load_pathogen_registry(second_registry_path),
+        taxon_registry=load_taxon_registry(second_registry_path),
         configuration_root=tmp_path,
         requested_standardization_targets=("host",),
         extraction_required=False,
@@ -153,7 +153,7 @@ def test_registry_scientific_name_change_updates_derived_host_rejection(
 def test_effective_policy_reports_unknown_host_key_with_source_and_dotted_key(
     tmp_path: Path,
 ) -> None:
-    registry = load_pathogen_registry(PATHOGEN_REGISTRY_PATH)
+    registry = load_taxon_registry(TAXON_REGISTRY_PATH)
     host_path = tmp_path / "host.yaml"
     host_path.write_text(
         yaml.safe_dump(
@@ -174,7 +174,7 @@ def test_effective_policy_reports_unknown_host_key_with_source_and_dotted_key(
 
     with pytest.raises(PolicyConfigurationError) as error:
         load_effective_policy(
-            pathogen_registry=registry,
+            taxon_registry=registry,
             configuration_root=tmp_path,
             requested_standardization_targets=("host",),
             extraction_required=False,
@@ -184,8 +184,8 @@ def test_effective_policy_reports_unknown_host_key_with_source_and_dotted_key(
     assert "normalization.unexpected" in str(error.value)
 
 
-def test_host_policy_rejects_unknown_pathogen_key_reference(tmp_path: Path) -> None:
-    registry = load_pathogen_registry(PATHOGEN_REGISTRY_PATH)
+def test_host_policy_rejects_unknown_taxon_key_reference(tmp_path: Path) -> None:
+    registry = load_taxon_registry(TAXON_REGISTRY_PATH)
     host_path = tmp_path / "host.yaml"
     host_path.write_text(
         yaml.safe_dump(
@@ -195,7 +195,7 @@ def test_host_policy_rejects_unknown_pathogen_key_reference(tmp_path: Path) -> N
                 "routing": {"isolation_source_keywords": []},
                 "curated_taxa": {},
                 "value_rejections": {
-                    "exact": [{"pathogen_key": "not-a-target"}],
+                    "exact": [{"taxon_key": "not-a-target"}],
                 },
             },
             sort_keys=False,
@@ -205,21 +205,21 @@ def test_host_policy_rejects_unknown_pathogen_key_reference(tmp_path: Path) -> N
 
     with pytest.raises(PolicyConfigurationError) as error:
         load_effective_policy(
-            pathogen_registry=registry,
+            taxon_registry=registry,
             configuration_root=tmp_path,
             requested_standardization_targets=("host",),
             extraction_required=False,
         )
 
     assert str(host_path) in str(error.value)
-    assert "value_rejections.exact.0.pathogen_key" in str(error.value)
+    assert "value_rejections.exact.0.taxon_key" in str(error.value)
     assert "not-a-target" in str(error.value)
 
 
 def test_host_policy_rejects_curated_match_overlapping_derived_rejection(
     tmp_path: Path,
 ) -> None:
-    registry = load_pathogen_registry(PATHOGEN_REGISTRY_PATH)
+    registry = load_taxon_registry(TAXON_REGISTRY_PATH)
     host_path = tmp_path / "host.yaml"
     host_path.write_text(
         yaml.safe_dump(
@@ -234,7 +234,7 @@ def test_host_policy_rejects_curated_match_overlapping_derived_rejection(
                     },
                 },
                 "value_rejections": {
-                    "exact": [{"pathogen_key": "ecoli"}],
+                    "exact": [{"taxon_key": "ecoli"}],
                 },
             },
             sort_keys=False,
@@ -244,7 +244,7 @@ def test_host_policy_rejects_curated_match_overlapping_derived_rejection(
 
     with pytest.raises(PolicyConfigurationError) as error:
         load_effective_policy(
-            pathogen_registry=registry,
+            taxon_registry=registry,
             configuration_root=tmp_path,
             requested_standardization_targets=("host",),
             extraction_required=False,
@@ -257,11 +257,11 @@ def test_host_policy_rejects_curated_match_overlapping_derived_rejection(
 
 
 def test_unselected_host_policy_is_not_loaded(tmp_path: Path) -> None:
-    registry = load_pathogen_registry(PATHOGEN_REGISTRY_PATH)
+    registry = load_taxon_registry(TAXON_REGISTRY_PATH)
     (tmp_path / "host.yaml").write_text("broken: [\n", encoding="utf-8")
 
     policy = load_effective_policy(
-        pathogen_registry=registry,
+        taxon_registry=registry,
         configuration_root=tmp_path,
         requested_standardization_targets=("date",),
         extraction_required=False,
@@ -289,11 +289,11 @@ def _write_location_policy(
 
 
 def test_unselected_location_policy_is_not_loaded(tmp_path: Path) -> None:
-    registry = load_pathogen_registry(PATHOGEN_REGISTRY_PATH)
+    registry = load_taxon_registry(TAXON_REGISTRY_PATH)
     (tmp_path / "location.yaml").write_text("broken: [\n", encoding="utf-8")
 
     policy = load_effective_policy(
-        pathogen_registry=registry,
+        taxon_registry=registry,
         configuration_root=tmp_path,
         requested_standardization_targets=("date",),
         extraction_required=False,
@@ -324,7 +324,7 @@ def test_location_policy_preserves_relative_reference_paths(
 def test_location_policy_rejects_unusable_resource_selection_before_standardization(
     tmp_path: Path,
 ) -> None:
-    registry = load_pathogen_registry(PATHOGEN_REGISTRY_PATH)
+    registry = load_taxon_registry(TAXON_REGISTRY_PATH)
     location_path = _write_location_policy(
         tmp_path,
         {"geo_loc_list_path": "missing-reference.txt"},
@@ -332,7 +332,7 @@ def test_location_policy_rejects_unusable_resource_selection_before_standardizat
 
     with pytest.raises(PolicyConfigurationError) as error:
         load_effective_policy(
-            pathogen_registry=registry,
+            taxon_registry=registry,
             configuration_root=tmp_path,
             requested_standardization_targets=("loc",),
             extraction_required=False,
@@ -385,12 +385,12 @@ def test_location_policy_rejects_invalid_values_with_source_and_key(
     overrides: dict[str, object],
     policy_key: str,
 ) -> None:
-    registry = load_pathogen_registry(PATHOGEN_REGISTRY_PATH)
+    registry = load_taxon_registry(TAXON_REGISTRY_PATH)
     location_path = _write_location_policy(tmp_path, overrides)
 
     with pytest.raises(PolicyConfigurationError) as error:
         load_effective_policy(
-            pathogen_registry=registry,
+            taxon_registry=registry,
             configuration_root=tmp_path,
             requested_standardization_targets=("loc",),
             extraction_required=False,
@@ -408,7 +408,7 @@ def test_location_policy_rejects_missing_required_values(
     tmp_path: Path,
     missing_key: str,
 ) -> None:
-    registry = load_pathogen_registry(PATHOGEN_REGISTRY_PATH)
+    registry = load_taxon_registry(TAXON_REGISTRY_PATH)
     location_path = _write_location_policy(tmp_path)
     policy = yaml.safe_load(location_path.read_text(encoding="utf-8"))
     del policy[missing_key]
@@ -416,7 +416,7 @@ def test_location_policy_rejects_missing_required_values(
 
     with pytest.raises(PolicyConfigurationError) as error:
         load_effective_policy(
-            pathogen_registry=registry,
+            taxon_registry=registry,
             configuration_root=tmp_path,
             requested_standardization_targets=("loc",),
             extraction_required=False,
@@ -429,12 +429,12 @@ def test_location_policy_rejects_missing_required_values(
 def test_location_policy_unsupported_version_error_provides_migration_guidance(
     tmp_path: Path,
 ) -> None:
-    registry = load_pathogen_registry(PATHOGEN_REGISTRY_PATH)
+    registry = load_taxon_registry(TAXON_REGISTRY_PATH)
     location_path = _write_location_policy(tmp_path, {"schema_version": 1})
 
     with pytest.raises(PolicyConfigurationError) as error:
         load_effective_policy(
-            pathogen_registry=registry,
+            taxon_registry=registry,
             configuration_root=tmp_path,
             requested_standardization_targets=("loc",),
             extraction_required=False,
@@ -471,11 +471,11 @@ def _write_isolation_source_prompt_policy(
 
 
 def test_unselected_isolation_source_prompt_policy_is_not_loaded(tmp_path: Path) -> None:
-    registry = load_pathogen_registry(PATHOGEN_REGISTRY_PATH)
+    registry = load_taxon_registry(TAXON_REGISTRY_PATH)
     (tmp_path / "isolation_source.yaml").write_text("broken: [\n", encoding="utf-8")
 
     policy = load_effective_policy(
-        pathogen_registry=registry,
+        taxon_registry=registry,
         configuration_root=tmp_path,
         requested_standardization_targets=("date",),
         extraction_required=False,
@@ -525,12 +525,12 @@ def test_isolation_source_prompt_policy_rejects_invalid_values_with_source_and_k
     overrides: dict[str, object],
     policy_key: str,
 ) -> None:
-    registry = load_pathogen_registry(PATHOGEN_REGISTRY_PATH)
+    registry = load_taxon_registry(TAXON_REGISTRY_PATH)
     policy_path = _write_isolation_source_prompt_policy(tmp_path, overrides)
 
     with pytest.raises(PolicyConfigurationError) as error:
         load_effective_policy(
-            pathogen_registry=registry,
+            taxon_registry=registry,
             configuration_root=tmp_path,
             requested_standardization_targets=("iso",),
             extraction_required=False,
@@ -553,7 +553,7 @@ def test_isolation_source_prompt_policy_rejects_missing_required_values(
     tmp_path: Path,
     missing_key: str,
 ) -> None:
-    registry = load_pathogen_registry(PATHOGEN_REGISTRY_PATH)
+    registry = load_taxon_registry(TAXON_REGISTRY_PATH)
     policy_path = _write_isolation_source_prompt_policy(tmp_path)
     policy = yaml.safe_load(policy_path.read_text(encoding="utf-8"))
     del policy[missing_key]
@@ -561,7 +561,7 @@ def test_isolation_source_prompt_policy_rejects_missing_required_values(
 
     with pytest.raises(PolicyConfigurationError) as error:
         load_effective_policy(
-            pathogen_registry=registry,
+            taxon_registry=registry,
             configuration_root=tmp_path,
             requested_standardization_targets=("iso",),
             extraction_required=False,

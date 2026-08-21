@@ -3,14 +3,14 @@
 from collections.abc import Iterable
 
 from baccurate.extraction.curation import CurationDecision
-from baccurate.extraction.io import SEQUENCE_ACCESSION_COLUMNS, TargetPathogenAssignment
+from baccurate.extraction.io import SEQUENCE_ACCESSION_COLUMNS, TaxonAssignment
 from baccurate.extraction.metadata_types import EXTRACTION_TARGET_ORDER
 
 COLUMNS = [
     "accession",
     "bioproject_accession",
     *SEQUENCE_ACCESSION_COLUMNS,
-    "pathogen",
+    "taxon_key",
     "ncbi_organism",
     "sylph_species",
     "biosample_last_update",
@@ -26,7 +26,7 @@ INTERMEDIATE_COLUMNS = ["bioproject_id", *COLUMNS]
 def extracted_metadata_row(
     *,
     accession: str,
-    assignment: TargetPathogenAssignment,
+    assignment: TaxonAssignment,
     bioproject_id: str,
     bioproject_accession: str,
     decisions: Iterable[CurationDecision],
@@ -58,7 +58,7 @@ def extracted_metadata_row(
         accession,
         bioproject_accession,
         *assignment.sequence_accessions,
-        assignment.pathogen_key,
+        assignment.taxon_key,
         assignment.ncbi_organism,
         assignment.sylph_species,
         biosample_last_update,

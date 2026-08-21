@@ -52,8 +52,8 @@ def _local_timestamp() -> str:
 class RunContext:
     """Sanitized request and runtime inputs captured at run start."""
 
-    requested_pathogens: tuple[str, ...]
-    # These are standardization targets, not the target pathogens in the adjacent field.
+    requested_taxa: tuple[str, ...]
+    # These are standardization targets, not the taxa in the adjacent field.
     requested_standardization_targets: tuple[str, ...]
     extracted_metadata: Path
     options: Mapping[str, object]
@@ -115,7 +115,7 @@ class RunReport:
             "counters": {"processed": 0, "accepted": 0},
             "row_count": 0,
             "request": {
-                "pathogens": list(context.requested_pathogens),
+                "taxa": list(context.requested_taxa),
                 "standardization_targets": list(context.requested_standardization_targets),
             },
             "outputs": {

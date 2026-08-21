@@ -1,4 +1,4 @@
-"""Versioned target-pathogen registry policy."""
+"""Versioned target-taxon registry policy."""
 
 import json
 import sys
@@ -9,25 +9,25 @@ from types import MappingProxyType
 from typing import Literal, cast
 
 from baccurate.adapters.policy_yaml import PolicyConfigurationError, load_policy_mapping
-from baccurate.paths import PATHOGENS_YAML
+from baccurate.paths import TAXA_YAML
 
-PathogenRegistryError = PolicyConfigurationError
+TaxonRegistryError = PolicyConfigurationError
 
 _SUPPORTED_SCHEMA_VERSION = 1
-type PathogenRank = Literal["genus", "species"]
+type TaxonRank = Literal["genus", "species"]
 
-_SUPPORTED_RANKS: frozenset[PathogenRank] = frozenset({"genus", "species"})
-_TARGET_PATHOGEN_KEYS = frozenset({"scientific_name", "ncbi_taxid", "rank", "also_taxids"})
+_SUPPORTED_RANKS: frozenset[TaxonRank] = frozenset({"genus", "species"})
+_TAXON_POLICY_KEYS = frozenset({"scientific_name", "ncbi_taxid", "rank", "also_taxids"})
 
 
 @dataclass(frozen=True)
-class Pathogen:
-    """One target pathogen (a leaf entry in the registry)."""
+class Taxon:
+    """One taxon (a leaf entry in the registry)."""
 
     key: str
     scientific_name: str
     ncbi_taxid: int
-    rank: PathogenRank
+    rank: TaxonRank
     container: str | None = None
     also_taxids: tuple[int, ...] = field(default_factory=tuple)
 
@@ -38,35 +38,35 @@ class Pathogen:
 
 
 @dataclass(frozen=True, slots=True)
-class PathogenRegistry:
-    """Immutable, ordered policy defining BacCurate's target pathogens."""
+class TaxonRegistry:
+    """Immutable, ordered policy defining the taxa that BacCurate includes."""
 
     schema_version: int
-    target_pathogens: Mapping[str, Pathogen]
+    included_taxa: Mapping[str, Taxon]
     containers: Mapping[str, tuple[str, ...]]
 
     def __post_init__(self) -> None:
         """Detach registry collections from caller-owned mutable mappings."""
         object.__setattr__(
             self,
-            "target_pathogens",
-            MappingProxyType(dict(self.target_pathogens)),
+            "included_taxa",
+            MappingProxyType(dict(self.included_taxa)),
         )
         object.__setattr__(
             self,
             "containers",
             MappingProxyType(
                 {
-                    container_key: tuple(pathogen_keys)
-                    for container_key, pathogen_keys in self.containers.items()
+                    container_key: tuple(taxon_keys)
+                    for container_key, taxon_keys in self.containers.items()
                 }
             ),
         )
 
     @property
-    def pathogen_keys(self) -> tuple[str, ...]:
-        """Return pathogen keys in registry order."""
-        return tuple(self.target_pathogens)
+    def taxon_keys(self) -> tuple[str, ...]:
+        """Return taxon keys in registry order."""
+        return tuple(self.included_taxa)
 
     @property
     def container_keys(self) -> tuple[str, ...]:
@@ -76,39 +76,37 @@ class PathogenRegistry:
     @property
     def keywords(self) -> tuple[str, ...]:
         """Return every command keyword in compatibility order."""
-        return (*self.pathogen_keys, *self.container_keys)
+        return (*self.taxon_keys, *self.container_keys)
 
     def expand(self, registry_identifiers: Sequence[str]) -> tuple[str, ...]:
-        """Expand containers with first-seen pathogen-key deduplication."""
+        """Expand containers with first-seen taxon-key deduplication."""
         expanded: list[str] = []
         for registry_identifier in registry_identifiers:
-            for pathogen_key in self.containers.get(
+            for taxon_key in self.containers.get(
                 registry_identifier,
                 (registry_identifier,),
             ):
-                if pathogen_key not in expanded:
-                    expanded.append(pathogen_key)
+                if taxon_key not in expanded:
+                    expanded.append(taxon_key)
         return tuple(expanded)
 
-    def scientific_name(self, pathogen_key: str) -> str:
-        """Return a target pathogen's scientific name, or an empty string if unknown."""
-        pathogen = self.target_pathogens.get(pathogen_key)
-        return pathogen.scientific_name if pathogen else ""
+    def scientific_name(self, taxon_key: str) -> str:
+        """Return a taxon's scientific name, or an empty string if unknown."""
+        taxon = self.included_taxa.get(taxon_key)
+        return taxon.scientific_name if taxon else ""
 
-    def target_taxa(self) -> tuple[tuple[str, int], ...]:
-        """Enumerate pathogen keys and their ordered target-taxon IDs."""
+    def taxid_pairs(self) -> tuple[tuple[str, int], ...]:
+        """Enumerate taxon keys paired with each of their ordered NCBI taxids."""
         return tuple(
-            (pathogen.key, taxid)
-            for pathogen in self.target_pathogens.values()
-            for taxid in pathogen.taxids
+            (taxon.key, taxid) for taxon in self.included_taxa.values() for taxid in taxon.taxids
         )
 
-    def pathogen_key_table(self) -> str:
-        """Serialize the flattened pathogen-key table used by preparation tooling."""
-        lines = ["pathogen_key\ttaxids\trank\tcontainer"]
-        for pathogen in self.target_pathogens.values():
-            taxids = " ".join(str(taxid) for taxid in pathogen.taxids)
-            lines.append(f"{pathogen.key}\t{taxids}\t{pathogen.rank}\t{pathogen.container or ''}")
+    def taxon_key_table(self) -> str:
+        """Serialize the flattened taxon-key table used by preparation tooling."""
+        lines = ["taxon_key\ttaxids\trank\tcontainer"]
+        for taxon in self.included_taxa.values():
+            taxids = " ".join(str(taxid) for taxid in taxon.taxids)
+            lines.append(f"{taxon.key}\t{taxids}\t{taxon.rank}\t{taxon.container or ''}")
         return "\n".join(lines)
 
     def serialize(self) -> str:
@@ -116,23 +114,23 @@ class PathogenRegistry:
         return json.dumps(
             {
                 "schema_version": self.schema_version,
-                "target_pathogens": [
+                "included_taxa": [
                     {
-                        "key": pathogen.key,
-                        "scientific_name": pathogen.scientific_name,
-                        "ncbi_taxid": pathogen.ncbi_taxid,
-                        "rank": pathogen.rank,
-                        "container": pathogen.container,
-                        "also_taxids": list(pathogen.also_taxids),
+                        "key": taxon.key,
+                        "scientific_name": taxon.scientific_name,
+                        "ncbi_taxid": taxon.ncbi_taxid,
+                        "rank": taxon.rank,
+                        "container": taxon.container,
+                        "also_taxids": list(taxon.also_taxids),
                     }
-                    for pathogen in self.target_pathogens.values()
+                    for taxon in self.included_taxa.values()
                 ],
                 "containers": [
                     {
                         "key": container_key,
-                        "pathogen_keys": list(pathogen_keys),
+                        "taxon_keys": list(taxon_keys),
                     }
-                    for container_key, pathogen_keys in self.containers.items()
+                    for container_key, taxon_keys in self.containers.items()
                 ],
             },
             ensure_ascii=False,
@@ -142,8 +140,8 @@ class PathogenRegistry:
         )
 
 
-def _error(path: Path, policy_key: str, message: str) -> PathogenRegistryError:
-    return PathogenRegistryError(f"{path}: {policy_key}: {message}")
+def _error(path: Path, policy_key: str, message: str) -> TaxonRegistryError:
+    return TaxonRegistryError(f"{path}: {policy_key}: {message}")
 
 
 def _validate_identifier(path: Path, registry_identifier: object, policy_key: str) -> str:
@@ -152,28 +150,26 @@ def _validate_identifier(path: Path, registry_identifier: object, policy_key: st
     return registry_identifier
 
 
-def _is_target_pathogen(registry_entry_policy: Mapping[object, object]) -> bool:
+def _is_taxon(registry_entry_policy: Mapping[object, object]) -> bool:
     return not all(
         isinstance(nested_policy, Mapping) for nested_policy in registry_entry_policy.values()
     )
 
 
-def _parse_target_pathogen(
+def _parse_taxon(
     path: Path,
-    pathogen_key: str,
-    target_pathogen_policy: Mapping[object, object],
+    taxon_key: str,
+    taxon_policy: Mapping[object, object],
     container_key: str | None,
     policy_key: str,
-) -> Pathogen:
+) -> Taxon:
     unknown_keys = [
-        target_pathogen_key
-        for target_pathogen_key in target_pathogen_policy
-        if target_pathogen_key not in _TARGET_PATHOGEN_KEYS
+        policy_key for policy_key in taxon_policy if policy_key not in _TAXON_POLICY_KEYS
     ]
     if unknown_keys:
         raise _error(path, f"{policy_key}.{unknown_keys[0]}", "unknown policy key")
 
-    scientific_name = target_pathogen_policy.get("scientific_name")
+    scientific_name = taxon_policy.get("scientific_name")
     if not isinstance(scientific_name, str) or not scientific_name.strip():
         raise _error(
             path,
@@ -181,11 +177,11 @@ def _parse_target_pathogen(
             "must be a non-empty string",
         )
 
-    ncbi_taxid = target_pathogen_policy.get("ncbi_taxid")
+    ncbi_taxid = taxon_policy.get("ncbi_taxid")
     if type(ncbi_taxid) is not int or ncbi_taxid <= 0:
         raise _error(path, f"{policy_key}.ncbi_taxid", "must be a positive integer")
 
-    rank = target_pathogen_policy.get("rank")
+    rank = taxon_policy.get("rank")
     if not isinstance(rank, str) or rank not in _SUPPORTED_RANKS:
         raise _error(
             path,
@@ -193,7 +189,7 @@ def _parse_target_pathogen(
             f"must be one of {sorted(_SUPPORTED_RANKS)}",
         )
 
-    raw_also_taxids = target_pathogen_policy.get("also_taxids", [])
+    raw_also_taxids = taxon_policy.get("also_taxids", [])
     if not isinstance(raw_also_taxids, list):
         raise _error(path, f"{policy_key}.also_taxids", "must be a list")
     also_taxids: list[int] = []
@@ -211,18 +207,18 @@ def _parse_target_pathogen(
         seen_taxids.add(taxid)
         also_taxids.append(taxid)
 
-    return Pathogen(
-        key=pathogen_key,
+    return Taxon(
+        key=taxon_key,
         scientific_name=scientific_name,
         ncbi_taxid=ncbi_taxid,
-        rank=cast(PathogenRank, rank),
+        rank=cast(TaxonRank, rank),
         container=container_key,
         also_taxids=tuple(also_taxids),
     )
 
 
-def load_pathogen_registry(path: Path = PATHOGENS_YAML) -> PathogenRegistry:
-    """Load the versioned target-pathogen registry from ``path``."""
+def load_taxon_registry(path: Path = TAXA_YAML) -> TaxonRegistry:
+    """Load the versioned target-taxon registry from ``path``."""
     source = Path(path)
     registry_policy = load_policy_mapping(source)
     schema_version = registry_policy.get("schema_version")
@@ -234,19 +230,19 @@ def load_pathogen_registry(path: Path = PATHOGENS_YAML) -> PathogenRegistry:
         )
         raise _error(source, "schema_version", detail)
 
-    target_pathogens: dict[str, Pathogen] = {}
+    included_taxa: dict[str, Taxon] = {}
     containers: dict[str, tuple[str, ...]] = {}
     taxid_owners: dict[int, str] = {}
 
-    def register(pathogen: Pathogen, policy_key: str) -> None:
-        if pathogen.key in target_pathogens or pathogen.key in containers:
-            raise _error(source, policy_key, f"pathogen key {pathogen.key!r} collides")
-        for taxid in pathogen.taxids:
+    def register(taxon: Taxon, policy_key: str) -> None:
+        if taxon.key in included_taxa or taxon.key in containers:
+            raise _error(source, policy_key, f"taxon key {taxon.key!r} collides")
+        for taxid in taxon.taxids:
             owner = taxid_owners.get(taxid)
             if owner is not None:
                 taxid_key = (
                     f"{policy_key}.ncbi_taxid"
-                    if taxid == pathogen.ncbi_taxid
+                    if taxid == taxon.ncbi_taxid
                     else f"{policy_key}.also_taxids"
                 )
                 raise _error(
@@ -254,8 +250,8 @@ def load_pathogen_registry(path: Path = PATHOGENS_YAML) -> PathogenRegistry:
                     taxid_key,
                     f"NCBI Taxonomy ID {taxid} is already assigned to {owner!r}",
                 )
-            taxid_owners[taxid] = pathogen.key
-        target_pathogens[pathogen.key] = pathogen
+            taxid_owners[taxid] = taxon.key
+        included_taxa[taxon.key] = taxon
 
     for registry_entry_key, registry_entry_policy in registry_policy.items():
         if registry_entry_key == "schema_version":
@@ -263,9 +259,9 @@ def load_pathogen_registry(path: Path = PATHOGENS_YAML) -> PathogenRegistry:
         registry_identifier = _validate_identifier(source, registry_entry_key, "<key>")
         if not isinstance(registry_entry_policy, Mapping):
             raise _error(source, registry_identifier, "must be a mapping")
-        if registry_entry_policy and _is_target_pathogen(registry_entry_policy):
+        if registry_entry_policy and _is_taxon(registry_entry_policy):
             register(
-                _parse_target_pathogen(
+                _parse_taxon(
                     source,
                     registry_identifier,
                     registry_entry_policy,
@@ -282,44 +278,44 @@ def load_pathogen_registry(path: Path = PATHOGENS_YAML) -> PathogenRegistry:
                 registry_identifier,
                 "container must not be empty",
             )
-        if registry_identifier in target_pathogens:
+        if registry_identifier in included_taxa:
             raise _error(
                 source,
                 registry_identifier,
                 f"container key {registry_identifier!r} collides",
             )
-        container_pathogen_keys: list[str] = []
-        for pathogen_key, target_pathogen_policy in registry_entry_policy.items():
+        container_taxon_keys: list[str] = []
+        for taxon_key, taxon_policy in registry_entry_policy.items():
             child_key = _validate_identifier(
                 source,
-                pathogen_key,
+                taxon_key,
                 f"{registry_identifier}.<key>",
             )
             child_policy_key = f"{registry_identifier}.{child_key}"
-            if not isinstance(target_pathogen_policy, Mapping):
+            if not isinstance(taxon_policy, Mapping):
                 raise _error(source, child_policy_key, "must be a mapping")
             register(
-                _parse_target_pathogen(
+                _parse_taxon(
                     source,
                     child_key,
-                    target_pathogen_policy,
+                    taxon_policy,
                     container_key=registry_identifier,
                     policy_key=child_policy_key,
                 ),
                 child_policy_key,
             )
-            container_pathogen_keys.append(child_key)
-        if registry_identifier in target_pathogens:
+            container_taxon_keys.append(child_key)
+        if registry_identifier in included_taxa:
             raise _error(
                 source,
                 registry_identifier,
-                f"container key {registry_identifier!r} collides with a pathogen key",
+                f"container key {registry_identifier!r} collides with a taxon key",
             )
-        containers[registry_identifier] = tuple(container_pathogen_keys)
+        containers[registry_identifier] = tuple(container_taxon_keys)
 
-    return PathogenRegistry(
+    return TaxonRegistry(
         schema_version=_SUPPORTED_SCHEMA_VERSION,
-        target_pathogens=target_pathogens,
+        included_taxa=included_taxa,
         containers=containers,
     )
 
@@ -327,15 +323,13 @@ def load_pathogen_registry(path: Path = PATHOGENS_YAML) -> PathogenRegistry:
 if __name__ == "__main__":
     import argparse
 
-    ap = argparse.ArgumentParser(
-        description="Emit the pathogen registry as a flat pathogen-key table."
-    )
+    ap = argparse.ArgumentParser(description="Emit the taxon registry as a flat taxon-key table.")
     ap.add_argument(
-        "--pathogen-keys",
+        "--taxon-keys",
         action="store_true",
-        help="emit pathogen_key/taxids/rank/container TSV",
+        help="emit taxon_key/taxids/rank/container TSV",
     )
     ap.parse_args()
-    registry = load_pathogen_registry()
+    registry = load_taxon_registry()
     sys.stdout.reconfigure(newline="\n")
-    sys.stdout.write(registry.pathogen_key_table() + "\n")
+    sys.stdout.write(registry.taxon_key_table() + "\n")

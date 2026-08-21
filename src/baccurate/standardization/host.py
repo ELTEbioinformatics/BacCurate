@@ -19,10 +19,10 @@ from pathlib import Path
 import pandas as pd
 
 from baccurate.adapters.policy_yaml import PolicyConfigurationError, load_policy_mapping
-from baccurate.pathogen_registry.registry import PathogenRegistry
 from baccurate.paths import DEFAULT_TAXIDS_NCBI
 from baccurate.standardization._attribute_value_text import split_pipe_separated
 from baccurate.standardization.supporting_attribute_value_pair import SupportingAttributeValuePair
+from baccurate.taxon_registry.registry import TaxonRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -124,18 +124,18 @@ class HostPolicy:
     ignored_substrings: tuple[str, ...]
     isolation_source_keywords: tuple[str, ...]
     curated_taxa: tuple[CuratedTaxonPolicy, ...]
-    value_rejection_entries: tuple[str | TargetPathogenHostRejection, ...]
+    value_rejection_entries: tuple[str | TaxonHostRejection, ...]
     value_rejections: tuple[str, ...]
 
     @classmethod
-    def load(cls, path: Path | str, pathogen_registry: PathogenRegistry) -> HostPolicy:
-        """Strictly load host policy and resolve target-pathogen references."""
+    def load(cls, path: Path | str, taxon_registry: TaxonRegistry) -> HostPolicy:
+        """Strictly load host policy and resolve target-taxon references."""
         source = Path(path)
         try:
             return _parse_host_policy(
                 load_policy_mapping(source),
                 source,
-                pathogen_registry,
+                taxon_registry,
             )
         except PolicyConfigurationError:
             raise
@@ -168,8 +168,8 @@ class HostPolicy:
                 "value_rejections": {
                     "exact": [
                         (
-                            {"pathogen_key": entry.pathogen_key}
-                            if isinstance(entry, TargetPathogenHostRejection)
+                            {"taxon_key": entry.taxon_key}
+                            if isinstance(entry, TaxonHostRejection)
                             else entry
                         )
                         for entry in self.value_rejection_entries
@@ -210,10 +210,10 @@ class HostPolicy:
 
 
 @dataclass(frozen=True, slots=True)
-class TargetPathogenHostRejection:
-    """A host rejection whose scientific name is owned by the pathogen registry."""
+class TaxonHostRejection:
+    """A host rejection whose scientific name is owned by the taxon registry."""
 
-    pathogen_key: str
+    taxon_key: str
 
 
 def _require_mapping(value: object, label: str) -> Mapping:
@@ -246,7 +246,7 @@ def _reject_unknown_keys(
 def _parse_host_policy(
     config: Mapping,
     config_path: Path,
-    pathogen_registry: PathogenRegistry,
+    taxon_registry: TaxonRegistry,
 ) -> HostPolicy:
     if config.get("schema_version") != 3:
         raise PolicyConfigurationError(f"{config_path}: schema_version: must be 3")
@@ -344,7 +344,7 @@ def _parse_host_policy(
     raw_rejections = value_rejections.get("exact")
     if not isinstance(raw_rejections, list):
         raise ValueError("value_rejections.exact must be a list")
-    rejection_entries: list[str | TargetPathogenHostRejection] = []
+    rejection_entries: list[str | TaxonHostRejection] = []
     rejection_terms: list[str] = []
     for index, raw_rejection in enumerate(raw_rejections):
         policy_key = f"value_rejections.exact.{index}"
@@ -355,16 +355,16 @@ def _parse_host_policy(
             rejection_terms.append(raw_rejection)
             continue
         rejection = _require_mapping(raw_rejection, policy_key)
-        _reject_unknown_keys(rejection, {"pathogen_key"}, config_path, policy_key)
-        pathogen_key = rejection.get("pathogen_key")
-        if not isinstance(pathogen_key, str) or not pathogen_key.strip():
-            raise ValueError(f"{policy_key}.pathogen_key must be a non-empty string")
-        scientific_name = pathogen_registry.scientific_name(pathogen_key)
+        _reject_unknown_keys(rejection, {"taxon_key"}, config_path, policy_key)
+        taxon_key = rejection.get("taxon_key")
+        if not isinstance(taxon_key, str) or not taxon_key.strip():
+            raise ValueError(f"{policy_key}.taxon_key must be a non-empty string")
+        scientific_name = taxon_registry.scientific_name(taxon_key)
         if not scientific_name:
             raise PolicyConfigurationError(
-                f"{config_path}: {policy_key}.pathogen_key: unknown pathogen key {pathogen_key!r}"
+                f"{config_path}: {policy_key}.taxon_key: unknown taxon key {taxon_key!r}"
             )
-        rejection_entries.append(TargetPathogenHostRejection(pathogen_key))
+        rejection_entries.append(TaxonHostRejection(taxon_key))
         rejection_terms.append(scientific_name)
     overlap = set(curated_term_taxids) & {_normalize_text(term) for term in rejection_terms}
     if overlap:
