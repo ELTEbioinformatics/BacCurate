@@ -37,31 +37,26 @@ def test_load_taxon_map_resolves_registered_assignments_before_filtering(
     assignments = load_taxon_map(index, _registry(_ECOLI, _EFAECIUM))
 
     assert assignments == {
-        "taxonomy-only": TaxonAssignment(
-            "ecoli", "biosample_taxonomy", ncbi_organism="Escherichia coli", sylph_species="NA"
-        ),
+        "taxonomy-only": TaxonAssignment("ecoli", "biosample_taxonomy", sylph_species="NA"),
         "atb-only": TaxonAssignment(
-            "efaecium", "allthebacteria", ncbi_organism="NA", sylph_species="Enterococcus_B faecium"
+            "efaecium", "allthebacteria", sylph_species="Enterococcus_B faecium"
         ),
         # Record keeps the NCBI taxonomy route on agreement.
         "agreeing-dual": TaxonAssignment(
             "ecoli",
             "biosample_taxonomy",
-            ncbi_organism="Escherichia coli",
             sylph_species="Escherichia coli",
         ),
-        # The sylph call wins across a genus, and the NCBI call is written alongside it.
+        # The sylph call wins across a genus.
         "disagreeing-dual": TaxonAssignment(
             "efaecium",
             "allthebacteria",
-            ncbi_organism="Escherichia coli",
             sylph_species="Enterococcus_B faecium",
         ),
         # A sylph call outside the registry does not remove a record.
         "off-target-sylph": TaxonAssignment(
             "efaecium",
             "biosample_taxonomy",
-            ncbi_organism="Enterococcus faecium",
             sylph_species="Enterococcus_B lactis",
         ),
     }
@@ -85,10 +80,7 @@ def test_load_taxon_map_filters_the_resolved_assignment(
         "selected-by-atb": TaxonAssignment(
             "ecoli",
             "allthebacteria",
-            ncbi_organism="Enterococcus faecium",
             sylph_species="Escherichia coli",
         ),
-        "selected-by-taxonomy": TaxonAssignment(
-            "ecoli", "biosample_taxonomy", ncbi_organism="Escherichia coli", sylph_species="NA"
-        ),
+        "selected-by-taxonomy": TaxonAssignment("ecoli", "biosample_taxonomy", sylph_species="NA"),
     }

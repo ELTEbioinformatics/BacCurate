@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from lxml import etree
 
 from baccurate.adapters.compressed_io import open_binary
+from baccurate.taxon_registry.species_label_matching import NA
 
 if TYPE_CHECKING:
     from baccurate.extraction.curation import CurationDecision
@@ -151,16 +152,24 @@ def _extract_bioprojects(elem: etree._Element) -> tuple[str, ...]:
     return tuple(sorted(project_ids))
 
 
+def _extract_organism_name(elem: etree._Element) -> str:
+    organism = elem.find("Description/Organism")
+    if organism is None:
+        return NA
+    return (organism.get("taxonomy_name") or "").strip() or NA
+
+
 def process_biosample_xml(
     input_file: str | Path,
     evaluate_function: Callable[..., CurationDecision],
     counters: CurationCounters | None = None,
-) -> Iterator[tuple[str, list[CurationDecision], tuple[str, ...]]]:
-    """Stream XML, yielding accession, curation decisions, and linked BioProjects."""
+) -> Iterator[tuple[str, list[CurationDecision], tuple[str, ...], str]]:
+    """Stream XML, yielding accession, curation decisions, linked BioProjects, and organism name."""
     for elem in iter_biosample_records(input_file):
         accession = elem.get("accession", "unknown")
 
         bioprojects = _extract_bioprojects(elem)
+        organism_name = _extract_organism_name(elem)
 
         decisions = parse_xml(
             elem,
@@ -168,4 +177,4 @@ def process_biosample_xml(
             check_root_attributes=True,
             counters=counters,
         )
-        yield accession, decisions, bioprojects
+        yield accession, decisions, bioprojects, organism_name

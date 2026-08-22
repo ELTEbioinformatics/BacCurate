@@ -103,9 +103,10 @@ def run_extraction(
             ) as bar:
                 for xml_file in biosample_paths:
                     logger.info("Parsing %s...", xml_file)
-                    for accession, decisions, bioproject_ids in process_biosample_xml(
+                    records = process_biosample_xml(
                         str(xml_file), curation_schema.evaluate, counters
-                    ):
+                    )
+                    for accession, decisions, bioproject_ids, ncbi_organism in records:
                         for decision in decisions:
                             review_worklists.observe(decision, accession=accession)
                         assignment = taxon_assignment_by_accession.get(accession)
@@ -114,6 +115,7 @@ def run_extraction(
                         extracted_metadata_values = extracted_metadata_row(
                             accession=accession,
                             assignment=assignment,
+                            ncbi_organism=ncbi_organism,
                             bioproject_id="||".join(bioproject_ids),
                             bioproject_accession="",
                             decisions=decisions,

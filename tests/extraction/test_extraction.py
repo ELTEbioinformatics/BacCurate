@@ -151,15 +151,18 @@ def test_extraction_reports_inclusion_routes_for_records_present_in_snapshot(
     sources.replace_contents(
         biosample_xml=b"""\
 <BioSampleSet>
-  <BioSample accession="taxonomy"><Attributes>
-    <Attribute attribute="isolation_source">soil</Attribute>
-  </Attributes></BioSample>
-  <BioSample accession="atb"><Attributes>
-    <Attribute attribute="isolation_source">water</Attribute>
-  </Attributes></BioSample>
-  <BioSample accession="reassigned"><Attributes>
-    <Attribute attribute="isolation_source">blood</Attribute>
-  </Attributes></BioSample>
+  <BioSample accession="taxonomy">
+    <Description><Organism taxonomy_name="Escherichia coli" /></Description>
+    <Attributes><Attribute attribute="isolation_source">soil</Attribute></Attributes>
+  </BioSample>
+  <BioSample accession="atb">
+    <Description><Organism taxonomy_name="Escherichia coli O157" /></Description>
+    <Attributes><Attribute attribute="isolation_source">water</Attribute></Attributes>
+  </BioSample>
+  <BioSample accession="reassigned">
+    <Description><Organism taxonomy_name="Enterococcus faecium" /></Description>
+    <Attributes><Attribute attribute="isolation_source">blood</Attribute></Attributes>
+  </BioSample>
   <BioSample accession="agreeing"><Attributes>
     <Attribute attribute="isolation_source">stool</Attribute>
   </Attributes></BioSample>
@@ -198,7 +201,8 @@ def test_extraction_reports_inclusion_routes_for_records_present_in_snapshot(
     assert published["reassigned"]["ncbi_organism"] == "Enterococcus faecium"
     assert published["reassigned"]["sylph_species"] == "Escherichia coli"
     assert published["taxonomy"]["sylph_species"] == "NA"
-    assert published["atb"]["ncbi_organism"] == "NA"
+    assert published["atb"]["ncbi_organism"] == "Escherichia coli O157"
+    assert published["agreeing"]["ncbi_organism"] == "NA"
 
 
 def test_extraction_report_preserves_production_curation_review_counters(

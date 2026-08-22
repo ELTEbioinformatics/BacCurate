@@ -32,7 +32,6 @@ class TaxonAssignment:
     taxon_key: str
     inclusion_route: InclusionRoute
     sequence_accessions: tuple[str, ...] = ("",) * len(SEQUENCE_ACCESSION_COLUMNS)
-    ncbi_organism: str = NA
     sylph_species: str = NA
 
 
@@ -45,14 +44,13 @@ def resolve_taxon_assignment(
     """
     Return the taxon assignment for a prepared-index row.
 
-    Prefers the sylph_species classification over BioSample NCBI taxonomy (ncbi_organism).
+    Prefers the sylph_species classification over the BioSample NCBI taxonomy key.
     Falls back to biosample_taxonomy when sylph_species does not name a registered taxon.
     """
     sequence_accessions = tuple(
         "" if (cell := (row.get(column) or "").strip()) in ("", NA) else cell.replace(",", "||")
         for column in SEQUENCE_ACCESSION_COLUMNS
     )
-    ncbi_organism = (row.get("organism_value") or "").strip() or NA
     sylph_species = (row.get("sylph_species") or "").strip() or NA
     atb_taxon_key = sylph_to_taxon_key(sylph_species, genus_map, species_map)
     biosample_taxon_key = (row.get("taxon_biosample") or "").strip()
@@ -62,7 +60,7 @@ def resolve_taxon_assignment(
     route: InclusionRoute = (
         "biosample_taxonomy" if taxon_key == biosample_taxon_key else "allthebacteria"
     )
-    return TaxonAssignment(taxon_key, route, sequence_accessions, ncbi_organism, sylph_species)
+    return TaxonAssignment(taxon_key, route, sequence_accessions, sylph_species)
 
 
 def load_taxon_map(
