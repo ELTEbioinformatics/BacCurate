@@ -147,5 +147,5 @@ def run_policy_slots(
     """Return the policy slots one run loads, in run-report order."""
     required = required_policy_slots(targets)
     if extraction_required:
-        required |= {PolicySlot.CURATION_SCHEMA}
+        required |= {PolicySlot.SELECTION_SCHEMA}
     return tuple(policy_slot for policy_slot in PolicySlot if policy_slot in required)

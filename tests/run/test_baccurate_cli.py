@@ -12,7 +12,7 @@ import pytest
 import baccurate.run.invocation as invocation_module
 import baccurate.run.main as main_module
 from baccurate.adapters.policy_yaml import PolicyConfigurationError
-from baccurate.extraction import COLUMNS, CurationSchemaError
+from baccurate.extraction import COLUMNS, SelectionSchemaError
 from baccurate.provenance.source_snapshot import (
     DerivedBundleProvenance,
     SourceSnapshotManifest,
@@ -195,21 +195,21 @@ def test_pipeline_cli_uses_custom_extracted_metadata_bundle(
     assert options["standardization_targets"] == ["date"]
 
 
-def test_pipeline_cli_validates_required_curation_before_output_initialization(
+def test_pipeline_cli_validates_required_selection_before_output_initialization(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config_dir = tmp_path / "config"
     config_dir.mkdir()
-    curation_path = config_dir / "curation_schema.yaml"
-    curation_path.write_text(
+    selection_path = config_dir / "selection_schema.yaml"
+    selection_path.write_text(
         "schema_version: 3\ntargets:\n  host:\n    unexpected: true\n",
         encoding="utf-8",
     )
     output_dir = tmp_path / "runs"
     _guard_run_resources(monkeypatch)
 
-    with pytest.raises(CurationSchemaError) as error:
+    with pytest.raises(SelectionSchemaError) as error:
         pipeline_cli(
             [
                 "ecoli",
@@ -228,7 +228,7 @@ def test_pipeline_cli_validates_required_curation_before_output_initialization(
             ]
         )
 
-    assert str(curation_path) in str(error.value)
+    assert str(selection_path) in str(error.value)
     assert "targets.host.unexpected" in str(error.value)
     assert not output_dir.exists()
 
@@ -269,7 +269,7 @@ def test_pipeline_cli_validates_selected_standardization_policy_before_resources
     assert not (tmp_path / "isolation-cache.db").exists()
 
 
-def test_pipeline_cli_reuses_extracted_bundle_without_curation_schema(
+def test_pipeline_cli_reuses_extracted_bundle_without_selection_schema(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -288,13 +288,13 @@ def test_pipeline_cli_reuses_extracted_bundle_without_curation_schema(
             "--output-dir",
             str(tmp_path / "runs"),
             "--run-name",
-            "reuse-without-curation",
+            "reuse-without-selection",
             "--skip-llm",
             "--quiet",
         ]
     )
 
-    assert (tmp_path / "runs" / "reuse-without-curation" / "reuse-without-curation.tsv").exists()
+    assert (tmp_path / "runs" / "reuse-without-selection" / "reuse-without-selection.tsv").exists()
 
 
 def _prepare_fixture_backed_cli_run(

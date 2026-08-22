@@ -1,12 +1,6 @@
 """BioSample XML metadata extraction stage."""
 
 from baccurate.extraction.cli import ExtractionReport, cli, run_extraction
-from baccurate.extraction.curation import (
-    CurationDecision,
-    CurationEvent,
-    CurationSchema,
-    CurationSchemaError,
-)
 from baccurate.extraction.io import (
     SEQUENCE_ACCESSION_COLUMNS,
     InclusionRoute,
@@ -15,19 +9,25 @@ from baccurate.extraction.io import (
     resolve_taxon_assignment,
 )
 from baccurate.extraction.metadata_types import TargetMatch
+from baccurate.extraction.selection import (
+    SelectionDecision,
+    SelectionEvent,
+    SelectionSchema,
+    SelectionSchemaError,
+)
 from baccurate.extraction.tables import COLUMNS
-from baccurate.extraction.xml import CurationCounters
+from baccurate.extraction.xml import SelectionCounters
 
 __all__ = [
     "COLUMNS",
     "SEQUENCE_ACCESSION_COLUMNS",
-    "CurationCounters",
-    "CurationDecision",
-    "CurationEvent",
-    "CurationSchema",
-    "CurationSchemaError",
     "ExtractionReport",
     "InclusionRoute",
+    "SelectionCounters",
+    "SelectionDecision",
+    "SelectionEvent",
+    "SelectionSchema",
+    "SelectionSchemaError",
     "TargetMatch",
     "TaxonAssignment",
     "cli",

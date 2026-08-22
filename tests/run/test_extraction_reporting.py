@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-from baccurate.extraction import CurationCounters, ExtractionReport
+from baccurate.extraction import ExtractionReport, SelectionCounters
 from baccurate.run.outputs import RunOutputs
 from baccurate.run.report import (
     SEQUENCE_ACCESSION_SNAPSHOT_MANIFESTS,
@@ -78,7 +78,7 @@ def test_performed_extraction_report_publishes_mode_paths_and_paired_provenance(
             prepared_input_paths=(sources.biosample, sources.bioproject),
             extracted_metadata_path=extracted_metadata,
             extracted_record_count=0,
-            counters=CurationCounters(),
+            counters=SelectionCounters(),
             automatic_rejection_counts={},
             unreviewed_count=0,
             uncertain_count=0,

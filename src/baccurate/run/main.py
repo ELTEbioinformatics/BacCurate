@@ -31,7 +31,7 @@ def main(
     active_targets = invocation.active_targets
     extracted_metadata_path = invocation.extracted_metadata_path
     effective_policy = invocation.effective_policy
-    curation_schema = invocation.curation_schema
+    selection_schema = invocation.selection_schema
     outputs = invocation.outputs
     biosample_input_path = invocation.biosample_input_path
     index_path = invocation.index_path
@@ -81,7 +81,7 @@ def main(
 
     try:
         with progress_context(disable=disable_progress):
-            if curation_schema is not None:
+            if selection_schema is not None:
                 run_report.transition(RunPhase.EXTRACTION)
                 run_report.begin_performed_extraction(
                     biosample_input_path=biosample_input_path,
@@ -98,7 +98,7 @@ def main(
                 )
                 extraction_report = run_extraction(
                     output_path=extracted_metadata_path,
-                    curation_schema=curation_schema,
+                    selection_schema=selection_schema,
                     index_path=index_path,
                     names=extraction_names,
                     taxon_registry=registry,

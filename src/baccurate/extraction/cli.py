@@ -16,11 +16,11 @@ from baccurate.extraction.bioproject import (
     resolve_bioproject_accessions,
     write_unresolved_bioproject_links,
 )
-from baccurate.extraction.curation import CurationSchema
 from baccurate.extraction.io import InclusionRoute, load_taxon_map
 from baccurate.extraction.manual_review import ReviewWorklists
+from baccurate.extraction.selection import SelectionSchema
 from baccurate.extraction.tables import COLUMNS, INTERMEDIATE_COLUMNS, extracted_metadata_row
-from baccurate.extraction.xml import CurationCounters, process_biosample_xml
+from baccurate.extraction.xml import SelectionCounters, process_biosample_xml
 from baccurate.provenance.source_snapshot import (
     DerivedBundleProvenance,
     _publish_bundle,
@@ -35,12 +35,12 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class ExtractionReport:
-    """Data provenance and a curation summary of extraction."""
+    """Provenance and selection counts for one extraction."""
 
     prepared_input_paths: tuple[Path, ...]
     extracted_metadata_path: Path
     extracted_record_count: int
-    counters: CurationCounters
+    counters: SelectionCounters
     automatic_rejection_counts: dict[str, dict[str, int]]
     unreviewed_count: int
     uncertain_count: int
@@ -59,7 +59,7 @@ def run_extraction(
     log_level: str = "INFO",
     disable_progress: bool = False,
     *,
-    curation_schema: CurationSchema,
+    selection_schema: SelectionSchema,
     taxon_registry: TaxonRegistry | None = None,
 ) -> ExtractionReport:
     logging.basicConfig(
@@ -75,7 +75,7 @@ def run_extraction(
         bioproject_manifest_path=paths.DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
     )
 
-    counters = CurationCounters()
+    counters = SelectionCounters()
     review_worklists = ReviewWorklists()
 
     registry = taxon_registry or load_taxon_registry()
@@ -104,7 +104,7 @@ def run_extraction(
                 for xml_file in biosample_paths:
                     logger.info("Parsing %s...", xml_file)
                     records = process_biosample_xml(
-                        str(xml_file), curation_schema.evaluate, counters
+                        str(xml_file), selection_schema.evaluate, counters
                     )
                     for accession, decisions, bioproject_ids, ncbi_organism in records:
                         for decision in decisions:
@@ -155,7 +155,7 @@ def run_extraction(
                 "Unreviewed metadata attributes were excluded. See unreviewed_attributes.tsv"
             )
         review_worklists.log_automatic_rejections(logger)
-        logger.info("Curation summary: %s", counters.summary())
+        logger.info("Selection summary: %s", counters.summary())
 
         _publish_bundle(
             temporary_output_path=temporary_output_path,
@@ -226,13 +226,13 @@ def cli(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--log-level", default="INFO")
     parser.add_argument("--quiet", action="store_true", help="Disable progress bars.")
     args = parser.parse_args(argv)
-    curation_schema = CurationSchema.load(
-        paths.CONFIG_DIR / POLICY_FILENAMES[PolicySlot.CURATION_SCHEMA]
+    selection_schema = SelectionSchema.load(
+        paths.CONFIG_DIR / POLICY_FILENAMES[PolicySlot.SELECTION_SCHEMA]
     )
 
     run_extraction(
         output_path=Path(args.output),
-        curation_schema=curation_schema,
+        selection_schema=selection_schema,
         index_path=Path(args.index),
         names=args.names,
         log_level=args.log_level,

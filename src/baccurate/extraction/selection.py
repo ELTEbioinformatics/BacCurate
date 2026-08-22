@@ -1,4 +1,4 @@
-"""Validated curation schema for selecting BioSample attribute-value pairs."""
+"""Validated schema that selects BioSample attribute-value pairs during extraction."""
 
 from __future__ import annotations
 
@@ -22,12 +22,12 @@ _TOKEN_BOUNDARIES = re.compile(r"[\W_]+", re.UNICODE)
 _TARGETS = frozenset(EXTRACTION_TARGET_ORDER)
 
 
-class CurationSchemaError(PolicyConfigurationError):
-    """Raised when the curation schema is missing or invalid."""
+class SelectionSchemaError(PolicyConfigurationError):
+    """Raised when the selection schema is missing or invalid."""
 
 
 @dataclass(frozen=True, slots=True)
-class CurationEvent:
+class SelectionEvent:
     """A finding from evaluating one raw attribute-value pair."""
 
     kind: str
@@ -38,13 +38,13 @@ class CurationEvent:
 
 
 @dataclass(frozen=True, slots=True)
-class CurationDecision:
+class SelectionDecision:
     """Target matches and review events for one unchanged BioSample attribute-value pair."""
 
     attribute: str
     value: str
     matches: tuple[TargetMatch, ...]
-    events: tuple[CurationEvent, ...]
+    events: tuple[SelectionEvent, ...]
     xml_element: str = ""
 
 
@@ -128,7 +128,7 @@ class _LocationRescue:
 
 
 @dataclass(frozen=True, slots=True, init=False)
-class CurationSchema:
+class SelectionSchema:
     """Match raw attributes against reviewed per-target select/ignore/reject lists."""
 
     schema_version: int
@@ -167,11 +167,11 @@ class CurationSchema:
             "",
         )
         if config.get("schema_version") != 3:
-            raise CurationSchemaError(f"{path}: schema_version must be 3")
+            raise SelectionSchemaError(f"{path}: schema_version must be 3")
         targets = _mapping(path, "targets", config.get("targets"))
         unknown_targets = set(targets) - _TARGETS
         if unknown_targets:
-            raise CurationSchemaError(
+            raise SelectionSchemaError(
                 f"{path}: targets has unsupported target(s): "
                 f"{', '.join(sorted(str(target) for target in unknown_targets))}"
             )
@@ -218,7 +218,7 @@ class CurationSchema:
             separators=(",", ":"),
         )
 
-    def evaluate(self, *, attribute: str, value: str) -> CurationDecision:
+    def evaluate(self, *, attribute: str, value: str) -> SelectionDecision:
         normalized_attribute = _normalize(attribute)
         normalized_value = _normalize_rejection_value(value)
         presentation_value = _presentation_normalize(value)
@@ -236,7 +236,7 @@ class CurationSchema:
             and self._location_rescue.matches(value)
         ):
             identified.append(TargetMatch("loc"))
-        events: list[CurationEvent] = []
+        events: list[SelectionEvent] = []
         matches = []
         for match in identified:
             rejection = self._universal_missing.classify(normalized_value, presentation_value)
@@ -251,7 +251,7 @@ class CurationSchema:
                 matches.append(match)
                 continue
             events.append(
-                CurationEvent(
+                SelectionEvent(
                     rejection,
                     match.target,
                     family,
@@ -274,7 +274,7 @@ class CurationSchema:
             for discovery in target_rules.discoveries:
                 if discovery.matches(normalized_attribute):
                     events.append(
-                        CurationEvent(
+                        SelectionEvent(
                             "unreviewed_attribute",
                             target,
                             discovery.family,
@@ -282,14 +282,14 @@ class CurationSchema:
                         )
                     )
                     break
-        return CurationDecision(attribute, value, tuple(matches), tuple(events))
+        return SelectionDecision(attribute, value, tuple(matches), tuple(events))
 
 
 def _load_config(path: Path) -> Mapping[str, object]:
     try:
         config = load_policy_mapping(path)
     except PolicyConfigurationError as error:
-        raise CurationSchemaError(str(error)) from error
+        raise SelectionSchemaError(str(error)) from error
     return cast(Mapping[str, object], config)
 
 
@@ -354,7 +354,7 @@ def _compile_target(path: Path, target: str, raw_config: object) -> _TargetRules
     if target == "date":
         unknown_categories = set(selection_groups) - {"collection", "fallback"}
         if unknown_categories:
-            raise CurationSchemaError(
+            raise SelectionSchemaError(
                 f"{path}: {prefix}.selected_attributes has invalid date category "
                 f"{', '.join(sorted(str(item) for item in unknown_categories))!r}; "
                 "expected collection or fallback"
@@ -366,7 +366,7 @@ def _compile_target(path: Path, target: str, raw_config: object) -> _TargetRules
     )
     overlap = set(selected) & ignored
     if overlap:
-        raise CurationSchemaError(
+        raise SelectionSchemaError(
             f"{path}: {prefix} attribute {sorted(overlap)[0]!r} is both selected and ignored"
         )
     discovery_groups = _mapping(
@@ -397,14 +397,14 @@ def _compile_location_rescue(path: Path, raw_config: object) -> _LocationRescue 
     _reject_unknown_keys(path, config, {"vocabulary_path", "aliases", "separators"}, prefix)
     raw_vocabulary_path = config.get("vocabulary_path")
     if not isinstance(raw_vocabulary_path, str) or not raw_vocabulary_path.strip():
-        raise CurationSchemaError(f"{path}: {prefix}.vocabulary_path must be a non-empty string")
+        raise SelectionSchemaError(f"{path}: {prefix}.vocabulary_path must be a non-empty string")
     vocabulary_path = Path(raw_vocabulary_path)
     if not vocabulary_path.is_absolute():
         vocabulary_path = path.parent / vocabulary_path
     try:
         vocabulary_text = vocabulary_path.read_text(encoding="utf-8-sig")
     except OSError as error:
-        raise CurationSchemaError(
+        raise SelectionSchemaError(
             f"{path}: {prefix}.vocabulary_path cannot read {vocabulary_path}: {error}"
         ) from error
     prefixes = {
@@ -413,7 +413,7 @@ def _compile_location_rescue(path: Path, raw_config: object) -> _LocationRescue 
         if (normalized := _presentation_normalize(line))
     }
     if not prefixes:
-        raise CurationSchemaError(
+        raise SelectionSchemaError(
             f"{path}: {prefix}.vocabulary_path {vocabulary_path} must not be empty"
         )
     for alias in _literal_nonempty_string_list(
@@ -421,13 +421,13 @@ def _compile_location_rescue(path: Path, raw_config: object) -> _LocationRescue 
     ):
         normalized_alias = _presentation_normalize(alias)
         if not normalized_alias:
-            raise CurationSchemaError(f"{path}: {prefix}.aliases must contain non-empty names")
+            raise SelectionSchemaError(f"{path}: {prefix}.aliases must contain non-empty names")
         prefixes.add(normalized_alias)
     separators = tuple(
         _literal_nonempty_string_list(path, f"{prefix}.separators", config.get("separators"))
     )
     if not separators:
-        raise CurationSchemaError(f"{path}: {prefix}.separators must not be empty")
+        raise SelectionSchemaError(f"{path}: {prefix}.separators must not be empty")
     return _LocationRescue(tuple(sorted(prefixes, key=lambda item: (-len(item), item))), separators)
 
 
@@ -435,7 +435,7 @@ def _compile_value_rejection_rule(
     path: Path, prefix: str, family: object, raw_rule: object
 ) -> _ValueRejectionRule:
     if not isinstance(family, str) or not family:
-        raise CurationSchemaError(f"{path}: {prefix} family name must be a string")
+        raise SelectionSchemaError(f"{path}: {prefix} family name must be a string")
     rule = _mapping(path, prefix, raw_rule)
     _reject_unknown_keys(
         path,
@@ -482,7 +482,7 @@ def _compile_value_rejection_rule(
     )
     fuzzy_setting = rule.get("fuzzy")
     if fuzzy_setting not in (None, "one_edit_unique"):
-        raise CurationSchemaError(
+        raise SelectionSchemaError(
             f"{path}: {prefix}.fuzzy must be 'one_edit_unique' when configured"
         )
     return _ValueRejectionRule(
@@ -505,7 +505,7 @@ def _selected_decisions(path: Path, target: str, groups: Mapping[str, object]) -
     result = {}
     for family, normalized in values:
         if normalized in result:
-            raise CurationSchemaError(
+            raise SelectionSchemaError(
                 f"{path}: targets.{target}.selected_attributes repeats attribute {normalized!r}"
             )
         result[normalized] = categories.get(family, "")
@@ -518,7 +518,7 @@ def _decision_values(
     result = []
     for family, raw_values in groups.items():
         if not isinstance(family, str) or not family:
-            raise CurationSchemaError(f"{path}: {prefix} family names must be strings")
+            raise SelectionSchemaError(f"{path}: {prefix} family names must be strings")
         for value in _normalized_nonempty_string_list(path, f"{prefix}.{family}", raw_values):
             result.append((family, _normalize(value)))
     return result
@@ -527,7 +527,7 @@ def _decision_values(
 def _compile_discovery(path: Path, target: str, family: object, raw_rule: object) -> _DiscoveryRule:
     prefix = f"targets.{target}.attribute_discovery.{family}"
     if not isinstance(family, str) or not family:
-        raise CurationSchemaError(
+        raise SelectionSchemaError(
             f"{path}: targets.{target}.attribute_discovery family names must be strings"
         )
     rule = _mapping(path, prefix, raw_rule)
@@ -551,7 +551,7 @@ def _compile_discovery(path: Path, target: str, family: object, raw_rule: object
         try:
             patterns.append(re.compile(pattern))
         except re.error as error:
-            raise CurationSchemaError(
+            raise SelectionSchemaError(
                 f"{path}: {prefix}.regex[{index}] invalid regular expression {pattern!r}: {error}"
             ) from error
     return _DiscoveryRule(family, tokens, phrases, tuple(patterns))
@@ -644,25 +644,25 @@ def _optimal_string_alignment_distance_at_most_two(left: str, right: str) -> int
 
 def _mapping(path: Path, prefix: str, value: object) -> Mapping[str, object]:
     if not isinstance(value, Mapping):
-        raise CurationSchemaError(f"{path}: {prefix} must be a mapping")
+        raise SelectionSchemaError(f"{path}: {prefix} must be a mapping")
     return value
 
 
 def _normalized_nonempty_string_list(path: Path, prefix: str, value: object) -> Sequence[str]:
     if not isinstance(value, list):
-        raise CurationSchemaError(f"{path}: {prefix} must be a list")
+        raise SelectionSchemaError(f"{path}: {prefix} must be a list")
     for index, item in enumerate(value):
         if not isinstance(item, str) or not _normalize(item):
-            raise CurationSchemaError(f"{path}: {prefix}[{index}] must be a non-empty string")
+            raise SelectionSchemaError(f"{path}: {prefix}[{index}] must be a non-empty string")
     return value
 
 
 def _literal_nonempty_string_list(path: Path, prefix: str, value: object) -> Sequence[str]:
     if not isinstance(value, list):
-        raise CurationSchemaError(f"{path}: {prefix} must be a list")
+        raise SelectionSchemaError(f"{path}: {prefix} must be a list")
     for index, item in enumerate(value):
         if not isinstance(item, str) or not item:
-            raise CurationSchemaError(f"{path}: {prefix}[{index}] must be a non-empty string")
+            raise SelectionSchemaError(f"{path}: {prefix}[{index}] must be a non-empty string")
     return value
 
 
@@ -673,7 +673,7 @@ def _reject_unknown_keys(
     if unknown:
         unknown_key = sorted(str(key) for key in unknown)[0]
         policy_key = f"{prefix}.{unknown_key}" if prefix else unknown_key
-        raise CurationSchemaError(f"{path}: {policy_key}: unknown policy key")
+        raise SelectionSchemaError(f"{path}: {policy_key}: unknown policy key")
 
 
 def _normalize(value: str) -> str:

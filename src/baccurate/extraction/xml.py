@@ -15,7 +15,7 @@ from baccurate.adapters.compressed_io import open_binary
 from baccurate.taxon_registry.species_label_matching import NA
 
 if TYPE_CHECKING:
-    from baccurate.extraction.curation import CurationDecision
+    from baccurate.extraction.selection import SelectionDecision
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ ROOT_DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
 
 
 @dataclass(slots=True)
-class CurationCounters:
+class SelectionCounters:
     """Count each BioSample attribute-value pair once.
 
     A pair may inform several standardization targets. The counters preserve
@@ -38,7 +38,7 @@ class CurationCounters:
     unselected: int = 0
     multiply_matched: int = 0
 
-    def record(self, decision: CurationDecision) -> None:
+    def record(self, decision: SelectionDecision) -> None:
         self.inspected += 1
         event_kinds = {event.kind for event in decision.events}
         if decision.matches or "rejected_value" in event_kinds:
@@ -122,10 +122,10 @@ def iter_biosample_records(input_file: str | Path) -> Iterator[etree._Element]:
 
 def parse_xml(
     biosample_record: etree._Element,
-    evaluate_function: Callable[..., CurationDecision],
+    evaluate_function: Callable[..., SelectionDecision],
     check_root_attributes: bool = False,
-    counters: CurationCounters | None = None,
-) -> list[CurationDecision]:
+    counters: SelectionCounters | None = None,
+) -> list[SelectionDecision]:
     decisions = []
 
     for attr_name, value, xml_element in _iter_biosample_pairs_with_xml_element(
@@ -161,10 +161,10 @@ def _extract_organism_name(elem: etree._Element) -> str:
 
 def process_biosample_xml(
     input_file: str | Path,
-    evaluate_function: Callable[..., CurationDecision],
-    counters: CurationCounters | None = None,
-) -> Iterator[tuple[str, list[CurationDecision], tuple[str, ...], str]]:
-    """Stream XML, yielding accession, curation decisions, linked BioProjects, and organism name."""
+    evaluate_function: Callable[..., SelectionDecision],
+    counters: SelectionCounters | None = None,
+) -> Iterator[tuple[str, list[SelectionDecision], tuple[str, ...], str]]:
+    """Yield accession, selection decisions, BioProjects, and organism name per record."""
     for elem in iter_biosample_records(input_file):
         accession = elem.get("accession", "unknown")
 

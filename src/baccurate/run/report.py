@@ -186,7 +186,7 @@ class RunReport:
             elapsed_seconds=elapsed_seconds,
             extracted_record_count=report.extracted_record_count,
             inclusion_route_counts=report.inclusion_route_counts,
-            curation_counts={
+            selection_counts={
                 "inspected_pairs": report.counters.inspected,
                 "identified_pairs": report.counters.identified,
                 "selected_pairs": report.counters.selected,
@@ -414,7 +414,7 @@ def _extraction_document(
     elapsed_seconds: float = 0.0,
     extracted_record_count: int | None = None,
     inclusion_route_counts: Mapping[str, int] | None = None,
-    curation_counts: dict[str, int] | None = None,
+    selection_counts: dict[str, int] | None = None,
     automatic_rejection_counts: dict[str, dict[str, int]] | None = None,
     unreviewed_count: int | None = None,
     uncertain_count: int | None = None,
@@ -438,7 +438,7 @@ def _extraction_document(
             "extracted_metadata_path": str(extracted_metadata_path),
             "elapsed_seconds": elapsed_seconds,
             "extracted_record_count": extracted_record_count,
-            "curation_counts": curation_counts,
+            "selection_counts": selection_counts,
             "automatic_rejection_counts": automatic_rejection_counts,
             "unreviewed_count": unreviewed_count,
             "uncertain_count": uncertain_count,

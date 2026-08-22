@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from baccurate.extraction import CurationSchema
+from baccurate.extraction import SelectionSchema
 from baccurate.standardization.host import HostPolicy
 from baccurate.standardization.isolation_source import IsolationSourcePromptPolicy
 from baccurate.standardization.location import LocationPolicy
@@ -20,13 +20,13 @@ class EffectivePolicy:
     """
     Immutable domain policy selected for one BacCurate run.
 
-    A curation schema is present exactly when the run must perform extraction, so a
+    A selection schema is present exactly when the run must perform extraction, so a
     run that reuses an extracted bundle is never blocked by extraction policy it
     does not evaluate.
     """
 
     taxon_registry: TaxonRegistry
-    curation_schema: CurationSchema | None
+    selection_schema: SelectionSchema | None
     host_policy: HostPolicy | None
     location_policy: LocationPolicy | None
     isolation_source_prompt_policy: IsolationSourcePromptPolicy | None
@@ -50,9 +50,9 @@ def load_effective_policy(
     required_policies = run_policy_slots(targets, extraction_required=extraction_required)
     return EffectivePolicy(
         taxon_registry=taxon_registry,
-        curation_schema=(
-            CurationSchema.load(configuration_root / POLICY_FILENAMES[PolicySlot.CURATION_SCHEMA])
-            if PolicySlot.CURATION_SCHEMA in required_policies
+        selection_schema=(
+            SelectionSchema.load(configuration_root / POLICY_FILENAMES[PolicySlot.SELECTION_SCHEMA])
+            if PolicySlot.SELECTION_SCHEMA in required_policies
             else None
         ),
         host_policy=(

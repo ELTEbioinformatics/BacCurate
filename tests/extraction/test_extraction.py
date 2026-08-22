@@ -11,8 +11,8 @@ import pytest
 import baccurate.extraction as extraction
 from baccurate import paths
 from baccurate.extraction import (
-    CurationSchema,
     ExtractionReport,
+    SelectionSchema,
 )
 from baccurate.paths import (
     DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
@@ -38,10 +38,10 @@ class _PairedSourceSnapshotPaths(Protocol):
 
 
 def run_extraction(**kwargs: Any) -> ExtractionReport:
-    """Call extraction through its injected curation-schema interface."""
+    """Call extraction through its injected selection-schema interface."""
     kwargs.setdefault(
-        "curation_schema",
-        CurationSchema.load(ROOT / "config" / "curation_schema.yaml"),
+        "selection_schema",
+        SelectionSchema.load(ROOT / "config" / "selection_schema.yaml"),
     )
     return extraction_facade.run_extraction(**kwargs)
 
@@ -205,7 +205,7 @@ def test_extraction_reports_inclusion_routes_for_records_present_in_snapshot(
     assert published["agreeing"]["ncbi_organism"] == "NA"
 
 
-def test_extraction_report_preserves_production_curation_review_counters(
+def test_extraction_report_preserves_production_selection_review_counters(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     paired_source_snapshots,
@@ -245,7 +245,7 @@ def test_extraction_report_preserves_production_curation_review_counters(
         output_path=tmp_path / "extracted.tsv",
         index_path=index,
         disable_progress=True,
-        curation_schema=CurationSchema.load(ROOT / "config" / "curation_schema.yaml"),
+        selection_schema=SelectionSchema.load(ROOT / "config" / "selection_schema.yaml"),
     )
 
     assert report.unreviewed_count == 2
@@ -266,7 +266,7 @@ def test_extraction_report_preserves_production_curation_review_counters(
     ],
 )
 def test_universal_missing_marker_rejects_the_whole_value(value: str) -> None:
-    schema = CurationSchema.load(ROOT / "config" / "curation_schema.yaml")
+    schema = SelectionSchema.load(ROOT / "config" / "selection_schema.yaml")
 
     decision = schema.evaluate(attribute="collection_date", value=value)
 
@@ -283,7 +283,7 @@ def test_universal_missing_marker_rejects_the_whole_value(value: str) -> None:
     ],
 )
 def test_universal_missing_marker_does_not_match_nearby_syntax(value: str) -> None:
-    schema = CurationSchema.load(ROOT / "config" / "curation_schema.yaml")
+    schema = SelectionSchema.load(ROOT / "config" / "selection_schema.yaml")
 
     decision = schema.evaluate(attribute="collection_date", value=value)
 

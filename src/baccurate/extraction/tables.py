@@ -2,9 +2,9 @@
 
 from collections.abc import Iterable
 
-from baccurate.extraction.curation import CurationDecision
 from baccurate.extraction.io import SEQUENCE_ACCESSION_COLUMNS, TaxonAssignment
 from baccurate.extraction.metadata_types import EXTRACTION_TARGET_ORDER
+from baccurate.extraction.selection import SelectionDecision
 
 COLUMNS = [
     "accession",
@@ -30,7 +30,7 @@ def extracted_metadata_row(
     ncbi_organism: str,
     bioproject_id: str,
     bioproject_accession: str,
-    decisions: Iterable[CurationDecision],
+    decisions: Iterable[SelectionDecision],
 ) -> list[str] | None:
     """Return one intermediate extracted-metadata row for a BioSample record, or None."""
     raw_pairs: dict[str, tuple[list[str], list[str]]] = {

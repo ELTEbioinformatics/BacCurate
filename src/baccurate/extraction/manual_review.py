@@ -9,7 +9,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from baccurate.extraction.curation import CurationDecision
+from baccurate.extraction.selection import SelectionDecision
 
 _REPRESENTATIVE_LIMIT = 3
 _UNREVIEWED_COLUMNS = (
@@ -42,7 +42,7 @@ class _UnreviewedBucket:
     count: int = 0
     examples: set[tuple[str, str, str]] = field(default_factory=set)
 
-    def add(self, decision: CurationDecision, accession: str) -> None:
+    def add(self, decision: SelectionDecision, accession: str) -> None:
         self.count += 1
         _remember(self.examples, (decision.attribute, decision.value, accession))
 
@@ -59,7 +59,7 @@ class _UncertainBucket:
     count: int = 0
     examples: set[tuple[str, str, str]] = field(default_factory=set)
 
-    def add(self, decision: CurationDecision, accession: str) -> None:
+    def add(self, decision: SelectionDecision, accession: str) -> None:
         self.count += 1
         _remember(self.examples, (decision.attribute, decision.value, accession))
 
@@ -101,7 +101,7 @@ class ReviewWorklists:
             counts.setdefault(target, {})[family] = count
         return counts
 
-    def observe(self, decision: CurationDecision, *, accession: str) -> None:
+    def observe(self, decision: SelectionDecision, *, accession: str) -> None:
         for event in decision.events:
             if event.kind == "unreviewed_attribute":
                 key = (event.target, event.family, event.normalized_attribute)

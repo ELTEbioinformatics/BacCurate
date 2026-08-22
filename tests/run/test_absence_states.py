@@ -18,9 +18,9 @@ from pydantic import ValidationError
 from baccurate.adapters.llm.client import LLMSettings
 from baccurate.extraction import (
     SEQUENCE_ACCESSION_COLUMNS,
-    CurationDecision,
-    CurationEvent,
-    CurationSchema,
+    SelectionDecision,
+    SelectionEvent,
+    SelectionSchema,
 )
 from baccurate.provenance.source_snapshot import (
     DerivedBundleProvenance,
@@ -51,7 +51,7 @@ from baccurate.standardization_target.specifications import StandardizationTarge
 from baccurate.taxon_registry.registry import load_taxon_registry
 
 ROOT = Path(__file__).parents[2]
-CURATION_SCHEMA_PATH = ROOT / "config" / "curation_schema.yaml"
+SELECTION_SCHEMA_PATH = ROOT / "config" / "selection_schema.yaml"
 LOCATION_POLICY_PATH = ROOT / "config" / "location.yaml"
 ISOLATION_SOURCE_POLICY_PATH = ROOT / "config" / "isolation_source.yaml"
 
@@ -131,8 +131,8 @@ class _BuiltDataset:
 
 
 @pytest.fixture(scope="module")
-def curation_schema() -> CurationSchema:
-    return CurationSchema.load(CURATION_SCHEMA_PATH)
+def selection_schema() -> SelectionSchema:
+    return SelectionSchema.load(SELECTION_SCHEMA_PATH)
 
 
 def _write_source_manifest(
@@ -995,13 +995,13 @@ def test_host_absence_and_non_resolution_share_empty_columns_but_run_report_sepa
 
 
 def test_missing_metadata_is_rejected_before_selection_not_serialized_as_absence(
-    curation_schema: CurationSchema,
+    selection_schema: SelectionSchema,
 ) -> None:
-    decision = curation_schema.evaluate(attribute="host", value="unknown")
+    decision = selection_schema.evaluate(attribute="host", value="unknown")
 
-    assert decision == CurationDecision(
+    assert decision == SelectionDecision(
         "host",
         "unknown",
         (),
-        (CurationEvent("rejected_value", "host", "universal_missing", "host", "unknown"),),
+        (SelectionEvent("rejected_value", "host", "universal_missing", "host", "unknown"),),
     )
