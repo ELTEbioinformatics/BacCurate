@@ -32,7 +32,7 @@ def test_fixture_dataset_builder_standardizes_host_without_production_taxonomy(
     )
 
     assert destination.read_text(encoding="utf-8") == (
-        "accession\ttaxon_scientific_name\tncbi_organism\tsylph_species\t"
+        "accession\ttaxon\tncbi_organism\tsylph_species\t"
         "bioproject\t"
         "sra_run_accessions\tgenbank_assembly_accessions\t"
         "refseq_assembly_accessions\t"

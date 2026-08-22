@@ -163,7 +163,7 @@ def test_pipeline_output_label_uses_supplied_registry(
     output_path = tmp_path / "runs" / "supplied-registry" / "supplied-registry.tsv"
     with output_path.open(encoding="utf-8", newline="") as stream:
         row = next(csv.DictReader(stream, delimiter="\t"))
-    assert row["taxon_scientific_name"] == "Zeta example"
+    assert row["taxon"] == "Zeta example"
 
 
 def test_pipeline_cli_uses_custom_extracted_metadata_bundle(

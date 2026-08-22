@@ -663,7 +663,7 @@ def test_unrequested_targets_omit_columns_instead_of_serializing_empty(
 
     assert built.columns == (
         "accession",
-        "taxon_scientific_name",
+        "taxon",
         "ncbi_organism",
         "sylph_species",
         "bioproject",

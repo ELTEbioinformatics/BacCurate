@@ -195,7 +195,7 @@ class _FinalRowAssembler:
 
     base_columns = (
         "accession",
-        "taxon_scientific_name",
+        "taxon",
         "ncbi_organism",
         "sylph_species",
         "bioproject",
