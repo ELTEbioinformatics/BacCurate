@@ -12,8 +12,8 @@ from baccurate.extraction.metadata_types import TargetMatch
 from baccurate.extraction.selection import (
     SelectionDecision,
     SelectionEvent,
-    SelectionSchema,
-    SelectionSchemaError,
+    SelectionPolicy,
+    SelectionPolicyError,
 )
 from baccurate.extraction.tables import COLUMNS
 from baccurate.extraction.xml import SelectionCounters
@@ -26,8 +26,8 @@ __all__ = [
     "SelectionCounters",
     "SelectionDecision",
     "SelectionEvent",
-    "SelectionSchema",
-    "SelectionSchemaError",
+    "SelectionPolicy",
+    "SelectionPolicyError",
     "TargetMatch",
     "TaxonAssignment",
     "cli",

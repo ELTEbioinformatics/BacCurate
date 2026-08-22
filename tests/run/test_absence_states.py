@@ -20,7 +20,7 @@ from baccurate.extraction import (
     SEQUENCE_ACCESSION_COLUMNS,
     SelectionDecision,
     SelectionEvent,
-    SelectionSchema,
+    SelectionPolicy,
 )
 from baccurate.provenance.source_snapshot import (
     DerivedBundleProvenance,
@@ -51,7 +51,7 @@ from baccurate.standardization_target.specifications import StandardizationTarge
 from baccurate.taxon_registry.registry import load_taxon_registry
 
 ROOT = Path(__file__).parents[2]
-SELECTION_SCHEMA_PATH = ROOT / "config" / "selection_schema.yaml"
+SELECTION_POLICY_PATH = ROOT / "config" / "selection.yaml"
 LOCATION_POLICY_PATH = ROOT / "config" / "location.yaml"
 ISOLATION_SOURCE_POLICY_PATH = ROOT / "config" / "isolation_source.yaml"
 
@@ -131,8 +131,8 @@ class _BuiltDataset:
 
 
 @pytest.fixture(scope="module")
-def selection_schema() -> SelectionSchema:
-    return SelectionSchema.load(SELECTION_SCHEMA_PATH)
+def selection_policy() -> SelectionPolicy:
+    return SelectionPolicy.load(SELECTION_POLICY_PATH)
 
 
 def _write_source_manifest(
@@ -995,9 +995,9 @@ def test_host_absence_and_non_resolution_share_empty_columns_but_run_report_sepa
 
 
 def test_missing_metadata_is_rejected_before_selection_not_serialized_as_absence(
-    selection_schema: SelectionSchema,
+    selection_policy: SelectionPolicy,
 ) -> None:
-    decision = selection_schema.evaluate(attribute="host", value="unknown")
+    decision = selection_policy.evaluate(attribute="host", value="unknown")
 
     assert decision == SelectionDecision(
         "host",

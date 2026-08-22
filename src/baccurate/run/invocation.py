@@ -10,7 +10,7 @@ from pathlib import Path
 
 from baccurate.adapters.compressed_io import open_text
 from baccurate.adapters.llm.client import LLMSettings, load_llm_settings
-from baccurate.extraction import SelectionSchema, resolve_taxon_assignment
+from baccurate.extraction import SelectionPolicy, resolve_taxon_assignment
 from baccurate.paths import (
     CONFIG_DIR,
     DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
@@ -55,7 +55,7 @@ class RunInvocation:
     active_targets: tuple[StandardizationTarget, ...]
     extracted_metadata_path: Path
     effective_policy: EffectivePolicy
-    selection_schema: SelectionSchema | None
+    selection_policy: SelectionPolicy | None
     outputs: RunOutputs
     biosample_input_path: Path
     index_path: Path
@@ -208,7 +208,7 @@ def resolve_invocation(
         requested_standardization_targets=tuple(target.value for target in active_targets),
         extraction_required=not extracted_metadata_path.exists(),
     )
-    selection_schema = effective_policy.selection_schema
+    selection_policy = effective_policy.selection_policy
 
     run_name = args.run_name or datetime.now().strftime("%Y-%m-%d_%H-%M")
     try:
@@ -251,7 +251,7 @@ def resolve_invocation(
         args.config_dir / POLICY_FILENAMES[policy_slot]
         for policy_slot in run_policy_slots(
             active_targets,
-            extraction_required=selection_schema is not None,
+            extraction_required=selection_policy is not None,
         )
     )
     normalized_options = {
@@ -281,7 +281,7 @@ def resolve_invocation(
         active_targets=active_targets,
         extracted_metadata_path=extracted_metadata_path,
         effective_policy=effective_policy,
-        selection_schema=selection_schema,
+        selection_policy=selection_policy,
         outputs=outputs,
         biosample_input_path=biosample_input_path,
         index_path=index_path,

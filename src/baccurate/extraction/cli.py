@@ -18,7 +18,7 @@ from baccurate.extraction.bioproject import (
 )
 from baccurate.extraction.io import InclusionRoute, load_taxon_map
 from baccurate.extraction.manual_review import ReviewWorklists
-from baccurate.extraction.selection import SelectionSchema
+from baccurate.extraction.selection import SelectionPolicy
 from baccurate.extraction.tables import COLUMNS, INTERMEDIATE_COLUMNS, extracted_metadata_row
 from baccurate.extraction.xml import SelectionCounters, process_biosample_xml
 from baccurate.provenance.source_snapshot import (
@@ -59,7 +59,7 @@ def run_extraction(
     log_level: str = "INFO",
     disable_progress: bool = False,
     *,
-    selection_schema: SelectionSchema,
+    selection_policy: SelectionPolicy,
     taxon_registry: TaxonRegistry | None = None,
 ) -> ExtractionReport:
     logging.basicConfig(
@@ -104,7 +104,7 @@ def run_extraction(
                 for xml_file in biosample_paths:
                     logger.info("Parsing %s...", xml_file)
                     records = process_biosample_xml(
-                        str(xml_file), selection_schema.evaluate, counters
+                        str(xml_file), selection_policy.evaluate, counters
                     )
                     for accession, decisions, bioproject_ids, ncbi_organism in records:
                         for decision in decisions:
@@ -226,13 +226,13 @@ def cli(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--log-level", default="INFO")
     parser.add_argument("--quiet", action="store_true", help="Disable progress bars.")
     args = parser.parse_args(argv)
-    selection_schema = SelectionSchema.load(
-        paths.CONFIG_DIR / POLICY_FILENAMES[PolicySlot.SELECTION_SCHEMA]
+    selection_policy = SelectionPolicy.load(
+        paths.CONFIG_DIR / POLICY_FILENAMES[PolicySlot.SELECTION]
     )
 
     run_extraction(
         output_path=Path(args.output),
-        selection_schema=selection_schema,
+        selection_policy=selection_policy,
         index_path=Path(args.index),
         names=args.names,
         log_level=args.log_level,

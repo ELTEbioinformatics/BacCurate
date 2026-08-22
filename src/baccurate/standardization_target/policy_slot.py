@@ -8,7 +8,7 @@ from types import MappingProxyType
 class PolicySlot(StrEnum):
     """A loadable domain policy slot in the effective policy."""
 
-    SELECTION_SCHEMA = "selection_schema"
+    SELECTION = "selection"
     HOST = "host"
     LOCATION = "location"
     ISOLATION_SOURCE = "isolation_source"
@@ -16,7 +16,7 @@ class PolicySlot(StrEnum):
 
 POLICY_FILENAMES: Mapping[PolicySlot, str] = MappingProxyType(
     {
-        PolicySlot.SELECTION_SCHEMA: "selection_schema.yaml",
+        PolicySlot.SELECTION: "selection.yaml",
         PolicySlot.HOST: "host.yaml",
         PolicySlot.LOCATION: "location.yaml",
         PolicySlot.ISOLATION_SOURCE: "isolation_source.yaml",

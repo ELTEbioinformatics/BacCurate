@@ -242,7 +242,7 @@ def _parse_coordinate(value: str) -> tuple[float, float] | None:
 
 
 # Text that stand for a missing value rather than a place.
-# Mirrors universal_missing in config/selection_schema.yaml, which rejects the whole value.
+# Mirrors universal_missing in config/selection.yaml, which rejects the whole value.
 #
 # Very short tokens need to be watched out for, so some of those are not included here.
 # For example "Thailand: Nan" is an actual Thai province.

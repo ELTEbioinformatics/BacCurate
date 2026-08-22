@@ -12,7 +12,7 @@ import baccurate.extraction as extraction
 from baccurate import paths
 from baccurate.extraction import (
     ExtractionReport,
-    SelectionSchema,
+    SelectionPolicy,
 )
 from baccurate.paths import (
     DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
@@ -38,10 +38,10 @@ class _PairedSourceSnapshotPaths(Protocol):
 
 
 def run_extraction(**kwargs: Any) -> ExtractionReport:
-    """Call extraction through its injected selection-schema interface."""
+    """Call extraction through its injected selection-policy interface."""
     kwargs.setdefault(
-        "selection_schema",
-        SelectionSchema.load(ROOT / "config" / "selection_schema.yaml"),
+        "selection_policy",
+        SelectionPolicy.load(ROOT / "config" / "selection.yaml"),
     )
     return extraction_facade.run_extraction(**kwargs)
 
@@ -245,7 +245,7 @@ def test_extraction_report_preserves_production_selection_review_counters(
         output_path=tmp_path / "extracted.tsv",
         index_path=index,
         disable_progress=True,
-        selection_schema=SelectionSchema.load(ROOT / "config" / "selection_schema.yaml"),
+        selection_policy=SelectionPolicy.load(ROOT / "config" / "selection.yaml"),
     )
 
     assert report.unreviewed_count == 2
@@ -266,9 +266,9 @@ def test_extraction_report_preserves_production_selection_review_counters(
     ],
 )
 def test_universal_missing_marker_rejects_the_whole_value(value: str) -> None:
-    schema = SelectionSchema.load(ROOT / "config" / "selection_schema.yaml")
+    policy = SelectionPolicy.load(ROOT / "config" / "selection.yaml")
 
-    decision = schema.evaluate(attribute="collection_date", value=value)
+    decision = policy.evaluate(attribute="collection_date", value=value)
 
     assert decision.matches == ()
     assert decision.events[0].family == "universal_missing"
@@ -283,9 +283,9 @@ def test_universal_missing_marker_rejects_the_whole_value(value: str) -> None:
     ],
 )
 def test_universal_missing_marker_does_not_match_nearby_syntax(value: str) -> None:
-    schema = SelectionSchema.load(ROOT / "config" / "selection_schema.yaml")
+    policy = SelectionPolicy.load(ROOT / "config" / "selection.yaml")
 
-    decision = schema.evaluate(attribute="collection_date", value=value)
+    decision = policy.evaluate(attribute="collection_date", value=value)
 
     assert [match.target for match in decision.matches] == ["date"]
     assert decision.events == ()

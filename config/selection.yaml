@@ -1,4 +1,4 @@
-# BioSample selection schema used during extraction, before standardization.
+# BioSample selection policy used during extraction, before standardization.
 # Reviewed BioSample attribute-value pairs are selected based on the listed
 # attribute names and values.
 schema_version: 3

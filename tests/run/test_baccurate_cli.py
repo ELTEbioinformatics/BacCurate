@@ -12,7 +12,7 @@ import pytest
 import baccurate.run.invocation as invocation_module
 import baccurate.run.main as main_module
 from baccurate.adapters.policy_yaml import PolicyConfigurationError
-from baccurate.extraction import COLUMNS, SelectionSchemaError
+from baccurate.extraction import COLUMNS, SelectionPolicyError
 from baccurate.provenance.source_snapshot import (
     DerivedBundleProvenance,
     SourceSnapshotManifest,
@@ -201,7 +201,7 @@ def test_pipeline_cli_validates_required_selection_before_output_initialization(
 ) -> None:
     config_dir = tmp_path / "config"
     config_dir.mkdir()
-    selection_path = config_dir / "selection_schema.yaml"
+    selection_path = config_dir / "selection.yaml"
     selection_path.write_text(
         "schema_version: 3\ntargets:\n  host:\n    unexpected: true\n",
         encoding="utf-8",
@@ -209,7 +209,7 @@ def test_pipeline_cli_validates_required_selection_before_output_initialization(
     output_dir = tmp_path / "runs"
     _guard_run_resources(monkeypatch)
 
-    with pytest.raises(SelectionSchemaError) as error:
+    with pytest.raises(SelectionPolicyError) as error:
         pipeline_cli(
             [
                 "ecoli",
@@ -269,7 +269,7 @@ def test_pipeline_cli_validates_selected_standardization_policy_before_resources
     assert not (tmp_path / "isolation-cache.db").exists()
 
 
-def test_pipeline_cli_reuses_extracted_bundle_without_selection_schema(
+def test_pipeline_cli_reuses_extracted_bundle_without_selection_policy(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

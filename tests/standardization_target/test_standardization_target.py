@@ -70,11 +70,11 @@ def test_each_standardization_target_declares_its_required_policy_slots(
     assert required_policy_slots((target,)) == expected_policy_slots
 
 
-def test_extraction_adds_selection_schema_to_required_run_policy_slots() -> None:
+def test_extraction_adds_selection_policy_to_required_run_policy_slots() -> None:
     assert run_policy_slots(
         (StandardizationTarget.DATE,),
         extraction_required=True,
-    ) == (PolicySlot.SELECTION_SCHEMA,)
+    ) == (PolicySlot.SELECTION,)
 
 
 def test_mixed_target_policy_slots_follow_run_report_order_without_duplicates() -> None:

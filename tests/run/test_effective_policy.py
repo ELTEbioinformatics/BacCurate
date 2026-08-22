@@ -37,7 +37,7 @@ def test_effective_policy_loads_selected_policies_and_ignores_unselected_policy(
     )
     selected_sources = {"host.yaml", "isolation_source.yaml"}
     for source_name in (
-        "selection_schema.yaml",
+        "selection.yaml",
         "host.yaml",
         "location.yaml",
         "isolation_source.yaml",
@@ -55,13 +55,13 @@ def test_effective_policy_loads_selected_policies_and_ignores_unselected_policy(
         extraction_required=False,
     )
 
-    assert policy.selection_schema is None
+    assert policy.selection_policy is None
     assert policy.host_policy is not None
     assert policy.location_policy is None
     assert policy.isolation_source_prompt_policy is not None
 
 
-def test_effective_policy_loads_required_selection_schema() -> None:
+def test_effective_policy_loads_required_selection_policy() -> None:
     registry = load_taxon_registry(TAXON_REGISTRY_PATH)
 
     policy = load_effective_policy(
@@ -72,17 +72,17 @@ def test_effective_policy_loads_required_selection_schema() -> None:
     )
 
     assert policy.taxon_registry is registry
-    assert policy.selection_schema is not None
-    assert policy.selection_schema.schema_version == 3
+    assert policy.selection_policy is not None
+    assert policy.selection_policy.schema_version == 3
     with pytest.raises(AttributeError):
-        policy.selection_schema = None  # type: ignore[misc]
+        policy.selection_policy = None  # type: ignore[misc]
 
 
-def test_effective_policy_does_not_load_selection_schema_for_reused_bundle(
+def test_effective_policy_does_not_load_selection_policy_for_reused_bundle(
     tmp_path: Path,
 ) -> None:
     registry = load_taxon_registry(TAXON_REGISTRY_PATH)
-    (tmp_path / "selection_schema.yaml").write_text("broken: [\n", encoding="utf-8")
+    (tmp_path / "selection.yaml").write_text("broken: [\n", encoding="utf-8")
 
     policy = load_effective_policy(
         taxon_registry=registry,
@@ -92,7 +92,7 @@ def test_effective_policy_does_not_load_selection_schema_for_reused_bundle(
     )
 
     assert policy.taxon_registry is registry
-    assert policy.selection_schema is None
+    assert policy.selection_policy is None
 
 
 def test_registry_scientific_name_change_updates_derived_host_rejection(
