@@ -153,18 +153,18 @@ def test_extraction_reports_inclusion_routes_for_records_present_in_snapshot(
 <BioSampleSet>
   <BioSample accession="taxonomy">
     <Description><Organism taxonomy_name="Escherichia coli" /></Description>
-    <Attributes><Attribute attribute="isolation_source">soil</Attribute></Attributes>
+    <Attributes><Attribute attribute_name="isolation_source">soil</Attribute></Attributes>
   </BioSample>
   <BioSample accession="atb">
     <Description><Organism taxonomy_name="Escherichia coli O157" /></Description>
-    <Attributes><Attribute attribute="isolation_source">water</Attribute></Attributes>
+    <Attributes><Attribute attribute_name="isolation_source">water</Attribute></Attributes>
   </BioSample>
   <BioSample accession="reassigned">
     <Description><Organism taxonomy_name="Enterococcus faecium" /></Description>
-    <Attributes><Attribute attribute="isolation_source">blood</Attribute></Attributes>
+    <Attributes><Attribute attribute_name="isolation_source">blood</Attribute></Attributes>
   </BioSample>
   <BioSample accession="agreeing"><Attributes>
-    <Attribute attribute="isolation_source">stool</Attribute>
+    <Attribute attribute_name="isolation_source">stool</Attribute>
   </Attributes></BioSample>
 </BioSampleSet>
 """,
@@ -214,22 +214,25 @@ def test_extraction_report_preserves_production_selection_review_counters(
     biosample_xml = b"""\
 <BioSampleSet>
   <BioSample accession="SAMN1"><Attributes>
-    <Attribute attribute="host">unknown</Attribute>
+    <Attribute attribute_name="host">unknown</Attribute>
   </Attributes></BioSample>
   <BioSample accession="SAMN2"><Attributes>
-    <Attribute attribute="collection_date">missing</Attribute>
+    <Attribute attribute_name="collection_date">missing</Attribute>
   </Attributes></BioSample>
   <BioSample accession="SAMN3"><Attributes>
-    <Attribute attribute="isolation_source">GENOMIC</Attribute>
+    <Attribute attribute_name="isolation_source">GENOMIC</Attribute>
   </Attributes></BioSample>
   <BioSample accession="SAMN4"><Attributes>
-    <Attribute attribute="host">unkmowm</Attribute>
+    <Attribute attribute_name="host">unkmowm</Attribute>
   </Attributes></BioSample>
   <BioSample accession="SAMN5"><Attributes>
-    <Attribute attribute="host_environment">human</Attribute>
+    <Attribute attribute_name="host_environment">human</Attribute>
   </Attributes></BioSample>
   <BioSample accession="SAMN6"><Attributes>
-    <Attribute attribute="collection_date">aerobic</Attribute>
+    <Attribute attribute_name="collection_date">aerobic</Attribute>
+  </Attributes></BioSample>
+  <BioSample accession="SAMN7"><Attributes>
+    <Attribute attribute_name="nat-host" harmonized_name="host">unknown</Attribute>
   </Attributes></BioSample>
 </BioSampleSet>
 """
@@ -252,7 +255,7 @@ def test_extraction_report_preserves_production_selection_review_counters(
     assert report.uncertain_count == 1
     assert report.automatic_rejection_counts == {
         "date": {"non_date_evidence": 1, "universal_missing": 1},
-        "host": {"universal_missing": 1},
+        "host": {"universal_missing": 2},
         "iso": {"non_discriminative_process": 1},
     }
 
@@ -301,7 +304,7 @@ def test_extraction_publishes_provenance_bound_metadata_bundle(
 <BioSampleSet>
   <BioSample accession="SAMN00000001" last_update="2025-06-30T12:34:56.000">
     <Attributes>
-      <Attribute attribute="isolation_source">farm soil</Attribute>
+      <Attribute attribute_name="isolation_source">farm soil</Attribute>
     </Attributes>
     <Links><Link target="bioproject">1050647</Link></Links>
   </BioSample>
@@ -385,7 +388,7 @@ def test_extraction_preserves_linked_project_sets_and_unresolved_evidence(
     samples = "".join(
         f"""
   <BioSample accession="{accession}">
-    <Attributes><Attribute attribute="isolation_source">soil</Attribute></Attributes>
+    <Attributes><Attribute attribute_name="isolation_source">soil</Attribute></Attributes>
     {links}
   </BioSample>"""
         for accession, links in (
@@ -471,7 +474,7 @@ def test_equivalent_link_and_project_order_produces_byte_stable_data_artifacts(
     )
     sample_template = """\
 <BioSampleSet><BioSample accession="SAMN00000001">
-  <Attributes><Attribute attribute="isolation_source">soil</Attribute></Attributes>
+  <Attributes><Attribute attribute_name="isolation_source">soil</Attribute></Attributes>
   <Links>{links}</Links>
 </BioSample></BioSampleSet>
 """

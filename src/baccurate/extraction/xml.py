@@ -79,7 +79,7 @@ def _iter_biosample_pairs_with_xml_element(
         return
 
     for attr_elem in attributes_container.findall("Attribute"):
-        attr_name = attr_elem.get("harmonized_name") or attr_elem.get("attribute")
+        attr_name = attr_elem.get("harmonized_name") or attr_elem.get("attribute_name")
         if any(isinstance(node, etree._Entity) for node in attr_elem.iterdescendants()):
             logger.warning("Skipping attribute %r containing an unresolved XML entity", attr_name)
             continue
