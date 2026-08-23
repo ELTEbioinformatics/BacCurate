@@ -87,6 +87,10 @@ targets:
         - host_infra_specific_name
         - host_infra_specific_rank
         - host_subspecf_genlin
+        - host taxon name
+        - isolate host
+        - host info
+        - host click for ncbi taxo brower
     ignored_attributes:
       properties:
         - host age
@@ -100,14 +104,42 @@ targets:
         - host body habitat
         - host body product
         - host description
+        - host age months
+        - host age range
+        - host s age in days
+        - host dev stage
+        - host developmental stage
+        - host stage
+        - host ethnicity
+      disease_state:
+        - host disease status
+        - host desease outcome
+        - health status of host
+        - health or disease status of specific host at time of collection
+        - host infection episode
       identifiers:
         - host subject id
         - host sample
+        - host isolate
+        - host litter
+        - host note
+        - host npgs accession
+        - host or sample description
       non_host_identity:
         - lab_host
+        - laboratory host
+        - experiment host strain
+      # Boolean, so the species is unknown.
       relationship_flags:
         - host associated
         - is the sequenced pathogen host associated
+      environmental_package:
+        - host associated environmental package
+      # Routed through iso. The host and isolation-source exchange recovers any host term.
+      sample_origin:
+        - isolation source host associated
+        - isolation source non host associated
+      # MIxS names that describe the circumstances of the host, not its taxonomy.
       observed_non_identity:
         - host am
         - host blood press diast
@@ -171,6 +203,28 @@ targets:
         - surf_material
         # Collection-site features mostly describe environments, not geographic places.
         - coll_site_geo_feat
+        - specimen
+        - specimen type
+        - source
+        - source site
+        - source subgroup
+        - tissue source
+        - sample environment
+        - isolation source host associated
+        - isolation source non host associated
+        - origin of isolation
+        - isolation site
+        - sample source
+        - source code
+        - source sample
+        - e faecium source
+      corrupted_names:
+        - ioslation source
+        - isolation soure
+        - isolation sourcecum
+      care_setting:
+        - specimen submitter
+        - location type
       environmental_origin:
         - env_broad_scale
         - env_local_scale
@@ -189,6 +243,26 @@ targets:
         - plant_product
         # Often complements a broad source_type with specific environmental context.
         - metagenome_source
+        - metagenomic source
+        - environment
+        - environment where sample was taken
+        - environmental sample type
+        - local environmental context
+        - local scale environment context
+        - food compos
+        - misc param food source material
+        # Every "... environmental package" name is the MIxS field env_package.
+        - built environment environmental package
+        - host associated environmental package
+        - human associated environmental package
+        - human gut environmental package
+        - human skin environmental package
+        - miscellaneous environmental package
+        - plant associated environmental package
+        - sediment environmental package
+        - soil environmental package
+        - wastewater sludge environmental package
+        - water environmental package
     ignored_attributes:
       administrative:
         - biomaterial provider
@@ -198,10 +272,26 @@ targets:
         - source name
         - isolated by
         - reference material
+        - specimen collector s institution
+        - specimen repository
+        - specimen voucher url
+        - environment material checklist accession
+        - environmental food or other pathogen
+        - source sra
+        - source sra bioproject
+        - source sra filename
+        - library source click for details
       identifiers:
         - isolate id
         - specimen id
         - specimen voucher
+        - isolation alias
+        - isolation name alias
+        - isolation num
+        - source material identifier
+        - specimen source id
+        - source plate
+        - isolation hospital
       process_and_quality:
         - climate_environment
         - season_environment
@@ -215,11 +305,55 @@ targets:
         - food contain wrap
         - food pack integrity
         - food clean proc
+        - specimen with known storage state
+        - study source edited
+      laboratory_conditions:
+        - carbon source
+        - energy source
+        - nitrogen source
+        - growth carbon source
+        - isolation media
+        - medium used for isolation
+        - collected material
+        - isolation condition
+        - environmental condition
+        - growth environment
+        - evolutionary environment
+        - experimental environment
+        - environmental stress
+        - isolation platform
+        - isolation strategy
+        - experimental specimen type
+        - dneasy blood tissue qiagen
+        - input material for library preparation
+        - input material wga reaction
+        - rna source
+        - cell line or tissue
+      # The values are Clinical and Screening, which state study design.
+      study_design:
+        - specimen class
+        - isolation type
+      # Countries, places and dates are evidence for the loc and date targets.
+      other_target_evidence:
+        - isolation country
+        - isolation location
+        - isolation date
+        - time of isolation
+        - source area
+      # The values name a flag, a status or a person, so the material is unknown.
       non_specimen_origin:
         - food_origin
+        - environmental sample
+        - type material
+        - material type
+        - personal history food allergy
+        - source group
+        - isolated from
     value_rejections:
       non_discriminative_process:
         exact: [GENOMIC, Culture]
+      non_discriminative_source:
+        exact: [metagenomes, metagenome, Community]
 
   loc:
     attribute_discovery:
@@ -229,8 +363,19 @@ targets:
     selected_attributes:
       place:
         - geo_loc_name
+        - geo location
+        - geografic location
+        - geographic location country and
+        - geographic location country and or sea
+        - isolation country
+        - original collection location
+        - marine region
+        - geo loc name country continent
+        - isolation location
+        - source area
       coordinates:
         - lat_lon
+        - latitute and longitude
     ignored_attributes:
       non_geographic_position:
         - file location
@@ -239,17 +384,42 @@ targets:
         - location in facility
         - rel_location
         - relative location
+        - galk location
+        - blaz location
+        - mu location
+        - parsf location
+      sequence_regions:
+        - 16s region
+        - amplified region
+        - target region length bp
+        - target region offset bp
       non_collection_geography:
         - birth_location
         - host birthplace
         - geographic location depth
         - geographic location elevation
+        - geographic location altitude
         - samp_store_loc
+      # The values describe the food source or the isolation source, which often lies
+      # away from the collection place.
       non_specimen_geography:
-        - food_origin # Describes food source, which in a lot of cases is different from sampling location
-        - coll_site_geo_feat # Describes mostly isolation source
+        - food_origin
+        - coll_site_geo_feat
+      # Values are the numbers 1 to 10, implying United States (possible todo for later).
+      administrative_regions:
+        - hhs region
+        - hss region
+      # Values are numbers and laboratory labels such as "region A".
+      unusable_site_labels:
+        - collection site
+        - region isolated
+      # The values are "missing" and "CONTROL".
+      unusable_values:
+        - geo loc missingme
+        - geo loc name coord
+      # A value that opens with a country name would be read as that country, for
+      # example "turkey:".
       country_name_collisions:
-        # "turkey:" would be read as the country Turkey.
         - ontological term
 
   date:
@@ -262,7 +432,14 @@ targets:
     selected_attributes:
       collection:
         - collection_date
-      fallback: # Non-collection event dates share one lower-confidence fallback output.
+        - year of collection
+        - isolate date
+        - original collection date
+        - sample collection local time
+      # Non-collection event dates.
+      fallback:
+        - harvest year
+        - year
         - submission_date
         - last_update
         - publication_date
@@ -294,6 +471,7 @@ targets:
         - first_public
         - date_for_experiment_in_lc
     ignored_attributes:
+      # A real date from an event outside the path from sample to record.
       unrelated_dates:
         - assembly date
         - passage date
@@ -304,6 +482,69 @@ targets:
         - death_date
         - ferm_time
         - time_since_last_wash
+        - annotation date
+        - date of death in years range
+      elapsed_experiment_times:
+        - 4su treatment time
+        - adherance time
+        - collection time after treatment
+        - collection time in experiment
+        - culture time
+        - culturing time h
+        - fragmentation time
+        - growth time
+        - growth time and temperature
+        - healing time days
+        - heat shock time
+        - incubation time
+        - incubation time days
+        - induction time
+        - infection time
+        - ltsp time point days
+        - pert time
+        - pert time unit
+        - rif treatment time
+        - rna harvesting time
+        - samping time
+        - sample time
+        - sample time h
+        - sample time id
+        - sampling time
+        - sampling time point
+        - seed 8 hour time point
+        - sequenced time
+        - stress time
+        - time
+        - time after hocl stress
+        - time after irradiation minutes
+        - time after uv
+        - time hours
+        - time incubated
+        - time induction
+        - time min
+        - time of collection
+        - time of harvest
+        - time of treatment
+        - time point days
+        - time point passage
+        - time point unit
+        - time points and replicates
+        - time post addition of rifampicin
+        - time post induction
+        - time post infection
+        - time post release
+        - time site
+        - treatment time
+        - treatment time and temperature
+        - turbidostat replicate and time point
+      # The values are a state or a clock time.
+      non_date_values:
+        - exp date
+        - health or disease status of specific host at time of collection
+        - time of collection hr min am pm
+      # The values are a week and a year, for example 10_2015.
+      unparsable_forms:
+        - week year isolated
     value_rejections:
       non_date_evidence:
         exact: [aerobic, NSW, VIC, "USA:MI"]
