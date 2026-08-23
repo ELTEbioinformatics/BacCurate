@@ -650,6 +650,29 @@ def test_equal_numeric_components_resolve_without_ambiguity(standardizer, input_
 
 
 # =============================================================================
+# Value interpretation: Buddhist era
+# =============================================================================
+
+
+def test_buddhist_era_timestamp_converts_to_the_gregorian_date(standardizer):
+    outcome = standardize_date_value(standardizer, "13/01/2563 17:57:03")
+
+    assert outcome.bounds == DateBounds(date(2020, 1, 13), date(2020, 1, 13))
+    assert outcome.precision is DatePrecision.DAY
+    assert outcome.derivations == ("buddhist_era_year",)
+
+
+def test_ambiguous_buddhist_era_timestamp_keeps_the_day_first_assumption(standardizer):
+    outcome = standardize_date_value(standardizer, "01/09/2560 00:56:39")
+
+    assert outcome.bounds == DateBounds(date(2017, 9, 1), date(2017, 9, 1))
+    assert outcome.derivations == (
+        "ambiguous_numeric_assumed_day_first",
+        "buddhist_era_year",
+    )
+
+
+# =============================================================================
 # Value interpretation: intervals
 # =============================================================================
 #

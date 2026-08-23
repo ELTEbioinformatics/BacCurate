@@ -8,6 +8,7 @@ from datetime import date
 from typing import Literal
 
 MIN_YEAR = 1950
+BUDDHIST_ERA_OFFSET = 543
 
 Notice = Literal["malformed_time_suffix_ignored", "reversed_interval_normalized"]
 EndpointContext = Literal["start", "end"]
@@ -28,6 +29,7 @@ SingleDateFormatId = Literal[
     "named_month_day",
     "day_named_month",
     "numeric_year_last_day",
+    "buddhist_era_timestamp",
 ]
 InterpretationFormatId = (
     SingleDateFormatId
@@ -137,6 +139,13 @@ NUMERIC_YEAR_LAST_DAY = re.compile(
     r"^(?P<first>\d{1,2})(?P<separator>[-/.])(?P<second>\d{1,2})"
     r"(?P=separator)(?P<year>\d{4})$"
 )
+# The clock time keeps this pattern disjoint from NUMERIC_YEAR_LAST_DAY. The single-date
+# registry rejects a value that two patterns match.
+BUDDHIST_ERA_TIMESTAMP = re.compile(
+    r"^(?P<first>\d{1,2})(?P<separator>[-/.])(?P<second>\d{1,2})"
+    r"(?P=separator)(?P<year>25\d{2}) "
+    r"(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$"
+)
 SHARED_YEAR_NAMED_MONTH_INTERVAL = re.compile(
     rf"^(?P<start_month>{MONTH_TOKEN})-(?P<end_month>{MONTH_TOKEN}) "
     r"(?P<year>[0-9]{4})$",
@@ -215,9 +224,20 @@ def _parse_named_month_day(match: re.Match[str]) -> SingleParse:
 
 
 def _parse_numeric_year_last_day(match: re.Match[str]) -> SingleParse:
-    year = int(match["year"])
-    first = int(match["first"])
-    second = int(match["second"])
+    return _parse_ambiguous_numeric_day(
+        int(match["year"]), int(match["first"]), int(match["second"])
+    )
+
+
+def _parse_buddhist_era_timestamp(match: re.Match[str]) -> SingleParse:
+    return _parse_ambiguous_numeric_day(
+        int(match["year"]) - BUDDHIST_ERA_OFFSET,
+        int(match["first"]),
+        int(match["second"]),
+    )
+
+
+def _parse_ambiguous_numeric_day(year: int, first: int, second: int) -> SingleParse:
     day_first = _calendar_date(year, second, first)
     month_first = _calendar_date(year, first, second)
     if day_first is None and month_first is None:
@@ -295,6 +315,7 @@ SINGLE_DATE_FORMATS = (
     FormatSpec("named_month_day", NAMED_MONTH_DAY, _parse_named_month_day),
     FormatSpec("day_named_month", DAY_NAMED_MONTH, _parse_named_month_day),
     FormatSpec("numeric_year_last_day", NUMERIC_YEAR_LAST_DAY, _parse_numeric_year_last_day),
+    FormatSpec("buddhist_era_timestamp", BUDDHIST_ERA_TIMESTAMP, _parse_buddhist_era_timestamp),
 )
 
 
@@ -441,13 +462,14 @@ class DateInterpreter:
             precision = "day"
         # If both numbers are <=12, either could be the month.
         ambiguous_numeric_assumption = (
-            format_id == "numeric_year_last_day"
+            format_id in {"numeric_year_last_day", "buddhist_era_timestamp"}
             and bounds.start.day <= 12
             and bounds.start.day != bounds.start.month
         )
         derivations = combine_date_derivations(
             (
                 ("ambiguous_numeric_assumed_day_first",) if ambiguous_numeric_assumption else (),
+                ("buddhist_era_year",) if format_id == "buddhist_era_timestamp" else (),
                 ("malformed_time_suffix",) if notices else (),
             )
         )
