@@ -373,6 +373,13 @@ targets:
         - geo loc name country continent
         - isolation location
         - source area
+      # Below country level.
+      sublocation:
+        - geographic location (region and locality)
+        - geographic location (province)
+        - collection location
+        - region
+        - location
       coordinates:
         - lat_lon
         - latitute and longitude

@@ -6,6 +6,9 @@ For each submitted value, the first step that resolves a country wins:
   (2) exact match against the INSDC location list
   (3) `country_converter` on the first segment.
 
+A value that resolves no country is read as a place name below country level. It can supply
+the sublocation for a country that another pair on the same record resolved.
+
 Values that none of these resolve are checked against reviewed mappings in `config/location.yaml`.
 Still-unresolved values go to the review worklist (`location_review_worklist.tsv`).
 """
@@ -337,6 +340,10 @@ def _split_sublocation(value: str) -> tuple[str, str | None]:
     return head, None if tail.lower() in _ABSENT_SUBLOCATION else tail or None
 
 
+def _reads_as_a_place_name(value: str) -> bool:
+    return value.lower() not in _ABSENT_SUBLOCATION and any(map(str.isalpha, value))
+
+
 def _extract_string(value) -> str | None:
     """Extract a non-empty string from a value that may be a list/tuple/array."""
     if value is None:
@@ -383,6 +390,8 @@ class LocationResolutionRoute(StrEnum):
     `INSDC_TERM` and `COUNTRY_CONVERSION` stay apart because they reach the country in
     different ways. `INSDC_TERM` is membership of the INSDC list. `COUNTRY_CONVERSION`
     is `country_converter` on the first segment of the value.
+
+    Every member names a way to reach a country, so every member can be a record's route.
     """
 
     COORDINATE = "coordinate"
@@ -803,6 +812,7 @@ class LocationStandardizer:
         # This prevents an unmappable coordinate from being selected over a valid country on the
         # same record.
         insdc_matches: list[_PositionedMatch] = []
+        bare_place_names: list[_PositionedPair] = []
         unusable_pairs: list[SupportingAttributeValuePair] = []
         countryless_coordinate_pairs: list[SupportingAttributeValuePair] = []
         coordinate_failure = False
@@ -823,6 +833,8 @@ class LocationStandardizer:
             if match is None or match.country == "NA":
                 if submitted:
                     unusable_pairs.append(pair)
+                    if match is None and _reads_as_a_place_name(pair.value):
+                        bare_place_names.append((positions, pair))
                 continue
             crosswalked = self._to_insdc(match)
             if crosswalked.country == "NA":
@@ -846,8 +858,13 @@ class LocationStandardizer:
         if insdc_matches:
             selected_positions, selected = min(insdc_matches, key=_selection_rank)
             sublocation = selected.sublocation
+            published_place_names: list[SupportingAttributeValuePair] = []
             if selected.route is LocationResolutionRoute.COORDINATE:
                 submitted = self._submitted_sublocation(insdc_matches, selected.country)
+                if submitted is None and bare_place_names:
+                    positions, place_name = bare_place_names[0]
+                    submitted = (positions, place_name.value)
+                    published_place_names = [place_name]
                 if submitted is not None:
                     sublocation_positions, sublocation = submitted
                     selected_positions = tuple(
@@ -855,7 +872,7 @@ class LocationStandardizer:
                     )
             unresolved = self._unresolved_inputs(
                 unusable_pairs,
-                excluded=countryless_coordinate_pairs,
+                excluded=(*countryless_coordinate_pairs, *published_place_names),
             )
             return _RecordResolution(
                 country=selected.country,

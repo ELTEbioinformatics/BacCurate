@@ -378,6 +378,53 @@ def test_submitted_text_restores_a_sublocation_the_country_restriction_dropped(s
     assert outcome.selected_pair_positions == (1, 2)
 
 
+def test_a_bare_place_name_replaces_the_nearest_city(standardizer):
+    outcome = standardizer.standardize(
+        {
+            "accession": "BARE_PLACE_NAME",
+            "loc_attr_orig": "lat_lon||geographic location (region and locality)",
+            "loc_val_orig": "52.52, 13.405||Charlottenburg",
+        }
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.country == "Germany"
+    assert outcome.route == LocationResolutionRoute.COORDINATE
+    assert outcome.sublocation == "Charlottenburg"
+    assert outcome.selected_pair_positions == (1, 2)
+    assert outcome.unresolved_inputs == ()
+
+
+def test_a_geo_loc_name_sublocation_beats_a_bare_place_name(standardizer):
+    outcome = standardizer.standardize(
+        {
+            "accession": "BARE_PLACE_NAME_RANKED_LAST",
+            "loc_attr_orig": "geo_loc_name||region||lat_lon",
+            "loc_val_orig": "Germany: Bavaria||Charlottenburg||52.52, 13.405",
+        }
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.country == "Germany"
+    assert outcome.sublocation == "Bavaria"
+    assert outcome.unresolved_inputs == (UnresolvedLocationInput("region", "Charlottenburg"),)
+
+
+def test_a_bare_place_name_without_a_country_resolves_nothing(standardizer):
+    outcome = standardizer.standardize(
+        {
+            "accession": "BARE_PLACE_NAME_ALONE",
+            "loc_attr_orig": "geographic location (region and locality)",
+            "loc_val_orig": "Charlottenburg",
+        }
+    )
+
+    assert isinstance(outcome, LocationRejection)
+    assert outcome.unresolved_inputs == (
+        UnresolvedLocationInput("geographic location (region and locality)", "Charlottenburg"),
+    )
+
+
 def test_the_coordinate_keeps_the_sublocation_when_the_text_names_another_country(standardizer):
     # The point lies in Belgium and the text names the Netherlands.
     # Breda belongs to a different country, so the coordinate supplies both country and sublocation.
