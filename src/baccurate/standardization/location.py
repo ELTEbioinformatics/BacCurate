@@ -31,6 +31,11 @@ from baccurate.standardization_target.specifications import LOCATION_VALUE_MATCH
 
 logger = logging.getLogger(__name__)
 
+# The submitted positions a candidate covers, counted from 1. A joined coordinate covers two.
+type _PairPositions = tuple[int, ...]
+type _PositionedPair = tuple[_PairPositions, SupportingAttributeValuePair]
+type _PositionedMatch = tuple[_PairPositions, LocationMatch]
+
 
 def normalize_submitted_location_value(value: str) -> str:
     """
@@ -239,6 +244,48 @@ def _parse_coordinate(value: str) -> tuple[float, float] | None:
     return latitude, longitude
 
 
+_LATITUDE_TOKENS = frozenset({"lat", "latitude"})
+_LONGITUDE_TOKENS = frozenset({"lon", "longitude"})
+# A transect names two points, so an endpoint is no half of one coordinate.
+_TRANSECT_TOKENS = frozenset({"start", "end"})
+
+
+def _coordinate_half(attribute: str) -> str | None:
+    tokens = set(re.split(r"[\W_]+", attribute.casefold()))
+    if tokens & _TRANSECT_TOKENS:
+        return None
+    is_latitude = bool(tokens & _LATITUDE_TOKENS)
+    is_longitude = bool(tokens & _LONGITUDE_TOKENS)
+    if is_latitude == is_longitude:
+        return None
+    return "lat" if is_latitude else "lon"
+
+
+def _join_coordinate_halves(
+    pairs: Sequence[tuple[int, SupportingAttributeValuePair]],
+) -> _PositionedPair | None:
+    """
+    Join a submitted latitude and a submitted longitude into one coordinate pair.
+
+    Returns None when the record carries fewer than two halves, or when the two halves
+    together do not read as a coordinate. The submitted halves then stay as they are.
+    """
+    halves: dict[str, tuple[int, SupportingAttributeValuePair]] = {}
+    for position, pair in pairs:
+        half = _coordinate_half(pair.attribute)
+        if half is not None:
+            halves.setdefault(half, (position, pair))
+    if len(halves) != 2:
+        return None
+    (latitude_position, latitude), (longitude_position, longitude) = halves["lat"], halves["lon"]
+    value = f"{latitude.value} {longitude.value}"
+    if _parse_coordinate(value) is None:
+        return None
+    return tuple(sorted((latitude_position, longitude_position))), SupportingAttributeValuePair(
+        f"{latitude.attribute} + {longitude.attribute}", value
+    )
+
+
 # --- Helpers ---
 
 
@@ -354,6 +401,8 @@ class LocationMatch:
     route: LocationResolutionRoute | None = None
     # True when location is identified by value-search only.
     matched_by_value: bool = False
+    # True when the value is a latitude and a longitude submitted apart and joined here.
+    joined_halves: bool = False
     # The pair the value parsed to, carried whenever the value parsed as a coordinate, even
     # when the point named no country. It is what the submitted text says, not what
     # `reverse_geocode` returned for the matched city.
@@ -363,16 +412,23 @@ class LocationMatch:
 _ROUTE_RANK = {route: rank for rank, route in enumerate(LocationResolutionRoute)}
 
 
-def _selection_rank(positioned_match: tuple[int, LocationMatch]) -> tuple[int, bool, bool]:
+def _selection_rank(positioned_match: _PositionedMatch) -> tuple[bool, int, bool, bool]:
     """
     Return a sort key that selects the best match when passed to min().
 
-    Route order decides first (coordinate beats INSDC term beats country conversion).
-    Within one route, a name match wins over a value match, and then a match with a
-    sublocation wins over one without. Equal keys preserve submitted order.
+    A coordinate joined from two submitted halves ranks below every other match, because
+    the point can name a different country than the submitted place name does. Route order
+    decides next (coordinate beats INSDC term beats country conversion). Within one route,
+    a name match wins over a value match, and then a match with a sublocation wins over one
+    without. Equal keys preserve submitted order.
     """
     _, match = positioned_match
-    return _ROUTE_RANK[match.route], match.matched_by_value, match.sublocation is None
+    return (
+        match.joined_halves,
+        _ROUTE_RANK[match.route],
+        match.matched_by_value,
+        match.sublocation is None,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -682,8 +738,8 @@ class LocationStandardizer:
 
     @staticmethod
     def _submitted_sublocation(
-        insdc_matches: Sequence[tuple[int, LocationMatch]], country: str
-    ) -> tuple[int, str] | None:
+        insdc_matches: Sequence[_PositionedMatch], country: str
+    ) -> tuple[_PairPositions, str] | None:
         """
         Return the first submitted text pair that names a place inside ``country``.
 
@@ -696,13 +752,13 @@ class LocationStandardizer:
         Submitted text that names a different country is skipped. This prevents outputting a
         country and a place that belong to different countries.
         """
-        for position, match in insdc_matches:
+        for positions, match in insdc_matches:
             if (
                 match.route is not LocationResolutionRoute.COORDINATE
                 and match.country == country
                 and match.sublocation is not None
             ):
-                return position, match.sublocation
+                return positions, match.sublocation
         return None
 
     def _resolve_record(
@@ -731,10 +787,22 @@ class LocationStandardizer:
         if not pairs:
             return _RecordResolution(None, None, (), (), (LocationDiagnostic.ABSENT_VALUES,))
 
+        joined_positions: _PairPositions = ()
+        joined = _join_coordinate_halves(pairs)
+        candidates: list[_PositionedPair] = [((position,), pair) for position, pair in pairs]
+        if joined is not None:
+            joined_positions, _ = joined
+            candidates = [
+                (positions, pair)
+                for positions, pair in candidates
+                if positions[0] not in joined_positions
+            ]
+            candidates.append(joined)
+
         # Only matches that map to a valid INSDC location are considered.
         # This prevents an unmappable coordinate from being selected over a valid country on the
         # same record.
-        insdc_matches: list[tuple[int, LocationMatch]] = []
+        insdc_matches: list[_PositionedMatch] = []
         unusable_pairs: list[SupportingAttributeValuePair] = []
         countryless_coordinate_pairs: list[SupportingAttributeValuePair] = []
         coordinate_failure = False
@@ -742,7 +810,7 @@ class LocationStandardizer:
 
         first_coordinate: tuple[float, float] | None = None
 
-        for position, pair in pairs:
+        for positions, pair in candidates:
             match = self._match_value(pair)
             if match is not None:
                 if first_coordinate is None:
@@ -751,27 +819,40 @@ class LocationStandardizer:
                     coordinate_failure = True
                 if LocationDiagnostic.COORDINATE_WITHOUT_COUNTRY in match.diagnostics:
                     countryless_coordinate_pairs.append(pair)
+            submitted = positions != joined_positions
             if match is None or match.country == "NA":
-                unusable_pairs.append(pair)
+                if submitted:
+                    unusable_pairs.append(pair)
                 continue
             crosswalked = self._to_insdc(match)
             if crosswalked.country == "NA":
                 unmappable_result = True
-                unusable_pairs.append(pair)
+                if submitted:
+                    unusable_pairs.append(pair)
                 continue
             insdc_matches.append(
-                (position, replace(crosswalked, matched_by_value=value_match_flags[position - 1]))
+                (
+                    positions,
+                    replace(
+                        crosswalked,
+                        matched_by_value=any(
+                            value_match_flags[position - 1] for position in positions
+                        ),
+                        joined_halves=positions == joined_positions,
+                    ),
+                )
             )
 
         if insdc_matches:
-            selected_position, selected = min(insdc_matches, key=_selection_rank)
+            selected_positions, selected = min(insdc_matches, key=_selection_rank)
             sublocation = selected.sublocation
-            selected_positions = (selected_position,)
             if selected.route is LocationResolutionRoute.COORDINATE:
                 submitted = self._submitted_sublocation(insdc_matches, selected.country)
                 if submitted is not None:
-                    sublocation_position, sublocation = submitted
-                    selected_positions = tuple(sorted((selected_position, sublocation_position)))
+                    sublocation_positions, sublocation = submitted
+                    selected_positions = tuple(
+                        sorted(set(selected_positions) | set(sublocation_positions))
+                    )
             unresolved = self._unresolved_inputs(
                 unusable_pairs,
                 excluded=countryless_coordinate_pairs,

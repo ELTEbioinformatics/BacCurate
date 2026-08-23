@@ -865,3 +865,133 @@ def test_reviewed_matching_is_whole_key_equality_only(tmp_path, fixture_location
 
     assert isinstance(outcome, LocationRejection)
     assert outcome.diagnostics == (LocationDiagnostic.UNRESOLVED_PLACE,)
+
+
+# =============================================================================
+# Split latitude and longitude
+# =============================================================================
+
+
+def test_two_halves_produce_one_coordinate(standardizer):
+    outcome = standardizer.standardize(
+        {
+            "accession": "SPLIT_COORDINATE",
+            "loc_attr_orig": "geographic location (latitude)||geographic location (longitude)",
+            "loc_val_orig": "51.34||4.48",
+        }
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.country == "Belgium"
+    assert outcome.route == LocationResolutionRoute.COORDINATE
+    assert outcome.coordinate == pytest.approx((51.34, 4.48))
+    assert outcome.selected_pair_positions == (1, 2)
+    assert outcome.unresolved_inputs == ()
+
+
+def test_halves_join_in_submitted_order(standardizer):
+    outcome = standardizer.standardize(
+        {
+            "accession": "LONGITUDE_FIRST",
+            "loc_attr_orig": "longitude||latitude",
+            "loc_val_orig": "4.48||51.34",
+        }
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.coordinate == pytest.approx((51.34, 4.48))
+
+
+def test_a_joined_coordinate_never_overwrites_a_submitted_country(standardizer):
+    outcome = standardizer.standardize(
+        {
+            "accession": "JOINED_BELOW_TEXT",
+            "loc_attr_orig": (
+                "geo_loc_name||geographic location (latitude)||geographic location (longitude)"
+            ),
+            "loc_val_orig": "Netherlands: Breda||51.34||4.48",
+        }
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.country == "Netherlands"
+    assert outcome.sublocation == "Breda"
+    assert outcome.route == LocationResolutionRoute.INSDC_TERM
+    assert outcome.selected_pair_positions == (1,)
+    assert outcome.coordinate == pytest.approx((51.34, 4.48))
+
+
+@pytest.mark.parametrize(
+    ("latitude", "longitude"),
+    [
+        pytest.param("99999", "99999", id="sentinel"),
+        pytest.param("4254", "7851", id="out-of-range"),
+        pytest.param("not provided", "not provided", id="text"),
+    ],
+)
+def test_unreadable_halves_publish_no_coordinate(standardizer, latitude, longitude):
+    outcome = standardizer.standardize(
+        {
+            "accession": "UNREADABLE_HALVES",
+            "loc_attr_orig": "geographic location (latitude)||geographic location (longitude)",
+            "loc_val_orig": f"{latitude}||{longitude}",
+        }
+    )
+
+    assert isinstance(outcome, LocationRejection)
+    assert outcome.coordinate is None
+
+
+def test_a_lone_half_publishes_no_coordinate(standardizer):
+    outcome = standardizer.standardize(
+        {
+            "accession": "LONE_HALF",
+            "loc_attr_orig": "geo_loc_name||geographic location (latitude)",
+            "loc_val_orig": "Germany||51.34",
+        }
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.country == "Germany"
+    assert outcome.coordinate is None
+
+
+def test_a_joined_half_is_not_split_again(standardizer):
+    outcome = standardizer.standardize(
+        {
+            "accession": "ALREADY_JOINED",
+            "loc_attr_orig": "lat_lon||geographic location (latitude)",
+            "loc_val_orig": "51.34 N 4.48 E||51.34",
+        }
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.coordinate == pytest.approx((51.34, 4.48))
+    assert outcome.selected_pair_positions == (1,)
+
+
+def test_a_transect_endpoint_is_no_half(standardizer):
+    outcome = standardizer.standardize(
+        {
+            "accession": "TRANSECT",
+            "loc_attr_orig": "latitude start||longitude start",
+            "loc_val_orig": "51.34||4.48",
+        }
+    )
+
+    assert isinstance(outcome, LocationRejection)
+    assert outcome.coordinate is None
+
+
+def test_the_joined_pair_is_no_review_evidence(standardizer):
+    outcome = standardizer.standardize(
+        {
+            "accession": "JOINED_WITHOUT_COUNTRY",
+            "loc_attr_orig": "geographic location (latitude)||geographic location (longitude)",
+            "loc_val_orig": "0.0||0.0",
+        }
+    )
+
+    assert isinstance(outcome, LocationRejection)
+    assert outcome.coordinate == pytest.approx((0.0, 0.0))
+    assert [unresolved.attribute for unresolved in outcome.unresolved_inputs] == []

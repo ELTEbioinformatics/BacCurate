@@ -376,6 +376,17 @@ targets:
       coordinates:
         - lat_lon
         - latitute and longitude
+      # Latitude and a longitude coordinates in separate attributes.
+      # Joined into one coordinate during standardization.
+      coordinate_halves:
+        - geographic location (latitude)
+        - geographic location (longitude)
+        - original geographic location (latitude)
+        - original geographic location (longitude)
+        - latitude
+        - longitude
+        - lat
+        - lon
     ignored_attributes:
       non_geographic_position:
         - file location

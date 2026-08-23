@@ -579,3 +579,36 @@ def test_extraction_flags_how_each_location_pair_matched(
         row = next(csv.DictReader(stream, delimiter="\t"))
     assert row["loc_attr_orig"] == "note||geo_loc_name"
     assert row["loc_matched_by"] == "value||name"
+
+
+@pytest.mark.parametrize(
+    "attribute",
+    [
+        "geographic location (latitude)",
+        "geographic location (longitude)",
+        "original geographic location (latitude)",
+        "original geographic location (longitude)",
+        "latitude",
+        "longitude",
+        "lat",
+        "lon",
+    ],
+)
+def test_coordinate_halves_are_selected_for_location(attribute: str) -> None:
+    policy = SelectionPolicy.load(ROOT / "config" / "selection.yaml")
+
+    decision = policy.evaluate(attribute=attribute, value="51.34")
+
+    assert [match.target for match in decision.matches] == ["loc"]
+
+
+@pytest.mark.parametrize(
+    "attribute",
+    ["latitude start", "latitude end", "longitude start", "longitude end"],
+)
+def test_transect_endpoints_are_not_selected_for_location(attribute: str) -> None:
+    policy = SelectionPolicy.load(ROOT / "config" / "selection.yaml")
+
+    decision = policy.evaluate(attribute=attribute, value="51.34")
+
+    assert decision.matches == ()
