@@ -248,6 +248,9 @@ targets:
       non_specimen_geography:
         - food_origin # Describes food source, which in a lot of cases is different from sampling location
         - coll_site_geo_feat # Describes mostly isolation source
+      country_name_collisions:
+        # "turkey:" would be read as the country Turkey.
+        - ontological term
 
   date:
     attribute_discovery:
