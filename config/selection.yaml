@@ -1,7 +1,7 @@
 # BioSample selection policy used during extraction, before standardization.
 # Reviewed BioSample attribute-value pairs are selected based on the listed
 # attribute names and values.
-schema_version: 3
+schema_version: 4
 
 # General attribute-value pairs where the values indicate
 # missing information are automatically rejected based on these.
@@ -62,7 +62,7 @@ universal_missing:
   fuzzy: one_edit_unique
 
 # This is a value-only rule. Country names are exact after normalization.
-location_rescue:
+location_value_match:
   vocabulary_path: ../data/reference/geo_loc_list.txt
   aliases:
     - United States

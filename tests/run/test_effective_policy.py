@@ -73,7 +73,7 @@ def test_effective_policy_loads_required_selection_policy() -> None:
 
     assert policy.taxon_registry is registry
     assert policy.selection_policy is not None
-    assert policy.selection_policy.schema_version == 3
+    assert policy.selection_policy.schema_version == 4
     with pytest.raises(AttributeError):
         policy.selection_policy = None  # type: ignore[misc]
 

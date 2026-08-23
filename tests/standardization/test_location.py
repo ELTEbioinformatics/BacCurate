@@ -170,6 +170,22 @@ def test_selected_pair_position_names_the_pair_that_produced_the_country(standar
     assert outcome.selected_pair_positions == (2,)
 
 
+def test_a_name_match_beats_a_value_match_on_the_same_route(standardizer):
+    outcome = standardizer.standardize(
+        {
+            "accession": "VALUE_MATCH_FIRST",
+            "loc_attr_orig": "ontological term||geo_loc_name",
+            "loc_val_orig": "Italy: milan||USA: CA",
+            "loc_matched_by": "value||name",
+        }
+    )
+
+    assert isinstance(outcome, LocationOutcome)
+    assert outcome.country == "USA"
+    assert outcome.sublocation == "CA"
+    assert outcome.selected_pair_positions == (2,)
+
+
 def test_selected_pair_position_counts_a_published_pair_with_an_empty_value(standardizer):
     outcome = standardizer.standardize(
         {

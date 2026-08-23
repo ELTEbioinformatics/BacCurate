@@ -10,6 +10,9 @@ from baccurate.standardization_target.policy_slot import PolicySlot
 COLLECTION_DATE_CATEGORY = "c"
 FALLBACK_DATE_CATEGORY = "f"
 
+LOCATION_NAME_MATCH = "name"
+LOCATION_VALUE_MATCH = "value"
+
 
 class StandardizationTarget(StrEnum):
     """A biological metadata concept BacCurate can standardize."""
@@ -80,7 +83,7 @@ TARGET_SPECS: Mapping[StandardizationTarget, TargetSpec] = MappingProxyType(
             published_key="location",
             uses_llm=False,
             required_policies=(PolicySlot.LOCATION,),
-            input_columns=("loc_attr_orig", "loc_val_orig"),
+            input_columns=("loc_attr_orig", "loc_val_orig", "loc_matched_by"),
             output_columns=(
                 "loc_attr_orig",
                 "loc_val_orig",

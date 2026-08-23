@@ -5,6 +5,10 @@ from collections.abc import Iterable
 from baccurate.extraction.io import SEQUENCE_ACCESSION_COLUMNS, TaxonAssignment
 from baccurate.extraction.metadata_types import EXTRACTION_TARGET_ORDER
 from baccurate.extraction.selection import SelectionDecision
+from baccurate.standardization_target.specifications import (
+    LOCATION_NAME_MATCH,
+    LOCATION_VALUE_MATCH,
+)
 
 COLUMNS = [
     "accession",
@@ -15,6 +19,7 @@ COLUMNS = [
     "sylph_species",
     "biosample_last_update",
     "date_category",
+    "loc_matched_by",
 ] + [f"{target}_{kind}_orig" for target in EXTRACTION_TARGET_ORDER for kind in ("attr", "val")]
 
 # The numeric BioProject IDs a BioSample links to exist only to look up their accessions in the
@@ -37,6 +42,7 @@ def extracted_metadata_row(
         target: ([], []) for target in EXTRACTION_TARGET_ORDER
     }
     date_categories: list[str] = []
+    location_match_flags: list[str] = []
     biosample_last_update = ""
     found = False
 
@@ -50,6 +56,9 @@ def extracted_metadata_row(
             values.append(decision.value)
             if match.target == "date":
                 date_categories.append(match.category)
+            if match.target == "loc":
+                flag = LOCATION_VALUE_MATCH if match.matched_by_value else LOCATION_NAME_MATCH
+                location_match_flags.append(flag)
 
     if not found:
         return None
@@ -64,6 +73,7 @@ def extracted_metadata_row(
         assignment.sylph_species,
         biosample_last_update,
         "||".join(date_categories),
+        "||".join(location_match_flags),
     ]
     for target in EXTRACTION_TARGET_ORDER:
         attributes, values = raw_pairs[target]

@@ -546,3 +546,36 @@ def test_interrupted_bundle_publication_cannot_leave_valid_provenance(
         )
 
     assert not provenance_path_for(extracted).exists()
+
+
+def test_extraction_flags_how_each_location_pair_matched(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    paired_source_snapshots,
+) -> None:
+    sources = paired_source_snapshots
+    sources.replace_contents(
+        biosample_xml=b"""\
+<BioSampleSet>
+  <BioSample accession="matched"><Attributes>
+    <Attribute attribute_name="note">Germany: Berlin</Attribute>
+    <Attribute attribute_name="geo_loc_name">USA: CA</Attribute>
+  </Attributes></BioSample>
+</BioSampleSet>
+""",
+        bioproject_xml=b"<PackageSet />",
+    )
+    _configure_internal_paths(monkeypatch, sources)
+    index = tmp_path / "biosample_index.tsv"
+    index.write_text(
+        "accession\ttaxon_biosample\nmatched\tecoli\n",
+        encoding="utf-8",
+    )
+    extracted = tmp_path / "extracted.tsv"
+
+    run_extraction(output_path=extracted, index_path=index, disable_progress=True)
+
+    with extracted.open(newline="", encoding="utf-8") as stream:
+        row = next(csv.DictReader(stream, delimiter="\t"))
+    assert row["loc_attr_orig"] == "note||geo_loc_name"
+    assert row["loc_matched_by"] == "value||name"

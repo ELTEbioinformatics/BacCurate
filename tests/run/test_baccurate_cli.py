@@ -203,7 +203,7 @@ def test_pipeline_cli_validates_required_selection_before_output_initialization(
     config_dir.mkdir()
     selection_path = config_dir / "selection.yaml"
     selection_path.write_text(
-        "schema_version: 3\ntargets:\n  host:\n    unexpected: true\n",
+        "schema_version: 4\ntargets:\n  host:\n    unexpected: true\n",
         encoding="utf-8",
     )
     output_dir = tmp_path / "runs"

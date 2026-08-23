@@ -47,7 +47,10 @@ from baccurate.standardization.location import (
     LocationResolutionRoute,
     LocationStandardizer,
 )
-from baccurate.standardization_target.specifications import StandardizationTarget
+from baccurate.standardization_target.specifications import (
+    LOCATION_NAME_MATCH,
+    StandardizationTarget,
+)
 from baccurate.taxon_registry.registry import load_taxon_registry
 
 ROOT = Path(__file__).parents[2]
@@ -113,6 +116,7 @@ EXTRACTED_COLUMNS = (
     "date_attr_orig",
     "date_val_orig",
     "date_category",
+    "loc_matched_by",
     "loc_attr_orig",
     "loc_val_orig",
     "iso_attr_orig",
@@ -251,8 +255,16 @@ def _dated_record(accession: str, **metadata: str) -> dict[str, str]:
         "date_attr_orig": "collection_date",
         "date_val_orig": "2020-01-02",
         "date_category": "c",
+        "loc_matched_by": _name_match_flags(metadata.get("loc_attr_orig", "")),
         **metadata,
     }
+
+
+def _name_match_flags(loc_attr_orig: str) -> str:
+    """Flag every location pair as matched by its attribute name."""
+    if not loc_attr_orig:
+        return ""
+    return "||".join(LOCATION_NAME_MATCH for _ in loc_attr_orig.split("||"))
 
 
 def test_ncbi_organism_and_sylph_species_pass_through_from_extracted_metadata(

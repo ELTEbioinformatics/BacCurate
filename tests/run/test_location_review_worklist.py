@@ -18,7 +18,10 @@ from baccurate.run.location_review_worklist import (
 )
 from baccurate.run.statistics import DatasetBuildStatistics
 from baccurate.standardization.location import LocationPolicy, UnresolvedLocationInput
-from baccurate.standardization_target.specifications import StandardizationTarget
+from baccurate.standardization_target.specifications import (
+    LOCATION_NAME_MATCH,
+    StandardizationTarget,
+)
 
 UNREVIEWED_ALPHA = "unreviewed alpha 4471"
 UNREVIEWED_BETA = "unreviewed beta 8890"
@@ -162,6 +165,7 @@ def _located_record(accession: str, submitted_value: str, **overrides: str) -> d
         "date_category": "c",
         "loc_attr_orig": "geo_loc_name",
         "loc_val_orig": submitted_value,
+        "loc_matched_by": LOCATION_NAME_MATCH,
         **overrides,
     }
 
@@ -205,6 +209,7 @@ def worklist_bundle(extracted_metadata_bundle_factory):
                 "SAMN_UNRESOLVED",
                 f"Germany||{UNREVIEWED_ALPHA}",
                 loc_attr_orig="geo_loc_name||collection_site",
+                loc_matched_by=f"{LOCATION_NAME_MATCH}||{LOCATION_NAME_MATCH}",
             ),
             _located_record("SAMN_UNRESOLVED_ONLY", UNREVIEWED_BETA),
         ],

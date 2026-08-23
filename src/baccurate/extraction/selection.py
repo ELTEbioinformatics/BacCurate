@@ -111,7 +111,7 @@ class _DiscoveryRule:
 
 
 @dataclass(frozen=True, slots=True)
-class _LocationRescue:
+class _LocationValueMatch:
     prefixes: tuple[str, ...]
     separators: tuple[str, ...]
 
@@ -134,13 +134,13 @@ class SelectionPolicy:
     schema_version: int
     _targets: Mapping[str, _TargetRules]
     _universal_missing: _ValueRejectionRule
-    _location_rescue: _LocationRescue | None
+    _location_value_match: _LocationValueMatch | None
 
     def __init__(
         self,
         targets: Mapping[str, _TargetRules],
         universal_missing: _ValueRejectionRule,
-        location_rescue: _LocationRescue | None,
+        location_value_match: _LocationValueMatch | None,
     ) -> None:
         immutable_targets = {
             target: _TargetRules(
@@ -151,10 +151,10 @@ class SelectionPolicy:
             )
             for target, rules in targets.items()
         }
-        object.__setattr__(self, "schema_version", 3)
+        object.__setattr__(self, "schema_version", 4)
         object.__setattr__(self, "_targets", MappingProxyType(immutable_targets))
         object.__setattr__(self, "_universal_missing", universal_missing)
-        object.__setattr__(self, "_location_rescue", location_rescue)
+        object.__setattr__(self, "_location_value_match", location_value_match)
 
     @classmethod
     def load(cls, config_path: Path | str) -> Self:
@@ -163,11 +163,11 @@ class SelectionPolicy:
         _reject_unknown_keys(
             path,
             config,
-            {"schema_version", "universal_missing", "location_rescue", "targets"},
+            {"schema_version", "universal_missing", "location_value_match", "targets"},
             "",
         )
-        if config.get("schema_version") != 3:
-            raise SelectionPolicyError(f"{path}: schema_version must be 3")
+        if config.get("schema_version") != 4:
+            raise SelectionPolicyError(f"{path}: schema_version must be 4")
         targets = _mapping(path, "targets", config.get("targets"))
         unknown_targets = set(targets) - _TARGETS
         if unknown_targets:
@@ -181,31 +181,33 @@ class SelectionPolicy:
             "universal_missing",
             config.get("universal_missing", {}),
         )
-        location_rescue = _compile_location_rescue(path, config.get("location_rescue"))
+        location_value_match = _compile_location_value_match(
+            path, config.get("location_value_match")
+        )
         return cls(
             {
                 target: _compile_target(path, target, target_config)
                 for target, target_config in targets.items()
             },
             universal_missing,
-            location_rescue,
+            location_value_match,
         )
 
     def serialize(self) -> str:
         """Return deterministic, schema-versioned JSON for the effective policy."""
-        location_rescue = (
+        location_value_match = (
             {
-                "prefixes": list(self._location_rescue.prefixes),
-                "separators": list(self._location_rescue.separators),
+                "prefixes": list(self._location_value_match.prefixes),
+                "separators": list(self._location_value_match.separators),
             }
-            if self._location_rescue is not None
+            if self._location_value_match is not None
             else None
         )
         return json.dumps(
             {
                 "schema_version": self.schema_version,
                 "universal_missing": _serialize_value_rejection(self._universal_missing),
-                "location_rescue": location_rescue,
+                "location_value_match": location_value_match,
                 "targets": [
                     _serialize_target(target, self._targets[target])
                     for target in EXTRACTION_TARGET_ORDER
@@ -229,13 +231,13 @@ class SelectionPolicy:
         ]
         location_rules = self._targets.get("loc")
         if (
-            self._location_rescue is not None
+            self._location_value_match is not None
             and location_rules is not None
             and normalized_attribute not in location_rules.ignored
             and not any(match.target == "loc" for match in identified)
-            and self._location_rescue.matches(value)
+            and self._location_value_match.matches(value)
         ):
-            identified.append(TargetMatch("loc"))
+            identified.append(TargetMatch("loc", matched_by_value=True))
         events: list[SelectionEvent] = []
         matches = []
         for match in identified:
@@ -389,10 +391,10 @@ def _compile_target(path: Path, target: str, raw_config: object) -> _TargetRules
     return _TargetRules(selected, ignored, discoveries, value_rejections)
 
 
-def _compile_location_rescue(path: Path, raw_config: object) -> _LocationRescue | None:
+def _compile_location_value_match(path: Path, raw_config: object) -> _LocationValueMatch | None:
     if raw_config is None:
         return None
-    prefix = "location_rescue"
+    prefix = "location_value_match"
     config = _mapping(path, prefix, raw_config)
     _reject_unknown_keys(path, config, {"vocabulary_path", "aliases", "separators"}, prefix)
     raw_vocabulary_path = config.get("vocabulary_path")
@@ -428,7 +430,9 @@ def _compile_location_rescue(path: Path, raw_config: object) -> _LocationRescue 
     )
     if not separators:
         raise SelectionPolicyError(f"{path}: {prefix}.separators must not be empty")
-    return _LocationRescue(tuple(sorted(prefixes, key=lambda item: (-len(item), item))), separators)
+    return _LocationValueMatch(
+        tuple(sorted(prefixes, key=lambda item: (-len(item), item))), separators
+    )
 
 
 def _compile_value_rejection_rule(

@@ -12,3 +12,5 @@ class TargetMatch:
 
     target: str
     category: str = ""
+    # True when the `loc` target is identified by value-search only.
+    matched_by_value: bool = False

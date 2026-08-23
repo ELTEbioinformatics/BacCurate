@@ -27,6 +27,7 @@ from baccurate.paths import DEFAULT_GEO_LOC_LIST
 from baccurate.standardization._attribute_value_text import split_pipe_separated
 from baccurate.standardization._map_units import containing_map_unit_code
 from baccurate.standardization.supporting_attribute_value_pair import SupportingAttributeValuePair
+from baccurate.standardization_target.specifications import LOCATION_VALUE_MATCH
 
 logger = logging.getLogger(__name__)
 
@@ -351,6 +352,8 @@ class LocationMatch:
     sublocation: str | None  # region below country level (state, city, etc.)
     diagnostics: tuple[LocationDiagnostic, ...] = ()
     route: LocationResolutionRoute | None = None
+    # True when location is identified by value-search only.
+    matched_by_value: bool = False
     # The pair the value parsed to, carried whenever the value parsed as a coordinate, even
     # when the point named no country. It is what the submitted text says, not what
     # `reverse_geocode` returned for the matched city.
@@ -360,16 +363,16 @@ class LocationMatch:
 _ROUTE_RANK = {route: rank for rank, route in enumerate(LocationResolutionRoute)}
 
 
-def _selection_rank(positioned_match: tuple[int, LocationMatch]) -> tuple[int, bool]:
+def _selection_rank(positioned_match: tuple[int, LocationMatch]) -> tuple[int, bool, bool]:
     """
     Return a sort key that selects the best match when passed to min().
 
     Route order decides first (coordinate beats INSDC term beats country conversion).
-    Within one route, a match with a sublocation wins over one without. Equal keys
-    preserve submitted order.
+    Within one route, a name match wins over a value match, and then a match with a
+    sublocation wins over one without. Equal keys preserve submitted order.
     """
     _, match = positioned_match
-    return _ROUTE_RANK[match.route], match.sublocation is None
+    return _ROUTE_RANK[match.route], match.matched_by_value, match.sublocation is None
 
 
 @dataclass(frozen=True, slots=True)
@@ -635,8 +638,18 @@ class LocationStandardizer:
                 f"Malformed location attribute-value pairs for {accession}: "
                 f"loc_attr_orig={len(attributes)}, loc_val_orig={len(values)}; counts must match"
             )
+        value_match_flags = tuple(
+            flag == LOCATION_VALUE_MATCH
+            for flag in split_pipe_separated(extracted_record.get("loc_matched_by", ""))
+        ) or (False,) * len(attributes)
+        if len(value_match_flags) != len(attributes):
+            raise ValueError(
+                f"Malformed location attribute-value pairs for {accession}: "
+                f"loc_attr_orig={len(attributes)}, loc_matched_by={len(value_match_flags)}; "
+                f"counts must match"
+            )
         before = self.stats.copy()
-        resolution = self._resolve_record(attributes, values)
+        resolution = self._resolve_record(attributes, values, value_match_flags)
         published = {
             "coordinate": resolution.coordinate,
             "unresolved_inputs": resolution.unresolved_inputs,
@@ -696,6 +709,7 @@ class LocationStandardizer:
         self,
         attributes: Sequence[str],
         values: Sequence[str],
+        value_match_flags: Sequence[bool],
     ) -> _RecordResolution:
         """
         Resolve one BioSample record's geographic-location evidence.
@@ -745,7 +759,9 @@ class LocationStandardizer:
                 unmappable_result = True
                 unusable_pairs.append(pair)
                 continue
-            insdc_matches.append((position, crosswalked))
+            insdc_matches.append(
+                (position, replace(crosswalked, matched_by_value=value_match_flags[position - 1]))
+            )
 
         if insdc_matches:
             selected_position, selected = min(insdc_matches, key=_selection_rank)
