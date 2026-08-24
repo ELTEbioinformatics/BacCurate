@@ -28,7 +28,8 @@ dependencies = [
     "tqdm~=4.70",
     "shapely~=2.1",
     "pytest>=9.1.1",
-    "ruff>=0.16.1"
+    "ruff>=0.16.1",
+    "duckdb>=1.5.5",
 ]
 
 
