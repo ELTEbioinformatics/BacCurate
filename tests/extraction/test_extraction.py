@@ -637,3 +637,28 @@ def test_a_quoted_duplicate_pair_is_yielded_once() -> None:
         ("collection_date", "2020-01-02"),
         ("collection_date", "2021-03-04"),
     ]
+
+
+def test_record_level_dates_are_not_counted_as_submitted_pairs() -> None:
+    from lxml import etree
+
+    from baccurate.extraction.xml import SelectionCounters, parse_xml  # noqa: TID251
+
+    record = etree.fromstring(
+        '<BioSample accession="SAMN1"'
+        ' submission_date="2026-08-15T14:07:09.233"'
+        ' last_update="2026-08-13T13:04:31.000"'
+        ' publication_date="2026-08-13T00:00:00.000">'
+        "<Attributes>"
+        "<Attribute attribute_name='collection_date'>2020-01-02</Attribute>"
+        "</Attributes></BioSample>"
+    )
+    policy = SelectionPolicy.load(ROOT / "config" / "selection.yaml")
+    counters = SelectionCounters()
+
+    decisions = parse_xml(record, policy.evaluate, check_root_attributes=True, counters=counters)
+
+    assert len(decisions) == 4
+    assert counters.inspected == 1
+    assert counters.selected == 1
+    assert counters.identified == 1

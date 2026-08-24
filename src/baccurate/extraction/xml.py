@@ -25,7 +25,9 @@ ROOT_DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
 
 @dataclass(slots=True)
 class SelectionCounters:
-    """Count each BioSample attribute-value pair once.
+    """
+    Count each submitted BioSample attribute-value pair, excluding record-level
+    dates on the ``BioSample`` element.
 
     A pair may inform several standardization targets. The counters preserve
     the invariant ``inspected == selected + unselected``.
@@ -40,6 +42,8 @@ class SelectionCounters:
     multiply_matched: int = 0
 
     def record(self, decision: SelectionDecision) -> None:
+        if decision.xml_element == "biosample_root":
+            return
         self.inspected += 1
         event_kinds = {event.kind for event in decision.events}
         if decision.matches or "rejected_value" in event_kinds:
