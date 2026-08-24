@@ -29,10 +29,12 @@ def test_column_expression_covers_list_scalar_and_text_columns(
     assert "'NA' THEN []::VARCHAR[]" in list_column
 
     scalar_column = publish_dataset._column_expression("date_start")
-    assert scalar_column == 'TRY_CAST(NULLIF("date_start", \'\') AS DATE) AS "date_start"'
+    assert scalar_column == (
+        "TRY_CAST(NULLIF(NULLIF(\"date_start\", ''), 'NA') AS DATE) AS \"date_start\""
+    )
 
     text_column = publish_dataset._column_expression("acc")
-    assert text_column == 'NULLIF("acc", \'\') AS "acc"'
+    assert text_column == "NULLIF(NULLIF(\"acc\", ''), 'NA') AS \"acc\""
 
 
 def test_publish_writes_the_five_release_files(
@@ -41,10 +43,21 @@ def test_publish_writes_the_five_release_files(
 ) -> None:
     run_dir = tmp_path / "run"
     run_dir.mkdir()
-    columns = ["acc", "iso_val_orig", *publish_dataset.SCALAR_TYPES]
+    columns = ["acc", "text", "iso_val_orig", *publish_dataset.SCALAR_TYPES]
     rows = [
-        ["SAMN1", "blood||serum", "2020-01-02", "2020-01-03", "1.5", "2.5", "9606", "0.9", "true"],
-        ["SAMN2", "NA", "", "", "", "", "", "", ""],
+        [
+            "SAMN1",
+            "Homo sapiens",
+            "blood||serum",
+            "2020-01-02",
+            "2020-01-03",
+            "1.5",
+            "2.5",
+            "9606",
+            "0.9",
+            "true",
+        ],
+        ["SAMN2", "NA", "NA", "", "", "", "", "", "", ""],
     ]
     (run_dir / "run.tsv").write_text(
         "\n".join("\t".join(record) for record in (columns, *rows)) + "\n",
@@ -62,6 +75,8 @@ def test_publish_writes_the_five_release_files(
     jsonl = (run_dir / f"{stem}.jsonl").read_text(encoding="utf-8").splitlines()
     assert '"iso_val_orig":["blood","serum"]' in jsonl[0].replace(" ", "")
     assert '"iso_val_orig":[]' in jsonl[1].replace(" ", "")
+    assert '"text":"Homosapiens"' in jsonl[0].replace(" ", "")
+    assert '"text":null' in jsonl[1].replace(" ", "")
 
 
 def test_find_dataset_rejects_a_run_directory_without_its_dataset(

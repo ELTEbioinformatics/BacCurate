@@ -75,7 +75,8 @@ def _column_expression(column: str) -> str:
             f"CASE {quoted} WHEN '' THEN NULL WHEN 'NA' THEN []::VARCHAR[] "
             f"ELSE str_split({quoted}, '||') END AS {quoted}"
         )
-    value = f"NULLIF({quoted}, '')"
+    # A scalar column cannot hold an empty list, so both absence markers become NULL.
+    value = f"NULLIF(NULLIF({quoted}, ''), 'NA')"
     cast = SCALAR_TYPES.get(column)
     return f"TRY_CAST({value} AS {cast}) AS {quoted}" if cast else f"{value} AS {quoted}"
 
