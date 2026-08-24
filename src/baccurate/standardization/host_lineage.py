@@ -38,6 +38,7 @@ RANK_ORDER = [
     "no rank",
 ]
 
+
 NAMES_DMP = DEFAULT_NAMES_DMP
 NODES_DMP = DEFAULT_NODES_DMP
 
@@ -161,9 +162,9 @@ class HostLineageEnricher:
             if self._parent_rank.get(lineage_taxid, (0, ""))[1] in self._allowed_ranks
         ]
         result = HostLineage(
-            common_names=",".join(self._common.get(taxid, [])),
-            lineage_names=",".join(name for _, name in filtered),
-            lineage_taxids=",".join(str(lineage_taxid) for lineage_taxid, _ in filtered),
+            common_names="||".join(self._common.get(taxid, [])),
+            lineage_names="||".join(name for _, name in filtered),
+            lineage_taxids="||".join(str(lineage_taxid) for lineage_taxid, _ in filtered),
         )
         self._cache[taxid] = result
         return result
