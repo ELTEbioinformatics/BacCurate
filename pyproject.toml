@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "baccurate"
-version = "0.5.2"
+version = "1.0.0"
 description = "Python metadata harmonizer for BioSample ESKAPEE data"
 readme = "README.md"
 requires-python = ">=3.12"
