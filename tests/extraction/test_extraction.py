@@ -612,3 +612,28 @@ def test_transect_endpoints_are_not_selected_for_location(attribute: str) -> Non
     decision = policy.evaluate(attribute=attribute, value="51.34")
 
     assert decision.matches == ()
+
+
+def test_a_quoted_duplicate_pair_is_yielded_once() -> None:
+    from lxml import etree
+
+    from baccurate.extraction.xml import _iter_biosample_pairs_with_xml_element  # noqa: TID251
+
+    record = etree.fromstring(
+        "<BioSample><Attributes>"
+        "<Attribute attribute_name='geo_loc_name'>USA: Madison, WI</Attribute>"
+        "<Attribute attribute_name=\"'geo_loc_name'\">USA: Madison, WI</Attribute>"
+        "<Attribute attribute_name=\"'*host'\">Homo sapiens</Attribute>"
+        "<Attribute attribute_name='collection_date'>2020-01-02</Attribute>"
+        "<Attribute attribute_name='collection_date'>2021-03-04</Attribute>"
+        "</Attributes></BioSample>"
+    )
+
+    pairs = [(name, value) for name, value, _ in _iter_biosample_pairs_with_xml_element(record)]
+
+    assert pairs == [
+        ("geo_loc_name", "USA: Madison, WI"),
+        ("'*host'", "Homo sapiens"),
+        ("collection_date", "2020-01-02"),
+        ("collection_date", "2021-03-04"),
+    ]

@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from lxml import etree
 
 from baccurate.adapters.compressed_io import open_binary
+from baccurate.extraction.selection import _normalize
 from baccurate.taxon_registry.species_label_matching import NA
 
 if TYPE_CHECKING:
@@ -69,6 +70,8 @@ def _iter_biosample_pairs_with_xml_element(
     include_root_dates: bool = False,
 ) -> Iterator[tuple[str, str, str]]:
     """Yield BioSample attribute-value pairs with their XML structural origin."""
+    seen: set[tuple[str, str]] = set()
+
     if include_root_dates:
         for attr_name, value in biosample_record.attrib.items():
             if value and ROOT_DATE_PATTERN.match(str(value)):
@@ -85,7 +88,10 @@ def _iter_biosample_pairs_with_xml_element(
             continue
         value = attr_elem.text
         if attr_name and value:
-            yield attr_name, value, "attribute"
+            key = (_normalize(attr_name), _normalize(value))
+            if key not in seen:
+                seen.add(key)
+                yield attr_name, value, "attribute"
 
 
 def _clear_biosample_record(biosample_record: etree._Element) -> None:
