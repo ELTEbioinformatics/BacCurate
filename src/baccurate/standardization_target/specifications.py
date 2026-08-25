@@ -69,14 +69,14 @@ TARGET_SPECS: Mapping[StandardizationTarget, TargetSpec] = MappingProxyType(
                 "date_category",
             ),
             output_columns=(
-                "date_event",
-                "date_structure",
-                "date_precision",
-                "date_start",
-                "date_end",
-                "date_diagnostics",
                 "date_attr_orig",
                 "date_val_orig",
+                "date_start",
+                "date_end",
+                "date_event",
+                "date_precision",
+                "date_structure",
+                "date_diagnostics",
             ),
         ),
         StandardizationTarget.LOCATION: TargetSpec(
@@ -87,12 +87,12 @@ TARGET_SPECS: Mapping[StandardizationTarget, TargetSpec] = MappingProxyType(
             output_columns=(
                 "loc_attr_orig",
                 "loc_val_orig",
-                "loc_resolution",
                 "loc_country",
                 "loc_un_region",
                 "loc_sublocation",
                 "loc_latitude",
                 "loc_longitude",
+                "loc_resolution",
                 "loc_diagnostics",
             ),
         ),
@@ -119,6 +119,8 @@ TARGET_SPECS: Mapping[StandardizationTarget, TargetSpec] = MappingProxyType(
 )
 
 # This is not the enum order, but the final TSV column order.
+# Every target block reads the same way: the submitted pairs, the standardized answer,
+# the lookup that produced it, then the diagnostics.
 DATASET_COLUMN_ORDER = (
     StandardizationTarget.DATE,
     StandardizationTarget.LOCATION,

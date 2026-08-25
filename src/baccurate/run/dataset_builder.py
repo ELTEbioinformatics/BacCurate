@@ -85,11 +85,6 @@ from baccurate.taxon_registry.species_label_matching import NA
 logger = logging.getLogger(__name__)
 
 
-_LOCATION_ANSWER_COLUMN_COUNT = (
-    len(target_specifications.TARGET_SPECS[StandardizationTarget.LOCATION].output_columns) - 3
-)
-
-
 def _sum_counts[Key: str](counts: Iterable[Counter[Key]]) -> dict[Key, int]:
     return dict(sorted(sum(counts, Counter()).items()))
 
@@ -195,11 +190,11 @@ class _FinalRowAssembler:
 
     base_columns = (
         "accession",
+        "bioproject",
+        *SEQUENCE_ACCESSION_COLUMNS,
         "taxon",
         "ncbi_organism",
         "sylph_species",
-        "bioproject",
-        *SEQUENCE_ACCESSION_COLUMNS,
     )
 
     def __init__(
@@ -259,11 +254,11 @@ class _FinalRowAssembler:
     def project(self, final_row: _FinalRow) -> tuple[object, ...]:
         values: tuple[object, ...] = (
             final_row.accession,
+            final_row.bioproject,
+            *final_row.sequence_accessions,
             final_row.taxon,
             final_row.ncbi_organism,
             final_row.sylph_species,
-            final_row.bioproject,
-            *final_row.sequence_accessions,
         )
         if StandardizationTarget.DATE in self._selected_targets:
             if final_row.date is None:
@@ -274,14 +269,14 @@ class _FinalRowAssembler:
                 attributes = "||".join(pair.attribute for pair in final_row.date.supporting_pairs)
                 date_values = "||".join(pair.value for pair in final_row.date.supporting_pairs)
                 values += (
-                    final_row.date.event,
-                    final_row.date.structure,
-                    final_row.date.precision,
-                    final_row.date.bounds.start.isoformat(),
-                    final_row.date.bounds.end.isoformat(),
-                    "||".join(final_row.date.diagnostics),
                     attributes,
                     date_values,
+                    final_row.date.bounds.start.isoformat(),
+                    final_row.date.bounds.end.isoformat(),
+                    final_row.date.event,
+                    final_row.date.precision,
+                    final_row.date.structure,
+                    "||".join(final_row.date.diagnostics),
                 )
         if StandardizationTarget.LOCATION in self._selected_targets:
             location = final_row.location or LocationRejection()
@@ -292,20 +287,23 @@ class _FinalRowAssembler:
                     f"{degrees:.5f}".rstrip("0").rstrip(".") for degrees in location.coordinate
                 )
             if isinstance(location, LocationRejection):
-                answer_columns: tuple[object, ...] = ("",) * (_LOCATION_ANSWER_COLUMN_COUNT - 2)
+                country, un_region, sublocation, route = "", "", "", ""
             else:
-                answer_columns = (
-                    location.route,
+                country, un_region, sublocation, route = (
                     location.country,
                     location.un_region,
                     location.sublocation or "NA",
+                    location.route,
                 )
             values += (
                 "||".join(pair.attribute for pair in location.supporting_pairs),
                 "||".join(pair.value for pair in location.supporting_pairs),
-                *answer_columns,
+                country,
+                un_region,
+                sublocation,
                 latitude,
                 longitude,
+                route,
                 "||".join(location.diagnostics),
             )
         if StandardizationTarget.ISOLATION_SOURCE in self._selected_targets:

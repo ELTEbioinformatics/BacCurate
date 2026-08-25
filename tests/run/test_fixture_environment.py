@@ -32,15 +32,15 @@ def test_fixture_dataset_builder_standardizes_host_without_production_taxonomy(
     )
 
     assert destination.read_text(encoding="utf-8") == (
-        "accession\ttaxon\tncbi_organism\tsylph_species\t"
-        "bioproject\t"
+        "accession\tbioproject\t"
         "sra_run_accessions\tgenbank_assembly_accessions\t"
         "refseq_assembly_accessions\t"
+        "taxon\tncbi_organism\tsylph_species\t"
         "host_attr_orig\thost_val_orig\thost_taxid\thost_scientific_name\t"
         "host_common_names\thost_lineage_names\thost_lineage_taxids\t"
         "host_match_route\thost_diagnostics\n"
-        "FIXTURE_HUMAN\tEscherichia coli\tEscherichia coli\tEscherichia coli\t"
-        "PRJNA1\t\t\t\t"
+        "FIXTURE_HUMAN\tPRJNA1\t\t\t\t"
+        "Escherichia coli\tEscherichia coli\tEscherichia coli\t"
         "host\thuman\t9606\t"
         "Homo sapiens\thuman\tEukaryota||Metazoa||Homo sapiens\t"
         "2759||33208||9606\tcurated_term\t\n"

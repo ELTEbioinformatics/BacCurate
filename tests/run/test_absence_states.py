@@ -59,24 +59,24 @@ LOCATION_POLICY_PATH = ROOT / "config" / "location.yaml"
 ISOLATION_SOURCE_POLICY_PATH = ROOT / "config" / "isolation_source.yaml"
 
 DATE_COLUMNS = (
-    "date_event",
-    "date_structure",
-    "date_precision",
-    "date_start",
-    "date_end",
-    "date_diagnostics",
     "date_attr_orig",
     "date_val_orig",
+    "date_start",
+    "date_end",
+    "date_event",
+    "date_precision",
+    "date_structure",
+    "date_diagnostics",
 )
 LOCATION_COLUMNS = (
     "loc_attr_orig",
     "loc_val_orig",
-    "loc_resolution",
     "loc_country",
     "loc_un_region",
     "loc_sublocation",
     "loc_latitude",
     "loc_longitude",
+    "loc_resolution",
     "loc_diagnostics",
 )
 LOCATION_ANSWER_COLUMNS = LOCATION_COLUMNS[2:-1]
@@ -361,14 +361,14 @@ def test_published_fallback_date_projects_resolved_columns_and_equal_bounds_evid
     )
 
     assert tuple(built.records[0][column] for column in DATE_COLUMNS) == (
-        "fallback",
-        "single_value",
-        "year",
-        "2019-01-01",
-        "2019-12-31",
-        "",
         "submission_date||publication_date",
         "2019||2019",
+        "2019-01-01",
+        "2019-12-31",
+        "fallback",
+        "year",
+        "single_value",
+        "",
     )
 
 
@@ -674,11 +674,11 @@ def test_unrequested_targets_omit_columns_instead_of_serializing_empty(
 
     assert built.columns == (
         "accession",
+        "bioproject",
+        *SEQUENCE_ACCESSION_COLUMNS,
         "taxon",
         "ncbi_organism",
         "sylph_species",
-        "bioproject",
-        *SEQUENCE_ACCESSION_COLUMNS,
         *DATE_COLUMNS,
     )
     unrequested_columns = LOCATION_COLUMNS + ISOLATION_SOURCE_COLUMNS + HOST_COLUMNS
