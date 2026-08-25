@@ -71,7 +71,6 @@ DATE_COLUMNS = (
 LOCATION_COLUMNS = (
     "loc_attr_orig",
     "loc_val_orig",
-    "loc_selected_pair",
     "loc_resolution",
     "loc_country",
     "loc_un_region",
@@ -803,7 +802,7 @@ def test_published_coordinate_is_filled_whenever_a_value_parses(tmp_path: Path) 
     }
 
 
-def test_published_selected_pair_positions_index_the_published_pairs(tmp_path: Path) -> None:
+def test_a_submitted_pair_with_an_empty_value_keeps_its_slot(tmp_path: Path) -> None:
     built = _build_dataset(
         tmp_path,
         [
@@ -819,8 +818,8 @@ def test_published_selected_pair_positions_index_the_published_pairs(tmp_path: P
     )
 
     record = built.records[0]
+    assert record["loc_attr_orig"] == "collection_site||geo_loc_name"
     assert record["loc_val_orig"] == "||Germany"
-    assert record["loc_selected_pair"] == "2"
 
 
 def test_rejected_locations_publish_evidence_and_diagnostics_with_empty_answer_columns(
@@ -919,7 +918,6 @@ def test_standardized_location_reports_a_pair_resolved_outside_the_insdc_list(
     )
 
     record = built.records[0]
-    assert record["loc_selected_pair"] == "1"
     assert record["loc_resolution"] == "insdc_term"
     assert (record["loc_country"], record["loc_sublocation"]) == ("Italy", "Milan")
     assert (record["loc_latitude"], record["loc_longitude"]) == ("41.9038", "12.4536")

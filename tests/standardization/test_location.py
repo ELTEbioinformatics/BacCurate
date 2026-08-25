@@ -151,23 +151,9 @@ def test_outcome_carries_supporting_pairs_and_diagnostics(
         country="Germany",
         sublocation="Berlin",
         supporting_pairs=(SupportingAttributeValuePair("geo_loc_name", "Germany: Berlin"),),
-        selected_pair_positions=(1,),
         route=LocationResolutionRoute.INSDC_TERM,
         insdc_term_matches=1,
     )
-
-
-def test_selected_pair_position_names_the_pair_that_produced_the_country(standardizer):
-    outcome = standardizer.standardize(
-        {
-            "accession": "SECOND_PAIR",
-            "loc_attr_orig": "collection_site||geo_loc_name",
-            "loc_val_orig": "unreviewed site 8841||Germany",
-        }
-    )
-
-    assert isinstance(outcome, LocationOutcome)
-    assert outcome.selected_pair_positions == (2,)
 
 
 def test_a_name_match_beats_a_value_match_on_the_same_route(standardizer):
@@ -183,23 +169,9 @@ def test_a_name_match_beats_a_value_match_on_the_same_route(standardizer):
     assert isinstance(outcome, LocationOutcome)
     assert outcome.country == "USA"
     assert outcome.sublocation == "CA"
-    assert outcome.selected_pair_positions == (2,)
 
 
-def test_selected_pair_position_counts_a_published_pair_with_an_empty_value(standardizer):
-    outcome = standardizer.standardize(
-        {
-            "accession": "EMPTY_VALUE",
-            "loc_attr_orig": "collection_site||geo_loc_name",
-            "loc_val_orig": "||Germany",
-        }
-    )
-
-    assert isinstance(outcome, LocationOutcome)
-    assert outcome.selected_pair_positions == (2,)
-
-
-def test_selected_pair_position_follows_the_sublocation_preference(standardizer):
+def test_a_pair_that_carries_a_sublocation_beats_a_pair_without_one(standardizer):
     outcome = standardizer.standardize(
         {
             "accession": "SUBLOCATION_PREFERENCE",
@@ -210,7 +182,6 @@ def test_selected_pair_position_follows_the_sublocation_preference(standardizer)
 
     assert isinstance(outcome, LocationOutcome)
     assert outcome.sublocation == "Berlin"
-    assert outcome.selected_pair_positions == (2,)
 
 
 @pytest.mark.parametrize("marker", ["NA", "None", "confidential", "unknown", "missing", "-"])
@@ -357,8 +328,6 @@ def test_submitted_text_keeps_the_sublocation_when_it_agrees_on_the_country(stan
     assert outcome.country == "Germany"
     assert outcome.route == LocationResolutionRoute.COORDINATE
     assert outcome.sublocation == "Potsdam"
-    # The country came from pair 2 and the sublocation from pair 1, in submitted order.
-    assert outcome.selected_pair_positions == (1, 2)
 
 
 def test_submitted_text_restores_a_sublocation_the_country_restriction_dropped(standardizer):
@@ -375,7 +344,6 @@ def test_submitted_text_restores_a_sublocation_the_country_restriction_dropped(s
     assert isinstance(outcome, LocationOutcome)
     assert outcome.country == "Italy"
     assert outcome.sublocation == "Rome"
-    assert outcome.selected_pair_positions == (1, 2)
 
 
 def test_a_bare_place_name_replaces_the_nearest_city(standardizer):
@@ -391,7 +359,6 @@ def test_a_bare_place_name_replaces_the_nearest_city(standardizer):
     assert outcome.country == "Germany"
     assert outcome.route == LocationResolutionRoute.COORDINATE
     assert outcome.sublocation == "Charlottenburg"
-    assert outcome.selected_pair_positions == (1, 2)
     assert outcome.unresolved_inputs == ()
 
 
@@ -440,7 +407,6 @@ def test_the_coordinate_keeps_the_sublocation_when_the_text_names_another_countr
     assert outcome.country == "Belgium"
     assert outcome.sublocation != "Breda"
     assert LocationDiagnostic.COUNTRY_CONFLICT in outcome.diagnostics
-    assert outcome.selected_pair_positions == (2,)
 
 
 @pytest.mark.parametrize(
@@ -506,7 +472,6 @@ def test_a_coordinate_country_outranks_submitted_text(standardizer):
     assert isinstance(outcome, LocationOutcome)
     assert outcome.country == "Belgium"
     assert outcome.route == LocationResolutionRoute.COORDINATE
-    assert outcome.selected_pair_positions == (2,)
     assert LocationDiagnostic.COUNTRY_CONFLICT in outcome.diagnostics
 
 
@@ -846,7 +811,6 @@ def test_agreeing_reviewed_mappings_are_not_cancelled_by_other_values(
     assert outcome.country == "Germany"
     assert outcome.reviewed_mapping_matches == 2
     assert outcome.route == LocationResolutionRoute.REVIEWED_MAPPING
-    assert outcome.selected_pair_positions == (1, 3)
     assert outcome.diagnostics == ()
 
 
@@ -932,7 +896,6 @@ def test_two_halves_produce_one_coordinate(standardizer):
     assert outcome.country == "Belgium"
     assert outcome.route == LocationResolutionRoute.COORDINATE
     assert outcome.coordinate == pytest.approx((51.34, 4.48))
-    assert outcome.selected_pair_positions == (1, 2)
     assert outcome.unresolved_inputs == ()
 
 
@@ -964,7 +927,6 @@ def test_a_joined_coordinate_never_overwrites_a_submitted_country(standardizer):
     assert outcome.country == "Netherlands"
     assert outcome.sublocation == "Breda"
     assert outcome.route == LocationResolutionRoute.INSDC_TERM
-    assert outcome.selected_pair_positions == (1,)
     assert outcome.coordinate == pytest.approx((51.34, 4.48))
 
 
@@ -1014,7 +976,6 @@ def test_a_joined_half_is_not_split_again(standardizer):
 
     assert isinstance(outcome, LocationOutcome)
     assert outcome.coordinate == pytest.approx((51.34, 4.48))
-    assert outcome.selected_pair_positions == (1,)
 
 
 def test_a_transect_endpoint_is_no_half(standardizer):

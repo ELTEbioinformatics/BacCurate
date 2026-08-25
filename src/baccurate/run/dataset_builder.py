@@ -295,7 +295,6 @@ class _FinalRowAssembler:
                 answer_columns: tuple[object, ...] = ("",) * (_LOCATION_ANSWER_COLUMN_COUNT - 2)
             else:
                 answer_columns = (
-                    "||".join(map(str, location.selected_pair_positions)),
                     location.route,
                     location.country,
                     location.un_region,

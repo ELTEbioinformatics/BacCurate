@@ -463,7 +463,6 @@ class LocationOutcome:
     country: str
     sublocation: str | None
     supporting_pairs: tuple[SupportingAttributeValuePair, ...]
-    selected_pair_positions: tuple[int, ...]
     route: LocationResolutionRoute
     coordinate: tuple[float, float] | None = None
     unresolved_inputs: tuple[UnresolvedLocationInput, ...] = ()
@@ -500,7 +499,6 @@ class _RecordResolution:
     unresolved_inputs: tuple[UnresolvedLocationInput, ...]
     diagnostics: tuple[LocationDiagnostic, ...]
     route: LocationResolutionRoute | None = None
-    selected_pair_positions: tuple[int, ...] = ()
     coordinate: tuple[float, float] | None = None
 
 
@@ -740,7 +738,6 @@ class LocationStandardizer:
             country=resolution.country,
             sublocation=resolution.sublocation,
             supporting_pairs=resolution.supporting_pairs,
-            selected_pair_positions=resolution.selected_pair_positions,
             route=resolution.route,
             **published,
         )
@@ -748,9 +745,9 @@ class LocationStandardizer:
     @staticmethod
     def _submitted_sublocation(
         insdc_matches: Sequence[_PositionedMatch], country: str
-    ) -> tuple[_PairPositions, str] | None:
+    ) -> str | None:
         """
-        Return the first submitted text pair that names a place inside ``country``.
+        Return the first submitted place name that lies inside ``country``.
 
         A coordinate resolves its country by polygon containment, which is a geometric
         guarantee. Its sublocation is the nearest settlement-table entry, which can lie far
@@ -761,13 +758,13 @@ class LocationStandardizer:
         Submitted text that names a different country is skipped. This prevents outputting a
         country and a place that belong to different countries.
         """
-        for positions, match in insdc_matches:
+        for _, match in insdc_matches:
             if (
                 match.route is not LocationResolutionRoute.COORDINATE
                 and match.country == country
                 and match.sublocation is not None
             ):
-                return positions, match.sublocation
+                return match.sublocation
         return None
 
     def _resolve_record(
@@ -856,20 +853,17 @@ class LocationStandardizer:
             )
 
         if insdc_matches:
-            selected_positions, selected = min(insdc_matches, key=_selection_rank)
+            _, selected = min(insdc_matches, key=_selection_rank)
             sublocation = selected.sublocation
             published_place_names: list[SupportingAttributeValuePair] = []
             if selected.route is LocationResolutionRoute.COORDINATE:
                 submitted = self._submitted_sublocation(insdc_matches, selected.country)
                 if submitted is None and bare_place_names:
-                    positions, place_name = bare_place_names[0]
-                    submitted = (positions, place_name.value)
+                    _, place_name = bare_place_names[0]
+                    submitted = place_name.value
                     published_place_names = [place_name]
                 if submitted is not None:
-                    sublocation_positions, sublocation = submitted
-                    selected_positions = tuple(
-                        sorted(set(selected_positions) | set(sublocation_positions))
-                    )
+                    sublocation = submitted
             unresolved = self._unresolved_inputs(
                 unusable_pairs,
                 excluded=(*countryless_coordinate_pairs, *published_place_names),
@@ -888,7 +882,6 @@ class LocationStandardizer:
                     unresolved=unresolved,
                 ),
                 route=selected.route,
-                selected_pair_positions=selected_positions,
                 coordinate=(
                     selected.coordinate if selected.coordinate is not None else first_coordinate
                 ),
@@ -916,21 +909,20 @@ class LocationStandardizer:
         first_coordinate: tuple[float, float] | None,
     ) -> _RecordResolution:
         """Apply the reviewed geographic-location policy to every submitted value."""
-        mapped: list[tuple[int, str]] = []
+        targets: set[str] = set()
         reviewed_unmapped_present = False
-        for position, pair in pairs:
+        for _, pair in pairs:
             key = normalize_submitted_location_value(pair.value)
             target = self.reviewed_mappings.get(key)
             if target is not None:
                 self.stats["reviewed_mapping_matches"] += 1
-                mapped.append((position, target))
+                targets.add(target)
             elif key in self.reviewed_unmapped:
                 reviewed_unmapped_present = True
 
         def resolution(
             country: str | None,
             *diagnostics: LocationDiagnostic,
-            selected_pair_positions: tuple[int, ...] = (),
         ) -> _RecordResolution:
             unresolved = self._unresolved_inputs(
                 unusable_pairs,
@@ -951,19 +943,13 @@ class LocationStandardizer:
                     unresolved=unresolved,
                 ),
                 route=(LocationResolutionRoute.REVIEWED_MAPPING if country is not None else None),
-                selected_pair_positions=selected_pair_positions,
                 coordinate=first_coordinate,
             )
 
-        if mapped:
-            targets = {target for _, target in mapped}
+        if targets:
             if len(targets) > 1:
                 return resolution(None, LocationDiagnostic.REVIEWED_MAPPING_CONFLICT)
-            # All mapped pairs resolve to the same country, so every mapped pair is a selected pair.
-            return resolution(
-                targets.pop(),
-                selected_pair_positions=tuple(position for position, _ in mapped),
-            )
+            return resolution(targets.pop())
         if reviewed_unmapped_present:
             return resolution(None, LocationDiagnostic.REVIEWED_UNMAPPED)
         return resolution(None)
