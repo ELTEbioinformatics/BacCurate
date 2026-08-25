@@ -134,5 +134,5 @@ def test_dataset_header_keeps_its_target_order_contract() -> None:
         "host_lineage_names",
         "host_lineage_taxids",
         "host_match_quality_score",
-        "host_needs_review",
+        "host_diagnostics",
     )

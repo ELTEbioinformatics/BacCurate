@@ -44,6 +44,7 @@ LIST_COLUMNS = frozenset(
         "host_common_names",
         "host_lineage_names",
         "host_lineage_taxids",
+        "host_diagnostics",
     }
 )
 
@@ -54,7 +55,6 @@ SCALAR_TYPES = {
     "loc_longitude": "DOUBLE",
     "host_taxid": "INTEGER",
     "host_match_quality_score": "DOUBLE",
-    "host_needs_review": "BOOLEAN",
 }
 
 

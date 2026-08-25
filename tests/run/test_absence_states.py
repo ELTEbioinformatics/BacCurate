@@ -102,7 +102,7 @@ HOST_COLUMNS = (
     "host_lineage_names",
     "host_lineage_taxids",
     "host_match_quality_score",
-    "host_needs_review",
+    "host_diagnostics",
 )
 EXTRACTED_COLUMNS = (
     "accession",
@@ -997,7 +997,8 @@ def test_host_absence_and_non_resolution_share_empty_columns_but_run_report_sepa
 
     assert len(built.records) == 2
     assert all(
-        tuple(record[column] for column in HOST_COLUMNS) == ("",) * 9 for record in built.records
+        tuple(record[column] for column in HOST_COLUMNS) == ("",) * len(HOST_COLUMNS)
+        for record in built.records
     )
     assert built.statistics.host is not None
     assert built.statistics.host.aggregate.rejected == 1

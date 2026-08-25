@@ -38,11 +38,11 @@ def test_fixture_dataset_builder_standardizes_host_without_production_taxonomy(
         "refseq_assembly_accessions\t"
         "host_attr_orig\thost_val_orig\thost_taxid\thost_sci_name\t"
         "host_common_names\thost_lineage_names\thost_lineage_taxids\t"
-        "host_match_quality_score\thost_needs_review\n"
+        "host_match_quality_score\thost_diagnostics\n"
         "FIXTURE_HUMAN\tEscherichia coli\tEscherichia coli\tEscherichia coli\t"
         "PRJNA1\t\t\t\t"
         "host\thuman\t9606\t"
         "Homo sapiens\thuman\tEukaryota||Metazoa||Homo sapiens\t"
-        "2759||33208||9606\t0.95\tFalse\n"
+        "2759||33208||9606\t0.95\t\n"
     )
     assert statistics.rows_written == 1

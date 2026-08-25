@@ -330,7 +330,9 @@ class _FinalRowAssembler:
                 )
         if StandardizationTarget.HOST in self._selected_targets:
             if final_row.host is None or final_row.host.standardized is None:
-                values += ("", "", "", "", "", "", "", "", "")
+                values += ("",) * len(
+                    target_specifications.TARGET_SPECS[StandardizationTarget.HOST].output_columns
+                )
             else:
                 pair = final_row.host.supporting_pairs[0]
                 lineage = final_row.host_lineage
@@ -345,7 +347,7 @@ class _FinalRowAssembler:
                     lineage.lineage_names,
                     lineage.lineage_taxids,
                     final_row.host.match_quality_score,
-                    final_row.host.needs_review,
+                    "||".join(final_row.host.record_diagnostics),
                 )
         return values
 

@@ -55,7 +55,7 @@ TARGET_SPECS: Mapping[StandardizationTarget, TargetSpec] = MappingProxyType(
                 "host_lineage_names",
                 "host_lineage_taxids",
                 "host_match_quality_score",
-                "host_needs_review",
+                "host_diagnostics",
             ),
         ),
         StandardizationTarget.DATE: TargetSpec(

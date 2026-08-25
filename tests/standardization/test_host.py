@@ -263,7 +263,7 @@ def test_taxonomy_identifier_wins_a_disagreeing_label_with_review_flag(
     assert match.info.taxid == 9031
     assert match.match_quality_score == 1.0
     assert match.needs_review is True
-    assert match.diagnostics == ()
+    assert match.diagnostics == (HostDiagnostic.IDENTIFIER_DISAGREEMENT,)
 
 
 def test_prefixed_taxonomy_identifier_requires_a_recognized_whole_value_shape(
@@ -387,3 +387,26 @@ def test_lineage_membership_uses_taxonomy_parents_and_stops_on_broken_cycles(
     assert not lineage.is_descendant_or_self(4932, 33208)
     assert not lineage.is_descendant_or_self(999999, 33208)
     assert not lineage.is_descendant_or_self(10, 33208)
+
+
+def test_record_diagnostics_name_every_review_reason(standardizer: HostStandardizer) -> None:
+    scenarios = (
+        ("host", "Homo sapiens sample", (HostDiagnostic.SUBSET_MATCH,)),
+        (
+            "host",
+            "human and chicken sample",
+            (HostDiagnostic.SUBSET_MATCH, HostDiagnostic.AMBIGUOUS_SUBSET),
+        ),
+        ("host", "Human [NCBITaxon:9031]", (HostDiagnostic.IDENTIFIER_DISAGREEMENT,)),
+        ("host_taxid||host", "9606||Bos taurus", (HostDiagnostic.ATTRIBUTE_DISAGREEMENT,)),
+        ("host", "Homo sapiens", ()),
+    )
+
+    for attributes, values, expected in scenarios:
+        outcome = standardizer.standardize(
+            {"accession": "TEST", "host_attr_orig": attributes, "host_val_orig": values}
+        )
+        assert outcome.record_diagnostics == expected, values
+        assert outcome.needs_review is bool(expected), values
+        # The build-level values never reach the published field.
+        assert HostDiagnostic.MATCHED in outcome.diagnostics, values

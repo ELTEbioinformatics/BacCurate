@@ -414,7 +414,7 @@ class ValueMatch:
 
 
 class HostDiagnostic(StrEnum):
-    """The fixed set of host-classification results used in build statistics."""
+    """Host-classification results. ``RECORD_DIAGNOSTICS`` is the published subset."""
 
     ISOLATION_SOURCE_KEYWORD_PREEMPTION = "isolation_source_keyword_preemption"
     OVERRIDE_REJECTION = "override_rejection"
@@ -423,7 +423,19 @@ class HostDiagnostic(StrEnum):
     UNMATCHED = "unmatched"
     SUBSET_MATCH = "subset_match"
     AMBIGUOUS_SUBSET = "ambiguous_subset"
+    IDENTIFIER_DISAGREEMENT = "identifier_disagreement"
     ATTRIBUTE_DISAGREEMENT = "attribute_disagreement"
+
+
+# The reasons that make one record's match uncertain.
+RECORD_DIAGNOSTICS: frozenset[HostDiagnostic] = frozenset(
+    {
+        HostDiagnostic.SUBSET_MATCH,
+        HostDiagnostic.AMBIGUOUS_SUBSET,
+        HostDiagnostic.IDENTIFIER_DISAGREEMENT,
+        HostDiagnostic.ATTRIBUTE_DISAGREEMENT,
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -437,11 +449,14 @@ class HostMatch:
     value: str
     match_tier: str
     tier_taxon_names: tuple[str, ...]
-    # True when worth reviewing:
-    # any subset match, ambiguous subset, identifier disagreement, or
-    # cross-attribute disagreement.
-    needs_review: bool = False
+    # True when a paired label resolves to a different taxon than its identifier.
+    identifier_disagreement: bool = False
     diagnostics: tuple[HostDiagnostic, ...] = ()
+
+    @property
+    def needs_review(self) -> bool:
+        """Answer whether the match carries at least one reason to review it."""
+        return bool(self.diagnostics)
 
 
 @dataclass(frozen=True, slots=True)
@@ -466,11 +481,22 @@ class HostOutcome:
 
     standardized: StandardizedHost | None
     match_quality_score: float | None
-    needs_review: bool
     supporting_pairs: tuple[SupportingAttributeValuePair, ...]
     overflow: HostOverflowContext | None
     diagnostics: tuple[HostDiagnostic, ...]
     from_recovery_pass: bool = False
+
+    @property
+    def needs_review(self) -> bool:
+        """Answer whether the record carries at least one reason to review it."""
+        return bool(self.record_diagnostics)
+
+    @property
+    def record_diagnostics(self) -> tuple[HostDiagnostic, ...]:
+        """Return the published reasons this record needs review."""
+        return tuple(
+            diagnostic for diagnostic in self.diagnostics if diagnostic in RECORD_DIAGNOSTICS
+        )
 
     def __post_init__(self) -> None:
         if (self.standardized is None) != (self.match_quality_score is None):
@@ -905,7 +931,6 @@ class HostStandardizer:
                     value=raw_val.strip(),
                     match_tier="",
                     tier_taxon_names=(),
-                    needs_review=False,
                 )
         raise AssertionError(f"_build_forced_match: no value matched taxid {taxid}")
 
@@ -991,7 +1016,6 @@ class HostStandardizer:
         return HostOutcome(
             standardized=None,
             match_quality_score=None,
-            needs_review=False,
             supporting_pairs=(),
             overflow=overflow,
             diagnostics=(diagnostic,),
@@ -1013,7 +1037,6 @@ class HostStandardizer:
             return HostOutcome(
                 standardized=None,
                 match_quality_score=None,
-                needs_review=False,
                 supporting_pairs=(),
                 overflow=None,
                 diagnostics=(diagnostic,),
@@ -1034,7 +1057,6 @@ class HostStandardizer:
                 scientific_name=match.info.scientific_name,
             ),
             match_quality_score=match.match_quality_score,
-            needs_review=match.needs_review,
             supporting_pairs=(SupportingAttributeValuePair(match.attribute, match.value),),
             overflow=None,
             diagnostics=(diagnostic, *match.diagnostics),
@@ -1066,7 +1088,7 @@ class HostStandardizer:
                     value=val,
                     match_tier=match.match_tier,
                     tier_taxon_names=match.tier_taxon_names,
-                    needs_review=match.identifier_disagreement,
+                    identifier_disagreement=match.identifier_disagreement,
                 )
             )
 
@@ -1089,22 +1111,13 @@ class HostStandardizer:
         best = host_matches[0]
 
         distinct_taxa = {host_match.info.taxid for host_match in host_matches}
-        has_multiple_taxa = len(distinct_taxa) > 1
-        has_ambiguous_subset = bool(best.tier_taxon_names)
-        is_subset_match = best.match_tier != ""
-        has_identifier_disagreement = best.needs_review
-        needs_review = (
-            is_subset_match
-            or has_ambiguous_subset
-            or has_identifier_disagreement
-            or has_multiple_taxa
-        )
         diagnostics = tuple(
             diagnostic
             for applies, diagnostic in (
-                (is_subset_match, HostDiagnostic.SUBSET_MATCH),
-                (has_ambiguous_subset, HostDiagnostic.AMBIGUOUS_SUBSET),
-                (has_multiple_taxa, HostDiagnostic.ATTRIBUTE_DISAGREEMENT),
+                (best.match_tier != "", HostDiagnostic.SUBSET_MATCH),
+                (bool(best.tier_taxon_names), HostDiagnostic.AMBIGUOUS_SUBSET),
+                (best.identifier_disagreement, HostDiagnostic.IDENTIFIER_DISAGREEMENT),
+                (len(distinct_taxa) > 1, HostDiagnostic.ATTRIBUTE_DISAGREEMENT),
             )
             if applies
         )
@@ -1117,6 +1130,6 @@ class HostStandardizer:
             value=best.value,
             match_tier=best.match_tier,
             tier_taxon_names=best.tier_taxon_names,
-            needs_review=needs_review,
+            identifier_disagreement=best.identifier_disagreement,
             diagnostics=diagnostics,
         )
