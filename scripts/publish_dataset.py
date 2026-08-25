@@ -35,7 +35,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 LIST_COLUMNS = frozenset(
     {
         *SEQUENCE_ACCESSION_COLUMNS,
-        "date_derivations",
+        "date_diagnostics",
         "date_attr_orig",
         "date_val_orig",
         "loc_attr_orig",

@@ -64,7 +64,7 @@ DATE_COLUMNS = (
     "date_precision",
     "date_start",
     "date_end",
-    "date_derivations",
+    "date_diagnostics",
     "date_attr_orig",
     "date_val_orig",
 )
@@ -367,7 +367,7 @@ def test_published_fallback_date_projects_resolved_columns_and_equal_bounds_evid
         "year",
         "2019-01-01",
         "2019-12-31",
-        "direct",
+        "",
         "submission_date||publication_date",
         "2019||2019",
     )

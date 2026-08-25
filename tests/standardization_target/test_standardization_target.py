@@ -103,7 +103,7 @@ def test_dataset_header_keeps_its_target_order_contract() -> None:
         "date_precision",
         "date_start",
         "date_end",
-        "date_derivations",
+        "date_diagnostics",
         "date_attr_orig",
         "date_val_orig",
         "loc_attr_orig",

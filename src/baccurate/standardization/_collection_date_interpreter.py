@@ -62,7 +62,7 @@ class DateInterpretation:
     format_id: InterpretationFormatId
     structure: InterpretedDateStructure
     precision: InterpretedDatePrecision
-    derivations: tuple[str, ...]
+    diagnostics: tuple[str, ...]
     notices: tuple[Notice, ...] = ()
 
 
@@ -263,17 +263,11 @@ def least_precise_date_precision[DatePrecisionValue: str](
     return max(precisions, key=order.__getitem__)
 
 
-def combine_date_derivations(
-    derivation_groups: Iterable[Iterable[str]],
+def combine_date_diagnostics(
+    diagnostic_groups: Iterable[Iterable[str]],
 ) -> tuple[str, ...]:
-    """Sort the derivations and omit ``direct`` when others are present."""
-    exceptional_derivations = {
-        derivation
-        for derivations in derivation_groups
-        for derivation in derivations
-        if derivation != "direct"
-    }
-    return tuple(sorted(exceptional_derivations)) or ("direct",)
+    """Merge the exceptional steps of several parses into one sorted tuple."""
+    return tuple(sorted({diagnostic for group in diagnostic_groups for diagnostic in group}))
 
 
 def _finalize_interval(
@@ -289,17 +283,17 @@ def _finalize_interval(
     combined_start = min(start_result.bounds.start, end_result.bounds.start)
     combined_end = max(start_result.bounds.end, end_result.bounds.end)
     notices = start_result.notices + end_result.notices
-    additional_derivations: tuple[str, ...] = ()
+    additional_diagnostics: tuple[str, ...] = ()
     if start_result.bounds.start > end_result.bounds.end:
         notices += ("reversed_interval_normalized",)
-        additional_derivations = ("reversed_interval",)
+        additional_diagnostics = ("reversed_interval",)
     return DateInterpretation(
         DateBounds(combined_start, combined_end),
         format_id,
         ("single_value" if start_result.bounds == end_result.bounds else "reported_interval"),
         least_precise_date_precision((start_result.precision, end_result.precision)),
-        combine_date_derivations(
-            (start_result.derivations, end_result.derivations, additional_derivations),
+        combine_date_diagnostics(
+            (start_result.diagnostics, end_result.diagnostics, additional_diagnostics),
         ),
         notices,
     )
@@ -346,17 +340,17 @@ class DateInterpreter:
             return DateRejection("after_metadata_reference_date")
 
         effective_limit = self.metadata_reference_date
-        limit_derivation = "reference_date_limit"
+        limit_diagnostic = "reference_date_limit"
         if last_update is not None and result.bounds.start <= last_update <= effective_limit:
             effective_limit = last_update
-            limit_derivation = "last_update_limit"
+            limit_diagnostic = "last_update_limit"
         if result.bounds.end <= effective_limit:
             return result
         return replace(
             result,
             bounds=DateBounds(result.bounds.start, effective_limit),
-            derivations=combine_date_derivations(
-                (result.derivations, (limit_derivation,)),
+            diagnostics=combine_date_diagnostics(
+                (result.diagnostics, (limit_diagnostic,)),
             ),
         )
 
@@ -466,7 +460,7 @@ class DateInterpreter:
             and bounds.start.day <= 12
             and bounds.start.day != bounds.start.month
         )
-        derivations = combine_date_derivations(
+        diagnostics = combine_date_diagnostics(
             (
                 ("ambiguous_numeric_assumed_day_first",) if ambiguous_numeric_assumption else (),
                 ("buddhist_era_year",) if format_id == "buddhist_era_timestamp" else (),
@@ -478,7 +472,7 @@ class DateInterpreter:
             format_id,
             "single_value",
             precision,
-            derivations,
+            diagnostics,
             notices,
         )
 

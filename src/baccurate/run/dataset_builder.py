@@ -127,7 +127,7 @@ class _MutableDateStatistics:
     categories: Counter[DateCategory] = field(default_factory=Counter)
     structures: Counter[DateStructure] = field(default_factory=Counter)
     precisions: Counter[DatePrecision] = field(default_factory=Counter)
-    derivations: Counter[str] = field(default_factory=Counter)
+    date_diagnostics: Counter[str] = field(default_factory=Counter)
 
 
 @dataclass(slots=True)
@@ -279,7 +279,7 @@ class _FinalRowAssembler:
                     final_row.date.precision,
                     final_row.date.bounds.start.isoformat(),
                     final_row.date.bounds.end.isoformat(),
-                    "||".join(final_row.date.derivations),
+                    "||".join(final_row.date.diagnostics),
                     attributes,
                     date_values,
                 )
@@ -690,7 +690,7 @@ class DatasetBuilder:
                         stats.categories[date_outcome.category] += 1
                         stats.structures[date_outcome.structure] += 1
                         stats.precisions[date_outcome.precision] += 1
-                        stats.derivations.update(date_outcome.derivations)
+                        stats.date_diagnostics.update(date_outcome.diagnostics)
 
                 location_outcome = None
                 location_result: LocationOutcome | LocationRejection | None = None
@@ -936,7 +936,7 @@ class DatasetBuilder:
                 categories=dict(sorted(stats.categories.items())),
                 structures=dict(sorted(stats.structures.items())),
                 precisions=dict(sorted(stats.precisions.items())),
-                derivations=dict(sorted(stats.derivations.items())),
+                date_diagnostics=dict(sorted(stats.date_diagnostics.items())),
                 diagnostics=dict(sorted(getattr(standardizer, "diagnostic_counts", {}).items())),
                 parsed_date_rejections=rejection_counts,
                 notices=notice_counts,
@@ -948,7 +948,9 @@ class DatasetBuilder:
             categories=_sum_counts(stats.categories for stats in mutable_stats.values()),
             structures=_sum_counts(stats.structures for stats in mutable_stats.values()),
             precisions=_sum_counts(stats.precisions for stats in mutable_stats.values()),
-            derivations=_sum_counts(stats.derivations for stats in mutable_stats.values()),
+            date_diagnostics=_sum_counts(
+                stats.date_diagnostics for stats in mutable_stats.values()
+            ),
             diagnostics=dict(sorted(aggregate_diagnostics.items())),
             parsed_date_rejections=dict(sorted(aggregate_rejections.items())),
             notices=dict(sorted(aggregate_notices.items())),

@@ -11,7 +11,7 @@ from baccurate.standardization._collection_date_interpreter import (
     DateBounds,
     DateInterpreter,
     DateRejection,
-    combine_date_derivations,
+    combine_date_diagnostics,
     least_precise_date_precision,
 )
 from baccurate.standardization.supporting_attribute_value_pair import SupportingAttributeValuePair
@@ -55,7 +55,7 @@ class ParsedDate:
     bounds: DateBounds
     structure: DateStructure
     precision: DatePrecision
-    derivations: tuple[str, ...]
+    diagnostics: tuple[str, ...]
     attribute: str
     value: str
 
@@ -68,7 +68,7 @@ class DateOutcome:
     category: DateCategory
     structure: DateStructure
     precision: DatePrecision
-    derivations: tuple[str, ...]
+    diagnostics: tuple[str, ...]
     supporting_pairs: tuple[SupportingAttributeValuePair, ...]
 
     def __post_init__(self) -> None:
@@ -149,7 +149,7 @@ class RecordDateStandardizer:
             result.bounds,
             DateStructure(result.structure),
             DatePrecision(result.precision),
-            result.derivations,
+            result.diagnostics,
             attribute,
             value,
         )
@@ -165,7 +165,7 @@ class RecordDateStandardizer:
                 DateCategory.SAMPLE_COLLECTION,
                 first.structure,
                 first.precision,
-                first.derivations,
+                first.diagnostics,
                 (SupportingAttributeValuePair(first.attribute, first.value),),
             )
 
@@ -177,7 +177,7 @@ class RecordDateStandardizer:
                 DateCategory.SAMPLE_COLLECTION,
                 DateStructure.SINGLE_VALUE,
                 least_precise_date_precision(parsed.precision for parsed in parsed_dates),
-                combine_date_derivations(parsed.derivations for parsed in parsed_dates),
+                combine_date_diagnostics(parsed.diagnostics for parsed in parsed_dates),
                 _supporting_pairs(parsed_dates),
             )
 
@@ -193,7 +193,7 @@ class RecordDateStandardizer:
             DateCategory.SAMPLE_COLLECTION,
             DateStructure.CONFLICT_RANGE,
             least_precise_date_precision(parsed.precision for parsed in parsed_dates),
-            combine_date_derivations(parsed.derivations for parsed in parsed_dates),
+            combine_date_diagnostics(parsed.diagnostics for parsed in parsed_dates),
             _supporting_pairs(parsed_dates),
         )
 
@@ -206,7 +206,7 @@ class RecordDateStandardizer:
             DateCategory.FALLBACK,
             _outcome_structure(contributors),
             least_precise_date_precision(parsed.precision for parsed in contributors),
-            combine_date_derivations(parsed.derivations for parsed in contributors),
+            combine_date_diagnostics(parsed.diagnostics for parsed in contributors),
             _supporting_pairs(contributors),
         )
 

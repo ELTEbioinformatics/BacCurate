@@ -40,7 +40,7 @@ class DateStatistics:
     categories: Mapping[DateCategory, int]
     structures: Mapping[DateStructure, int]
     precisions: Mapping[DatePrecision, int]
-    derivations: Mapping[str, int]
+    date_diagnostics: Mapping[str, int]
     diagnostics: Mapping[DateDiagnostic, int]
     parsed_date_rejections: Mapping[str, int]
     notices: Mapping[str, int]
