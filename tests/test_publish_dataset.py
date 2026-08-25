@@ -77,6 +77,38 @@ def test_publish_writes_the_five_release_files(
     assert '"text":null' in jsonl[1].replace(" ", "")
 
 
+def test_publish_renames_the_source_database_columns_in_every_format(
+    publish_dataset: ModuleType,
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    columns = ["accession", "bioproject", "text", *publish_dataset.SCALAR_TYPES]
+    blanks = ["" for _ in publish_dataset.SCALAR_TYPES]
+    rows = [
+        ["SAMN1", "PRJNA1||PRJNA2", "kept", *blanks],
+        ["SAMN2", "PRJNA3", "kept", *blanks],
+        ["SAMN3", "", "kept", *blanks],
+    ]
+    (run_dir / "run.tsv").write_text(
+        "\n".join("\t".join(record) for record in (columns, *rows)) + "\n",
+        encoding="utf-8",
+    )
+
+    publish_dataset.publish(run_dir)
+
+    stem = f"baccurate_metadata_v{publish_dataset.package_version('baccurate')}"
+    header, *records = (run_dir / f"{stem}.tsv").read_text(encoding="utf-8").splitlines()
+    assert header.split("\t")[:3] == ["biosample_accession", "bioproject_accessions", "text"]
+    assert records[0].split("\t")[:3] == ["SAMN1", "PRJNA1||PRJNA2", "kept"]
+
+    jsonl = (run_dir / f"{stem}.jsonl").read_text(encoding="utf-8").splitlines()
+    assert '"biosample_accession":"SAMN1"' in jsonl[0].replace(" ", "")
+    assert '"bioproject_accessions":["PRJNA1","PRJNA2"]' in jsonl[0].replace(" ", "")
+    assert '"bioproject_accessions":["PRJNA3"]' in jsonl[1].replace(" ", "")
+    assert '"bioproject_accessions":null' in jsonl[2].replace(" ", "")
+
+
 def test_find_dataset_rejects_a_run_directory_without_its_dataset(
     publish_dataset: ModuleType,
     tmp_path: Path,

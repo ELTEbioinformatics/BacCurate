@@ -35,6 +35,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 LIST_COLUMNS = frozenset(
     {
         *SEQUENCE_ACCESSION_COLUMNS,
+        "bioproject",
         "date_diagnostics",
         "date_attr_orig",
         "date_val_orig",
@@ -56,6 +57,11 @@ SCALAR_TYPES = {
     "host_taxid": "INTEGER",
 }
 
+PUBLISHED_NAMES = {
+    "accession": "biosample_accession",
+    "bioproject": "bioproject_accessions",
+}
+
 
 def _is_list(column: str) -> bool:
     # Every isolation-source column is a list, including the facet columns
@@ -65,18 +71,19 @@ def _is_list(column: str) -> bool:
 
 def _column_expression(column: str) -> str:
     quoted = f'"{column}"'
+    alias = f'"{PUBLISHED_NAMES.get(column, column)}"'
     if _is_list(column):
         # A record with no standardized outcome writes "". An outcome that holds
         # no value for this field writes "NA". The published lists keep the two
         # apart as NULL against an empty list.
         return (
             f"CASE {quoted} WHEN '' THEN NULL WHEN 'NA' THEN []::VARCHAR[] "
-            f"ELSE str_split({quoted}, '||') END AS {quoted}"
+            f"ELSE str_split({quoted}, '||') END AS {alias}"
         )
     # A scalar column cannot hold an empty list, so both absence markers become NULL.
     value = f"NULLIF(NULLIF({quoted}, ''), 'NA')"
     cast = SCALAR_TYPES.get(column)
-    return f"TRY_CAST({value} AS {cast}) AS {quoted}" if cast else f"{value} AS {quoted}"
+    return f"TRY_CAST({value} AS {cast}) AS {alias}" if cast else f"{value} AS {alias}"
 
 
 # --- Inputs ---
@@ -105,6 +112,17 @@ def _git(*arguments: str) -> str:
 
 
 # --- Outputs ---
+
+
+def _copy_with_published_header(source: Path, destination: Path) -> None:
+    """Copy the run dataset byte for byte, renaming the columns of its header line."""
+    renamed = {name.encode(): published.encode() for name, published in PUBLISHED_NAMES.items()}
+    with source.open("rb") as raw, destination.open("wb") as published:
+        header = raw.readline()
+        terminator = b"\r\n" if header.endswith(b"\r\n") else b"\n"
+        columns = header.rstrip(b"\r\n").split(b"\t")
+        published.write(b"\t".join(renamed.get(column, column) for column in columns) + terminator)
+        shutil.copyfileobj(raw, published, length=1024 * 1024)
 
 
 def _compress(source: Path) -> Path:
@@ -153,7 +171,7 @@ def publish(run_dir: Path) -> None:
     log.info("%d rows, %d columns", rows, len(columns))
     _log_lossy_casts(connection)
 
-    shutil.copyfile(dataset, tsv)
+    _copy_with_published_header(dataset, tsv)
     connection.execute(f"COPY published TO '{jsonl}' (FORMAT json)")
     connection.execute(f"COPY published TO '{parquet}' (FORMAT parquet, COMPRESSION zstd)")
     connection.close()
