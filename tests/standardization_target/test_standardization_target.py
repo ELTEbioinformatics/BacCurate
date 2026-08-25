@@ -98,7 +98,7 @@ def test_dataset_header_keeps_its_target_order_contract() -> None:
     assert tuple(
         column for target in DATASET_COLUMN_ORDER for column in TARGET_SPECS[target].output_columns
     ) == (
-        "date_category",
+        "date_event",
         "date_structure",
         "date_precision",
         "date_start",
@@ -129,7 +129,7 @@ def test_dataset_header_keeps_its_target_order_contract() -> None:
         "host_attr_orig",
         "host_val_orig",
         "host_taxid",
-        "host_sci_name",
+        "host_scientific_name",
         "host_common_names",
         "host_lineage_names",
         "host_lineage_taxids",

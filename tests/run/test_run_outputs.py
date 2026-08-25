@@ -22,7 +22,7 @@ from baccurate.run.statistics import (
     LocationStatistics,
 )
 from baccurate.standardization.collection_date import (
-    DateCategory,
+    DateEvent,
     DatePrecision,
     DateStructure,
 )
@@ -254,7 +254,7 @@ def test_run_report_publishes_the_full_scientific_target_key_set(tmp_path: Path)
         "processed": 1,
         "standardized": 1,
         "rejected": 0,
-        "categories": {"sample_collection": 1},
+        "events": {"sample_collection": 1},
         "structures": {"single_value": 1},
         "precisions": {"day": 1},
         "date_diagnostics": {},
@@ -269,7 +269,7 @@ def _complete_build_statistics(tmp_path: Path) -> DatasetBuildStatistics:
         processed=1,
         standardized=1,
         rejected=0,
-        categories={DateCategory.SAMPLE_COLLECTION: 1},
+        events={DateEvent.SAMPLE_COLLECTION: 1},
         structures={DateStructure.SINGLE_VALUE: 1},
         precisions={DatePrecision.DAY: 1},
         date_diagnostics={},

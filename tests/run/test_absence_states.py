@@ -59,7 +59,7 @@ LOCATION_POLICY_PATH = ROOT / "config" / "location.yaml"
 ISOLATION_SOURCE_POLICY_PATH = ROOT / "config" / "isolation_source.yaml"
 
 DATE_COLUMNS = (
-    "date_category",
+    "date_event",
     "date_structure",
     "date_precision",
     "date_start",
@@ -97,7 +97,7 @@ HOST_COLUMNS = (
     "host_attr_orig",
     "host_val_orig",
     "host_taxid",
-    "host_sci_name",
+    "host_scientific_name",
     "host_common_names",
     "host_lineage_names",
     "host_lineage_taxids",

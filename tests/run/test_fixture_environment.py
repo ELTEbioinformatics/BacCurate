@@ -36,7 +36,7 @@ def test_fixture_dataset_builder_standardizes_host_without_production_taxonomy(
         "bioproject\t"
         "sra_run_accessions\tgenbank_assembly_accessions\t"
         "refseq_assembly_accessions\t"
-        "host_attr_orig\thost_val_orig\thost_taxid\thost_sci_name\t"
+        "host_attr_orig\thost_val_orig\thost_taxid\thost_scientific_name\t"
         "host_common_names\thost_lineage_names\thost_lineage_taxids\t"
         "host_match_route\thost_diagnostics\n"
         "FIXTURE_HUMAN\tEscherichia coli\tEscherichia coli\tEscherichia coli\t"

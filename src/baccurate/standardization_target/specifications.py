@@ -50,7 +50,7 @@ TARGET_SPECS: Mapping[StandardizationTarget, TargetSpec] = MappingProxyType(
                 "host_attr_orig",
                 "host_val_orig",
                 "host_taxid",
-                "host_sci_name",
+                "host_scientific_name",
                 "host_common_names",
                 "host_lineage_names",
                 "host_lineage_taxids",
@@ -69,7 +69,7 @@ TARGET_SPECS: Mapping[StandardizationTarget, TargetSpec] = MappingProxyType(
                 "date_category",
             ),
             output_columns=(
-                "date_category",
+                "date_event",
                 "date_structure",
                 "date_precision",
                 "date_start",

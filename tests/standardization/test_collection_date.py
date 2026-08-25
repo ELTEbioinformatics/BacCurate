@@ -8,8 +8,8 @@ import pytest
 
 from baccurate.standardization.collection_date import (
     DateBounds,
-    DateCategory,
     DateDiagnostic,
+    DateEvent,
     DateOutcome,
     DatePrecision,
     DateStructure,
@@ -109,7 +109,7 @@ def test_record_standardization_returns_typed_collection_date_outcome(standardiz
 
     assert outcome == DateOutcome(
         bounds=DateBounds(date(2020, 2, 1), date(2020, 2, 29)),
-        category=DateCategory.SAMPLE_COLLECTION,
+        event=DateEvent.SAMPLE_COLLECTION,
         structure=DateStructure.SINGLE_VALUE,
         precision=DatePrecision.MONTH,
         diagnostics=(),
@@ -130,7 +130,7 @@ def test_record_standardization_prefers_valid_collection_date_over_all_fallback_
 
     assert outcome == DateOutcome(
         bounds=DateBounds(date(2020, 1, 1), date(2020, 12, 31)),
-        category=DateCategory.SAMPLE_COLLECTION,
+        event=DateEvent.SAMPLE_COLLECTION,
         structure=DateStructure.SINGLE_VALUE,
         precision=DatePrecision.YEAR,
         diagnostics=(),
@@ -151,7 +151,7 @@ def test_record_standardization_uses_oldest_fallback_date_when_collection_dates_
 
     assert outcome == DateOutcome(
         bounds=DateBounds(date(2019, 1, 1), date(2019, 12, 31)),
-        category=DateCategory.FALLBACK,
+        event=DateEvent.FALLBACK,
         structure=DateStructure.SINGLE_VALUE,
         precision=DatePrecision.YEAR,
         diagnostics=(),
@@ -185,7 +185,7 @@ def test_conflicting_collection_dates_preserve_and_deduplicate_supporting_pairs(
 
     assert outcome == DateOutcome(
         bounds=DateBounds(date(1993, 1, 1), date(2009, 12, 31)),
-        category=DateCategory.SAMPLE_COLLECTION,
+        event=DateEvent.SAMPLE_COLLECTION,
         structure=DateStructure.CONFLICT_RANGE,
         precision=DatePrecision.YEAR,
         diagnostics=(),
@@ -216,7 +216,7 @@ def test_equivalent_collection_date_bounds_keep_all_distinct_supporting_pairs(
 
     assert outcome == DateOutcome(
         bounds=DateBounds(date(2019, 3, 4), date(2019, 3, 4)),
-        category=DateCategory.SAMPLE_COLLECTION,
+        event=DateEvent.SAMPLE_COLLECTION,
         structure=DateStructure.SINGLE_VALUE,
         precision=DatePrecision.DAY,
         diagnostics=("ambiguous_numeric_assumed_day_first",),
@@ -277,7 +277,7 @@ def test_explicit_interval_preserves_record_selection_and_supporting_pair(standa
 
     assert outcome == DateOutcome(
         bounds=DateBounds(date(2016, 11, 1), date(2017, 5, 29)),
-        category=DateCategory.SAMPLE_COLLECTION,
+        event=DateEvent.SAMPLE_COLLECTION,
         structure=DateStructure.REPORTED_INTERVAL,
         precision=DatePrecision.MONTH,
         diagnostics=(),
@@ -609,7 +609,7 @@ def test_ambiguous_numeric_date_keeps_day_first_outcome_and_marks_assumption(sta
 
     assert outcome == DateOutcome(
         bounds=DateBounds(date(2019, 3, 4), date(2019, 3, 4)),
-        category=DateCategory.SAMPLE_COLLECTION,
+        event=DateEvent.SAMPLE_COLLECTION,
         structure=DateStructure.SINGLE_VALUE,
         precision=DatePrecision.DAY,
         diagnostics=("ambiguous_numeric_assumed_day_first",),

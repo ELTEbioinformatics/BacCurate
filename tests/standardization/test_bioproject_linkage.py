@@ -421,7 +421,7 @@ def test_host_recovery_uses_biosample_pairs_not_bioproject_linkage(
         ("RECORD_EVIDENCE", "food_source", "chicken meat")
     ]
     rows = _dataset_rows(dataset)
-    assert rows["RECORD_EVIDENCE"]["host_sci_name"] == "Gallus gallus"
+    assert rows["RECORD_EVIDENCE"]["host_scientific_name"] == "Gallus gallus"
     assert "PROJECT_ONLY" not in rows
     assert statistics.host.aggregate.host_recovery_passes == 1
     assert statistics.isolation_source.aggregate.host_recovery_passes == 1

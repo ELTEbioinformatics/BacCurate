@@ -21,7 +21,7 @@ from baccurate.standardization_target.specifications import (
 )
 
 
-class DateCategory(StrEnum):
+class DateEvent(StrEnum):
     SAMPLE_COLLECTION = "sample_collection"
     FALLBACK = "fallback"
 
@@ -65,7 +65,7 @@ class DateOutcome:
     """The chosen date and its supporting attribute-value pairs."""
 
     bounds: DateBounds
-    category: DateCategory
+    event: DateEvent
     structure: DateStructure
     precision: DatePrecision
     diagnostics: tuple[str, ...]
@@ -162,7 +162,7 @@ class RecordDateStandardizer:
         if len(parsed_dates) == 1:
             return DateOutcome(
                 first.bounds,
-                DateCategory.SAMPLE_COLLECTION,
+                DateEvent.SAMPLE_COLLECTION,
                 first.structure,
                 first.precision,
                 first.diagnostics,
@@ -174,7 +174,7 @@ class RecordDateStandardizer:
             self.diagnostic_counts[DateDiagnostic.EQUIVALENT_DATE_COLLAPSE] += 1
             return DateOutcome(
                 first.bounds,
-                DateCategory.SAMPLE_COLLECTION,
+                DateEvent.SAMPLE_COLLECTION,
                 DateStructure.SINGLE_VALUE,
                 least_precise_date_precision(parsed.precision for parsed in parsed_dates),
                 combine_date_diagnostics(parsed.diagnostics for parsed in parsed_dates),
@@ -190,7 +190,7 @@ class RecordDateStandardizer:
         self.diagnostic_counts[DateDiagnostic.CONFLICTING_DATE_COMBINATION] += 1
         return DateOutcome(
             bounds,
-            DateCategory.SAMPLE_COLLECTION,
+            DateEvent.SAMPLE_COLLECTION,
             DateStructure.CONFLICT_RANGE,
             least_precise_date_precision(parsed.precision for parsed in parsed_dates),
             combine_date_diagnostics(parsed.diagnostics for parsed in parsed_dates),
@@ -203,7 +203,7 @@ class RecordDateStandardizer:
         contributors = [parsed for parsed in parsed_dates if parsed.bounds == oldest.bounds]
         return DateOutcome(
             oldest.bounds,
-            DateCategory.FALLBACK,
+            DateEvent.FALLBACK,
             _outcome_structure(contributors),
             least_precise_date_precision(parsed.precision for parsed in contributors),
             combine_date_diagnostics(parsed.diagnostics for parsed in contributors),
