@@ -42,6 +42,8 @@ LIST_COLUMNS = frozenset(
         "loc_attr_orig",
         "loc_val_orig",
         "loc_diagnostics",
+        "host_attr_orig",
+        "host_val_orig",
         "host_common_names",
         "host_lineage_names",
         "host_lineage_taxids",

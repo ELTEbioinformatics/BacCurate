@@ -334,13 +334,13 @@ class _FinalRowAssembler:
                     target_specifications.TARGET_SPECS[StandardizationTarget.HOST].output_columns
                 )
             else:
-                pair = final_row.host.supporting_pairs[0]
+                pairs = final_row.host.supporting_pairs
                 lineage = final_row.host_lineage
                 if lineage is None:
                     raise ValueError(f"Missing host lineage enrichment for {final_row.accession}")
                 values += (
-                    pair.attribute,
-                    pair.value,
+                    "||".join(pair.attribute for pair in pairs),
+                    "||".join(pair.value for pair in pairs),
                     final_row.host.standardized.taxid,
                     final_row.host.standardized.scientific_name,
                     lineage.common_names,

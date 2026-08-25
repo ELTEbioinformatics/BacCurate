@@ -465,6 +465,8 @@ class HostMatch:
     # True when a paired label resolves to a different taxon than its identifier.
     identifier_disagreement: bool = False
     diagnostics: tuple[HostDiagnostic, ...] = ()
+    # Ranked pairs that matched a different taxon than this match.
+    contradicting_pairs: tuple[SupportingAttributeValuePair, ...] = ()
 
     @property
     def match_quality_score(self) -> float:
@@ -1065,7 +1067,10 @@ class HostStandardizer:
                 scientific_name=match.info.scientific_name,
             ),
             route=match.route,
-            supporting_pairs=(SupportingAttributeValuePair(match.attribute, match.value),),
+            supporting_pairs=(
+                SupportingAttributeValuePair(match.attribute, match.value),
+                *match.contradicting_pairs,
+            ),
             overflow=None,
             diagnostics=(diagnostic, *match.diagnostics),
             from_recovery_pass=from_recovery_pass,
@@ -1138,4 +1143,9 @@ class HostStandardizer:
             tier_taxon_names=best.tier_taxon_names,
             identifier_disagreement=best.identifier_disagreement,
             diagnostics=diagnostics,
+            contradicting_pairs=tuple(
+                SupportingAttributeValuePair(host_match.attribute, host_match.value)
+                for host_match in host_matches[1:]
+                if host_match.info.taxid != best.info.taxid
+            ),
         )

@@ -421,3 +421,21 @@ def test_record_diagnostics_name_every_review_reason(standardizer: HostStandardi
         assert outcome.needs_review is bool(expected), values
         # The build-level values never reach the published field.
         assert HostDiagnostic.MATCHED in outcome.diagnostics, values
+
+
+def test_supporting_pairs_publish_every_contradicting_pair(
+    standardizer: HostStandardizer,
+) -> None:
+    def pairs(attributes: str, values: str) -> list[tuple[str, str]]:
+        outcome = standardizer.standardize(
+            {"accession": "TEST", "host_attr_orig": attributes, "host_val_orig": values}
+        )
+        return [(pair.attribute, pair.value) for pair in outcome.supporting_pairs]
+
+    assert pairs("host", "Homo sapiens") == [("host", "Homo sapiens")]
+    assert pairs("host_taxid||host", "9606||Bos taurus") == [
+        ("host_taxid", "9606"),
+        ("host", "Bos taurus"),
+    ]
+    assert pairs("host_taxid||host", "9606||Homo sapiens") == [("host_taxid", "9606")]
+    assert pairs("host", "no host") == []
