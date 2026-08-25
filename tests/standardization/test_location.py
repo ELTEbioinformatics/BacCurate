@@ -698,7 +698,7 @@ def test_absent_vs_unresolved_values(
     )
 
     assert isinstance(absent, LocationRejection)
-    assert absent.diagnostics == (LocationDiagnostic.ABSENT_VALUES,)
+    assert absent.diagnostics == ()
     assert absent.unresolved_inputs == ()
     assert isinstance(unresolved, LocationRejection)
     assert unresolved.diagnostics == (LocationDiagnostic.UNRESOLVED_PLACE,)

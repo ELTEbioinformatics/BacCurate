@@ -368,7 +368,6 @@ def _extract_string(value) -> str | None:
 class LocationDiagnostic(StrEnum):
     """Diagnostic labels for location standardization."""
 
-    ABSENT_VALUES = "absent_values"
     UNRESOLVED_PLACE = "unresolved_place"
     RECOVERABLE_COORDINATE_FAILURE = "recoverable_coordinate_failure"
 
@@ -791,7 +790,7 @@ class LocationStandardizer:
             if pair.value.strip()
         ]
         if not pairs:
-            return _RecordResolution(None, None, (), (), (LocationDiagnostic.ABSENT_VALUES,))
+            return _RecordResolution(None, None, (), (), ())
 
         joined_positions: _PairPositions = ()
         joined = _join_coordinate_halves(pairs)

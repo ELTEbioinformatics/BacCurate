@@ -861,7 +861,7 @@ def test_rejected_locations_publish_evidence_and_diagnostics_with_empty_answer_c
 
     assert records["ABSENT"]["loc_attr_orig"] == ""
     assert records["ABSENT"]["loc_val_orig"] == ""
-    assert records["ABSENT"]["loc_diagnostics"] == "absent_values"
+    assert records["ABSENT"]["loc_diagnostics"] == ""
 
     assert records["OUTSIDE_INSDC"]["loc_attr_orig"] == "geo_loc_name"
     assert records["OUTSIDE_INSDC"]["loc_val_orig"] == "Vatican"
@@ -870,7 +870,6 @@ def test_rejected_locations_publish_evidence_and_diagnostics_with_empty_answer_c
     assert built.statistics.location is not None
     assert built.statistics.location.aggregate.rejected == 3
     assert built.statistics.location.aggregate.diagnostics == {
-        LocationDiagnostic.ABSENT_VALUES: 1,
         LocationDiagnostic.UNMAPPABLE_RESULT: 1,
         LocationDiagnostic.UNRESOLVED_PLACE: 2,
     }
