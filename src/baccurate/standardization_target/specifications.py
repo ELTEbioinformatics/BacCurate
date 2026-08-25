@@ -54,7 +54,7 @@ TARGET_SPECS: Mapping[StandardizationTarget, TargetSpec] = MappingProxyType(
                 "host_common_names",
                 "host_lineage_names",
                 "host_lineage_taxids",
-                "host_match_quality_score",
+                "host_match_route",
                 "host_diagnostics",
             ),
         ),

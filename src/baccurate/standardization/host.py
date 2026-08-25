@@ -26,25 +26,37 @@ from baccurate.taxon_registry.registry import TaxonRegistry
 
 logger = logging.getLogger(__name__)
 
-# --- Match-quality scores ---
+# --- Matching routes ---
 
-# Direct numeric taxid, scientific name or synonym
-SCORE_TAXID = 1.0
-SCORE_SCINAME = 1.0
-SCORE_SYNONYM = 1.0
 
-# Locally curated host term
-SCORE_CURATED_TERM = 0.95
+class MatchRoute(StrEnum):
+    """Lookup of the matching cascade that produced a host match."""
 
-# NCBI genbank_common_name match
-SCORE_CURATED_COMMON = 0.9
+    TAXID = "taxid"
+    SCIENTIFIC_NAME = "scientific_name"
+    SYNONYM = "synonym"
+    CURATED_TERM = "curated_term"
+    CURATED_COMMON_NAME = "curated_common_name"
+    BROAD_COMMON_NAME = "broad_common_name"
+    SUBSET_MULTI_WORD = "subset_multi_word"
+    SUBSET_SINGLE_WORD = "subset_single_word"
 
-# NCBI common_name match - multiple per taxon and can apply to more taxa
-SCORE_BROAD_COMMON = 0.7
 
-# Subset matching
-SCORE_SUBSET_MULTIWORD = 0.7
-SCORE_SUBSET_SINGLEWORD = 0.5
+# Used to rank the candidate matches of a record.
+ROUTE_SCORES: dict[MatchRoute, float] = {
+    MatchRoute.TAXID: 1.0,
+    MatchRoute.SCIENTIFIC_NAME: 1.0,
+    MatchRoute.SYNONYM: 1.0,
+    MatchRoute.CURATED_TERM: 0.95,
+    MatchRoute.CURATED_COMMON_NAME: 0.9,
+    MatchRoute.BROAD_COMMON_NAME: 0.7,
+    MatchRoute.SUBSET_MULTI_WORD: 0.7,
+    MatchRoute.SUBSET_SINGLE_WORD: 0.5,
+}
+
+SUBSET_ROUTES: frozenset[MatchRoute] = frozenset(
+    {MatchRoute.SUBSET_MULTI_WORD, MatchRoute.SUBSET_SINGLE_WORD}
+)
 
 # --- Attribute-name precedence ---
 
@@ -403,14 +415,16 @@ class ValueMatch:
     """Taxon selected for one submitted host value before record-level ranking."""
 
     info: TaxonInfo
-    match_quality_score: float
-    # "" for exact matches; "multi-word" or "single-word" for subset matches.
-    match_tier: str = ""
+    route: MatchRoute
     # Populated when subset matching found multiple distinct taxa. Empty
     # for unambiguous matches.
     tier_taxon_names: tuple[str, ...] = ()
     # True when a paired label resolves to a different taxon than its identifier.
     identifier_disagreement: bool = False
+
+    @property
+    def match_quality_score(self) -> float:
+        return ROUTE_SCORES[self.route]
 
 
 class HostDiagnostic(StrEnum):
@@ -443,15 +457,18 @@ class HostMatch:
     """Winning match with its supporting attribute-value pair."""
 
     info: TaxonInfo
-    match_quality_score: float
+    route: MatchRoute
     pair_index: int
     attribute: str
     value: str
-    match_tier: str
     tier_taxon_names: tuple[str, ...]
     # True when a paired label resolves to a different taxon than its identifier.
     identifier_disagreement: bool = False
     diagnostics: tuple[HostDiagnostic, ...] = ()
+
+    @property
+    def match_quality_score(self) -> float:
+        return ROUTE_SCORES[self.route]
 
     @property
     def needs_review(self) -> bool:
@@ -480,11 +497,15 @@ class HostOutcome:
     """Record-level host result, including distinct absence and overflow states."""
 
     standardized: StandardizedHost | None
-    match_quality_score: float | None
+    route: MatchRoute | None
     supporting_pairs: tuple[SupportingAttributeValuePair, ...]
     overflow: HostOverflowContext | None
     diagnostics: tuple[HostDiagnostic, ...]
     from_recovery_pass: bool = False
+
+    @property
+    def match_quality_score(self) -> float | None:
+        return None if self.route is None else ROUTE_SCORES[self.route]
 
     @property
     def needs_review(self) -> bool:
@@ -499,8 +520,8 @@ class HostOutcome:
         )
 
     def __post_init__(self) -> None:
-        if (self.standardized is None) != (self.match_quality_score is None):
-            raise ValueError("A standardized host and score must be present together")
+        if (self.standardized is None) != (self.route is None):
+            raise ValueError("A standardized host and a match route must be present together")
         if self.standardized is not None and not self.supporting_pairs:
             raise ValueError("A standardized host requires a supporting attribute-value pair")
         if self.standardized is None and self.supporting_pairs:
@@ -760,22 +781,19 @@ class HostStandardizer:
         info = self.taxid_to_info.get(normalized)
         if info is None:
             return None
-        return ValueMatch(info, SCORE_TAXID)
+        return ValueMatch(info, MatchRoute.TAXID)
 
     def _match_text_value(self, normalized: str) -> ValueMatch | None:
-        # Tiers tried in priority order. Sciname and synonym both score
-        # 1.0, but sciname is checked first to keep the logged tier
-        # label honest.
-        for lookup, match_quality_score in (
-            (self.sciname_to_info, SCORE_SCINAME),
-            (self.synonym_to_info, SCORE_SYNONYM),
-            (self.curated_term_to_info, SCORE_CURATED_TERM),
-            (self.curated_common_to_info, SCORE_CURATED_COMMON),
-            (self.broad_common_to_info, SCORE_BROAD_COMMON),
+        for lookup, route in (
+            (self.sciname_to_info, MatchRoute.SCIENTIFIC_NAME),
+            (self.synonym_to_info, MatchRoute.SYNONYM),
+            (self.curated_term_to_info, MatchRoute.CURATED_TERM),
+            (self.curated_common_to_info, MatchRoute.CURATED_COMMON_NAME),
+            (self.broad_common_to_info, MatchRoute.BROAD_COMMON_NAME),
         ):
             info = lookup.get(normalized)
             if info is not None:
-                return ValueMatch(info, match_quality_score)
+                return ValueMatch(info, route)
         return self._match_subset_value(normalized)
 
     def _match_subset_value(self, normalized: str) -> ValueMatch | None:
@@ -809,7 +827,7 @@ class HostStandardizer:
                 multiword_matches.append(info)
 
         if multiword_matches:
-            return self._build_subset_match(multiword_matches, SCORE_SUBSET_MULTIWORD, "multi-word")
+            return self._build_subset_match(multiword_matches, MatchRoute.SUBSET_MULTI_WORD)
 
         # --- Single-word terms (fallback) ---
         singleword_matches: list[TaxonInfo] = []
@@ -819,16 +837,12 @@ class HostStandardizer:
                 singleword_matches.append(info)
 
         if singleword_matches:
-            return self._build_subset_match(
-                singleword_matches, SCORE_SUBSET_SINGLEWORD, "single-word"
-            )
+            return self._build_subset_match(singleword_matches, MatchRoute.SUBSET_SINGLE_WORD)
 
         return None
 
     @staticmethod
-    def _build_subset_match(
-        matches: list[TaxonInfo], match_quality_score: float, tier_label: str
-    ) -> ValueMatch:
+    def _build_subset_match(matches: list[TaxonInfo], route: MatchRoute) -> ValueMatch:
         # Dedupe by taxid (a taxon can be reached via several names)
         # then pick the most specific, recording other distinct taxa for
         # the caller to warn about.
@@ -836,13 +850,8 @@ class HostStandardizer:
         best = min(infos_by_taxid.values(), key=lambda i: i.table_priority)
         if len(infos_by_taxid) > 1:
             all_names = tuple(sorted(i.scientific_name for i in infos_by_taxid.values()))
-            return ValueMatch(
-                best,
-                match_quality_score,
-                match_tier=tier_label,
-                tier_taxon_names=all_names,
-            )
-        return ValueMatch(best, match_quality_score, match_tier=tier_label)
+            return ValueMatch(best, route, tier_taxon_names=all_names)
+        return ValueMatch(best, route)
 
     def _match_value(self, value: str, attribute: str) -> ValueMatch | None:
         """Dispatch a single (attribute, value) pair to the right matcher."""
@@ -855,7 +864,7 @@ class HostStandardizer:
             label_match = self._match_text_value(_normalize_text(label))
             return ValueMatch(
                 identifier_match.info,
-                identifier_match.match_quality_score,
+                identifier_match.route,
                 identifier_disagreement=(
                     label_match is not None
                     and label_match.info.taxid != identifier_match.info.taxid
@@ -925,11 +934,10 @@ class HostStandardizer:
             if self.preemptive_decisions.get(_normalize_text(raw_val)) == taxid:
                 return HostMatch(
                     info=info,
-                    match_quality_score=1.0,
+                    route=MatchRoute.TAXID,
                     pair_index=idx,
                     attribute=raw_attr.strip(),
                     value=raw_val.strip(),
-                    match_tier="",
                     tier_taxon_names=(),
                 )
         raise AssertionError(f"_build_forced_match: no value matched taxid {taxid}")
@@ -1015,7 +1023,7 @@ class HostStandardizer:
             )
         return HostOutcome(
             standardized=None,
-            match_quality_score=None,
+            route=None,
             supporting_pairs=(),
             overflow=overflow,
             diagnostics=(diagnostic,),
@@ -1036,7 +1044,7 @@ class HostStandardizer:
         if match is None:
             return HostOutcome(
                 standardized=None,
-                match_quality_score=None,
+                route=None,
                 supporting_pairs=(),
                 overflow=None,
                 diagnostics=(diagnostic,),
@@ -1056,7 +1064,7 @@ class HostStandardizer:
                 taxid=match.info.taxid,
                 scientific_name=match.info.scientific_name,
             ),
-            match_quality_score=match.match_quality_score,
+            route=match.route,
             supporting_pairs=(SupportingAttributeValuePair(match.attribute, match.value),),
             overflow=None,
             diagnostics=(diagnostic, *match.diagnostics),
@@ -1082,11 +1090,10 @@ class HostStandardizer:
             host_matches.append(
                 HostMatch(
                     info=match.info,
-                    match_quality_score=match.match_quality_score,
+                    route=match.route,
                     pair_index=idx,
                     attribute=attr,
                     value=val,
-                    match_tier=match.match_tier,
                     tier_taxon_names=match.tier_taxon_names,
                     identifier_disagreement=match.identifier_disagreement,
                 )
@@ -1096,7 +1103,7 @@ class HostStandardizer:
             return None
 
         # Sort key (smaller wins):
-        #   1. score              higher score wins
+        #   1. route score        higher score wins
         #   2. table_priority     more specific taxon wins
         #   3. attr priority      host_taxid > host > other
         #   4. pair_index         earlier position as last-resort tiebreaker
@@ -1114,7 +1121,7 @@ class HostStandardizer:
         diagnostics = tuple(
             diagnostic
             for applies, diagnostic in (
-                (best.match_tier != "", HostDiagnostic.SUBSET_MATCH),
+                (best.route in SUBSET_ROUTES, HostDiagnostic.SUBSET_MATCH),
                 (bool(best.tier_taxon_names), HostDiagnostic.AMBIGUOUS_SUBSET),
                 (best.identifier_disagreement, HostDiagnostic.IDENTIFIER_DISAGREEMENT),
                 (len(distinct_taxa) > 1, HostDiagnostic.ATTRIBUTE_DISAGREEMENT),
@@ -1124,11 +1131,10 @@ class HostStandardizer:
 
         return HostMatch(
             info=best.info,
-            match_quality_score=best.match_quality_score,
+            route=best.route,
             pair_index=best.pair_index,
             attribute=best.attribute,
             value=best.value,
-            match_tier=best.match_tier,
             tier_taxon_names=best.tier_taxon_names,
             identifier_disagreement=best.identifier_disagreement,
             diagnostics=diagnostics,

@@ -54,9 +54,8 @@ def test_publish_writes_the_five_release_files(
             "1.5",
             "2.5",
             "9606",
-            "0.9",
         ],
-        ["SAMN2", "NA", "NA", "", "", "", "", "", ""],
+        ["SAMN2", "NA", "NA", "", "", "", "", ""],
     ]
     (run_dir / "run.tsv").write_text(
         "\n".join("\t".join(record) for record in (columns, *rows)) + "\n",

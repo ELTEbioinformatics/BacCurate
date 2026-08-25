@@ -346,7 +346,7 @@ class _FinalRowAssembler:
                     lineage.common_names,
                     lineage.lineage_names,
                     lineage.lineage_taxids,
-                    final_row.host.match_quality_score,
+                    final_row.host.route,
                     "||".join(final_row.host.record_diagnostics),
                 )
         return values

@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from baccurate.standardization.host import HostDiagnostic, HostPolicy, HostStandardizer
+from baccurate.standardization.host import (
+    HostDiagnostic,
+    HostPolicy,
+    HostStandardizer,
+    MatchRoute,
+)
 from baccurate.standardization.host_lineage import HostLineageEnricher
 from baccurate.taxon_registry.registry import load_taxon_registry
 
@@ -124,21 +129,22 @@ def test_record_outcomes_preserve_standardized_overflow_and_missing_metadata(
     assert missing_metadata.diagnostics == (HostDiagnostic.UNMATCHED,)
 
 
-def test_exact_match_tiers_retain_their_match_quality_scores(
+def test_exact_matches_report_their_route_and_score(
     standardizer: HostStandardizer,
 ) -> None:
     scenarios = (
-        ("9606", "host_taxid", 9606, 1.0),
-        ("Homo sapiens", "host", 9606, 1.0),
-        ("Bos bovis", "host", 9913, 1.0),
-        ("Holstein", "host", 9913, 0.95),
-        ("domestic cattle", "host", 9913, 0.9),
-        ("swine", "host", 9823, 0.7),
+        ("9606", "host_taxid", 9606, MatchRoute.TAXID, 1.0),
+        ("Homo sapiens", "host", 9606, MatchRoute.SCIENTIFIC_NAME, 1.0),
+        ("Bos bovis", "host", 9913, MatchRoute.SYNONYM, 1.0),
+        ("Holstein", "host", 9913, MatchRoute.CURATED_TERM, 0.95),
+        ("domestic cattle", "host", 9913, MatchRoute.CURATED_COMMON_NAME, 0.9),
+        ("swine", "host", 9823, MatchRoute.BROAD_COMMON_NAME, 0.7),
     )
 
-    for value, attribute, expected_taxid, expected_score in scenarios:
+    for value, attribute, expected_taxid, expected_route, expected_score in scenarios:
         match = classify(standardizer, value, attribute)
         assert match.info.taxid == expected_taxid
+        assert match.route == expected_route
         assert match.match_quality_score == expected_score
         assert match.needs_review is False
 
@@ -147,22 +153,27 @@ def test_subset_and_taxonomic_rank_scenarios_retain_scores_and_review_decisions(
     standardizer: HostStandardizer,
 ) -> None:
     scenarios = (
-        ("Homo sapiens sample", 9606, 0.7, "multi-word", True),
-        ("elderly human hospitalised", 9606, 0.5, "single-word", True),
-        ("sample Canis lupus familaris", 9615, 0.7, "multi-word", True),
-        ("Gallus gallus", 9031, 1.0, "", False),
-        ("Gallus gallus gallus", 208526, 1.0, "", False),
+        ("Homo sapiens sample", 9606, 0.7, MatchRoute.SUBSET_MULTI_WORD, True),
+        ("elderly human hospitalised", 9606, 0.5, MatchRoute.SUBSET_SINGLE_WORD, True),
+        ("sample Canis lupus familaris", 9615, 0.7, MatchRoute.SUBSET_MULTI_WORD, True),
+        ("Gallus gallus", 9031, 1.0, MatchRoute.SCIENTIFIC_NAME, False),
+        ("Gallus gallus gallus", 208526, 1.0, MatchRoute.SCIENTIFIC_NAME, False),
     )
 
-    for value, expected_taxid, expected_score, expected_tier, needs_review in scenarios:
+    for value, expected_taxid, expected_score, expected_route, needs_review in scenarios:
         match = classify(standardizer, value)
         assert match.info.taxid == expected_taxid
         assert match.match_quality_score == expected_score
-        assert match.match_tier == expected_tier
+        assert match.route == expected_route
         assert match.needs_review is needs_review
 
     subset = classify(standardizer, "Homo sapiens sample")
     assert subset.diagnostics == (HostDiagnostic.SUBSET_MATCH,)
+
+    broad_common = classify(standardizer, "swine")
+    multi_word = classify(standardizer, "Homo sapiens sample")
+    assert broad_common.match_quality_score == multi_word.match_quality_score
+    assert broad_common.route != multi_word.route
 
 
 def test_normalization_collapses_host_surface_variants(standardizer: HostStandardizer) -> None:

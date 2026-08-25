@@ -54,7 +54,6 @@ SCALAR_TYPES = {
     "loc_latitude": "DOUBLE",
     "loc_longitude": "DOUBLE",
     "host_taxid": "INTEGER",
-    "host_match_quality_score": "DOUBLE",
 }
 
 
