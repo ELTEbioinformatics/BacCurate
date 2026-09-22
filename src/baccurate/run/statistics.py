@@ -8,7 +8,6 @@ from pathlib import Path
 from baccurate.run.location_review_worklist import LocationReviewWorklistSummary
 from baccurate.standardization.collection_date import (
     DateDiagnostic,
-    DateEvent,
     DatePrecision,
     DateStructure,
 )
@@ -37,7 +36,6 @@ class DateStatistics:
     processed: int
     standardized: int
     rejected: int
-    events: Mapping[DateEvent, int]
     structures: Mapping[DateStructure, int]
     precisions: Mapping[DatePrecision, int]
     date_diagnostics: Mapping[str, int]

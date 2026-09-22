@@ -35,10 +35,9 @@ from baccurate.run.statistics import (
 )
 from baccurate.standardization.collection_date import (
     DateDiagnostic,
-    DateEvent,
-    DateOutcome,
     DatePrecision,
     DateStructure,
+    RecordDates,
     RecordDateStandardizer,
 )
 from baccurate.standardization.host import (
@@ -119,7 +118,6 @@ class _MutableDateStatistics:
     processed: int = 0
     standardized: int = 0
     rejected: int = 0
-    events: Counter[DateEvent] = field(default_factory=Counter)
     structures: Counter[DateStructure] = field(default_factory=Counter)
     precisions: Counter[DatePrecision] = field(default_factory=Counter)
     date_diagnostics: Counter[str] = field(default_factory=Counter)
@@ -173,7 +171,7 @@ class _FinalRow:
     sylph_species: str
     bioproject: str
     sequence_accessions: tuple[str, ...]
-    date: DateOutcome | None
+    date: RecordDates | None
     location: LocationOutcome | LocationRejection | None
     isolation_source: IsolationSourceOutcome | None
     host: HostOutcome | None
@@ -223,7 +221,7 @@ class _FinalRowAssembler:
     def assemble(
         self,
         extracted_record: Mapping[str, str],
-        date: DateOutcome | None,
+        date: RecordDates | None,
         location: LocationOutcome | LocationRejection | None,
         isolation_source: IsolationSourceOutcome | None,
         host: HostOutcome | None,
@@ -266,17 +264,23 @@ class _FinalRowAssembler:
                     target_specifications.TARGET_SPECS[StandardizationTarget.DATE].output_columns
                 )
             else:
-                attributes = "||".join(pair.attribute for pair in final_row.date.supporting_pairs)
-                date_values = "||".join(pair.value for pair in final_row.date.supporting_pairs)
+                collection = final_row.date.collection
+                record = final_row.date.record
+                pairs = tuple(
+                    pair
+                    for outcome in (collection, record)
+                    if outcome is not None
+                    for pair in outcome.supporting_pairs
+                )
                 values += (
-                    attributes,
-                    date_values,
-                    final_row.date.bounds.start.isoformat(),
-                    final_row.date.bounds.end.isoformat(),
-                    final_row.date.event,
-                    final_row.date.precision,
-                    final_row.date.structure,
-                    "||".join(final_row.date.diagnostics),
+                    "||".join(pair.attribute for pair in pairs),
+                    "||".join(pair.value for pair in pairs),
+                    collection.bounds.start.isoformat() if collection else "",
+                    collection.bounds.end.isoformat() if collection else "",
+                    record.bounds.start.isoformat() if record else "",
+                    collection.precision if collection else "",
+                    collection.structure if collection else "",
+                    "||".join(collection.diagnostics) if collection else "",
                 )
         if StandardizationTarget.LOCATION in self._selected_targets:
             location = final_row.location or LocationRejection()
@@ -686,10 +690,11 @@ class DatasetBuilder:
                         stats.rejected += 1
                     else:
                         stats.standardized += 1
-                        stats.events[date_outcome.event] += 1
-                        stats.structures[date_outcome.structure] += 1
-                        stats.precisions[date_outcome.precision] += 1
-                        stats.date_diagnostics.update(date_outcome.diagnostics)
+                        collection = date_outcome.collection
+                        if collection is not None:
+                            stats.structures[collection.structure] += 1
+                            stats.precisions[collection.precision] += 1
+                            stats.date_diagnostics.update(collection.diagnostics)
 
                 location_outcome = None
                 location_result: LocationOutcome | LocationRejection | None = None
@@ -932,7 +937,6 @@ class DatasetBuilder:
                 processed=stats.processed,
                 standardized=stats.standardized,
                 rejected=stats.rejected,
-                events=dict(sorted(stats.events.items())),
                 structures=dict(sorted(stats.structures.items())),
                 precisions=dict(sorted(stats.precisions.items())),
                 date_diagnostics=dict(sorted(stats.date_diagnostics.items())),
@@ -944,7 +948,6 @@ class DatasetBuilder:
             processed=sum(stats.processed for stats in mutable_stats.values()),
             standardized=sum(stats.standardized for stats in mutable_stats.values()),
             rejected=sum(stats.rejected for stats in mutable_stats.values()),
-            events=_sum_counts(stats.events for stats in mutable_stats.values()),
             structures=_sum_counts(stats.structures for stats in mutable_stats.values()),
             precisions=_sum_counts(stats.precisions for stats in mutable_stats.values()),
             date_diagnostics=_sum_counts(

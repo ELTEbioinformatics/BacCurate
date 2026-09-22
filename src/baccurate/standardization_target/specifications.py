@@ -73,7 +73,7 @@ TARGET_SPECS: Mapping[StandardizationTarget, TargetSpec] = MappingProxyType(
                 "date_val_orig",
                 "date_start",
                 "date_end",
-                "date_event",
+                "date_record",
                 "date_precision",
                 "date_structure",
                 "date_diagnostics",

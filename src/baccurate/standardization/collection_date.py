@@ -21,11 +21,6 @@ from baccurate.standardization_target.specifications import (
 )
 
 
-class DateEvent(StrEnum):
-    SAMPLE_COLLECTION = "sample_collection"
-    FALLBACK = "fallback"
-
-
 class DateStructure(StrEnum):
     SINGLE_VALUE = "single_value"
     REPORTED_INTERVAL = "reported_interval"
@@ -65,7 +60,6 @@ class DateOutcome:
     """The chosen date and its supporting attribute-value pairs."""
 
     bounds: DateBounds
-    event: DateEvent
     structure: DateStructure
     precision: DatePrecision
     diagnostics: tuple[str, ...]
@@ -74,6 +68,12 @@ class DateOutcome:
     def __post_init__(self) -> None:
         if not self.supporting_pairs:
             raise ValueError("A date outcome requires at least one supporting attribute-value pair")
+
+
+@dataclass(frozen=True, slots=True)
+class RecordDates:
+    collection: DateOutcome | None
+    record: DateOutcome | None
 
 
 class RecordDateStandardizer:
@@ -85,7 +85,7 @@ class RecordDateStandardizer:
         self.notice_counts: Counter[str] = Counter()
         self.diagnostic_counts: Counter[DateDiagnostic] = Counter()
 
-    def standardize(self, extracted_record: Mapping[str, str]) -> DateOutcome | None:
+    def standardize(self, extracted_record: Mapping[str, str]) -> RecordDates | None:
         """Standardize the collection dates in one extracted metadata record."""
         accession = extracted_record.get("accession", "")
         attributes = split_pipe_separated(extracted_record.get("date_attr_orig", ""))
@@ -124,14 +124,17 @@ class RecordDateStandardizer:
                 parsed
             )
 
+        if not collection_dates and not fallback_dates:
+            self.diagnostic_counts[DateDiagnostic.NO_USABLE_DATE] += 1
+            return None
         if collection_dates:
             self.diagnostic_counts[DateDiagnostic.COLLECTION_DATE_SELECTION] += 1
-            return self._select_collection_date(collection_dates)
         if fallback_dates:
             self.diagnostic_counts[DateDiagnostic.FALLBACK_DATE_SELECTION] += 1
-            return self._select_fallback_date(fallback_dates)
-        self.diagnostic_counts[DateDiagnostic.NO_USABLE_DATE] += 1
-        return None
+        return RecordDates(
+            self._select_collection_date(collection_dates) if collection_dates else None,
+            self._select_fallback_date(fallback_dates) if fallback_dates else None,
+        )
 
     def _parse_date(
         self,
@@ -162,7 +165,6 @@ class RecordDateStandardizer:
         if len(parsed_dates) == 1:
             return DateOutcome(
                 first.bounds,
-                DateEvent.SAMPLE_COLLECTION,
                 first.structure,
                 first.precision,
                 first.diagnostics,
@@ -174,7 +176,6 @@ class RecordDateStandardizer:
             self.diagnostic_counts[DateDiagnostic.EQUIVALENT_DATE_COLLAPSE] += 1
             return DateOutcome(
                 first.bounds,
-                DateEvent.SAMPLE_COLLECTION,
                 DateStructure.SINGLE_VALUE,
                 least_precise_date_precision(parsed.precision for parsed in parsed_dates),
                 combine_date_diagnostics(parsed.diagnostics for parsed in parsed_dates),
@@ -190,7 +191,6 @@ class RecordDateStandardizer:
         self.diagnostic_counts[DateDiagnostic.CONFLICTING_DATE_COMBINATION] += 1
         return DateOutcome(
             bounds,
-            DateEvent.SAMPLE_COLLECTION,
             DateStructure.CONFLICT_RANGE,
             least_precise_date_precision(parsed.precision for parsed in parsed_dates),
             combine_date_diagnostics(parsed.diagnostics for parsed in parsed_dates),
@@ -203,7 +203,6 @@ class RecordDateStandardizer:
         contributors = [parsed for parsed in parsed_dates if parsed.bounds == oldest.bounds]
         return DateOutcome(
             oldest.bounds,
-            DateEvent.FALLBACK,
             _outcome_structure(contributors),
             least_precise_date_precision(parsed.precision for parsed in contributors),
             combine_date_diagnostics(parsed.diagnostics for parsed in contributors),

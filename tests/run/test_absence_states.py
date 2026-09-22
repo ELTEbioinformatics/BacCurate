@@ -63,7 +63,7 @@ DATE_COLUMNS = (
     "date_val_orig",
     "date_start",
     "date_end",
-    "date_event",
+    "date_record",
     "date_precision",
     "date_structure",
     "date_diagnostics",
@@ -344,29 +344,64 @@ def _minimal_host_components(tmp_path: Path) -> tuple[HostPolicy, Path]:
     )
 
 
-def test_published_fallback_date_projects_resolved_columns_and_equal_bounds_evidence(
+def test_published_dates_separate_the_collection_date_from_the_record_date(
     tmp_path: Path,
 ) -> None:
     built = _build_dataset(
         tmp_path,
         [
             _dated_record(
-                "FALLBACK_DATE",
+                "RECORD_DATE_ONLY",
                 date_attr_orig="submission_date||publication_date",
                 date_val_orig="2019||2019",
                 date_category="f||f",
-            )
+            ),
+            _dated_record("COLLECTION_DATE_ONLY"),
+            _dated_record(
+                "BOTH_DATES",
+                date_attr_orig="collection_date||submission_date",
+                date_val_orig="2020-01-02||2019",
+                date_category="c||f",
+            ),
+            _dated_record(
+                "NO_USABLE_DATE",
+                date_attr_orig="collection_date",
+                date_val_orig="circa 2019",
+                date_category="c",
+            ),
         ],
         (StandardizationTarget.DATE,),
     )
 
-    assert tuple(built.records[0][column] for column in DATE_COLUMNS) == (
+    published = {record["accession"]: record for record in built.records}
+    assert "NO_USABLE_DATE" not in published
+    assert tuple(published["RECORD_DATE_ONLY"][column] for column in DATE_COLUMNS) == (
         "submission_date||publication_date",
         "2019||2019",
+        "",
+        "",
         "2019-01-01",
-        "2019-12-31",
-        "fallback",
-        "year",
+        "",
+        "",
+        "",
+    )
+    assert tuple(published["COLLECTION_DATE_ONLY"][column] for column in DATE_COLUMNS) == (
+        "collection_date",
+        "2020-01-02",
+        "2020-01-02",
+        "2020-01-02",
+        "",
+        "day",
+        "single_value",
+        "",
+    )
+    assert tuple(published["BOTH_DATES"][column] for column in DATE_COLUMNS) == (
+        "collection_date||submission_date",
+        "2020-01-02||2019",
+        "2020-01-02",
+        "2020-01-02",
+        "2019-01-01",
+        "day",
         "single_value",
         "",
     )

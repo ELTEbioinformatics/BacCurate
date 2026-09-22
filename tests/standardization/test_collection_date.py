@@ -9,10 +9,10 @@ import pytest
 from baccurate.standardization.collection_date import (
     DateBounds,
     DateDiagnostic,
-    DateEvent,
     DateOutcome,
     DatePrecision,
     DateStructure,
+    RecordDates,
     RecordDateStandardizer,
 )
 from baccurate.standardization.supporting_attribute_value_pair import SupportingAttributeValuePair
@@ -23,7 +23,7 @@ def standardizer() -> RecordDateStandardizer:
     return RecordDateStandardizer(metadata_reference_date=date(2026, 1, 1))
 
 
-def standardize_record(
+def standardize_dates(
     standardizer: RecordDateStandardizer,
     *,
     accession: str = "TEST",
@@ -31,7 +31,7 @@ def standardize_record(
     values: str,
     categories: str = "c",
     biosample_last_update: str = "",
-) -> DateOutcome | None:
+) -> RecordDates | None:
     return standardizer.standardize(
         {
             "accession": accession,
@@ -41,6 +41,14 @@ def standardize_record(
             "biosample_last_update": biosample_last_update,
         }
     )
+
+
+def standardize_record(
+    standardizer: RecordDateStandardizer,
+    **record: str,
+) -> DateOutcome | None:
+    dates = standardize_dates(standardizer, **record)
+    return None if dates is None else dates.collection
 
 
 def standardize_date_value(
@@ -109,7 +117,6 @@ def test_record_standardization_returns_typed_collection_date_outcome(standardiz
 
     assert outcome == DateOutcome(
         bounds=DateBounds(date(2020, 2, 1), date(2020, 2, 29)),
-        event=DateEvent.SAMPLE_COLLECTION,
         structure=DateStructure.SINGLE_VALUE,
         precision=DatePrecision.MONTH,
         diagnostics=(),
@@ -130,7 +137,6 @@ def test_record_standardization_prefers_valid_collection_date_over_all_fallback_
 
     assert outcome == DateOutcome(
         bounds=DateBounds(date(2020, 1, 1), date(2020, 12, 31)),
-        event=DateEvent.SAMPLE_COLLECTION,
         structure=DateStructure.SINGLE_VALUE,
         precision=DatePrecision.YEAR,
         diagnostics=(),
@@ -141,23 +147,39 @@ def test_record_standardization_prefers_valid_collection_date_over_all_fallback_
 def test_record_standardization_uses_oldest_fallback_date_when_collection_dates_are_rejected(
     standardizer,
 ):
-    outcome = standardize_record(
+    outcome = standardize_dates(
         standardizer,
         accession="SAMN00000003",
         attributes="collection_date||submission_date||publication_date",
         values="2922-08-23||2021-06-15||2019",
         categories="c||f||f",
-    )
+    ).record
 
     assert outcome == DateOutcome(
         bounds=DateBounds(date(2019, 1, 1), date(2019, 12, 31)),
-        event=DateEvent.FALLBACK,
         structure=DateStructure.SINGLE_VALUE,
         precision=DatePrecision.YEAR,
         diagnostics=(),
         supporting_pairs=(SupportingAttributeValuePair("publication_date", "2019"),),
     )
     assert standardizer.diagnostic_counts == {DateDiagnostic.FALLBACK_DATE_SELECTION: 1}
+
+
+def test_collection_and_record_dates_are_both_returned(standardizer):
+    dates = standardize_dates(
+        standardizer,
+        accession="SAMN_BOTH_DATES",
+        attributes="collection_date||submission_date",
+        values="2020-02-03||2021-06-15",
+        categories="c||f",
+    )
+
+    assert dates.collection.bounds == DateBounds(date(2020, 2, 3), date(2020, 2, 3))
+    assert dates.record.bounds.start == date(2021, 6, 15)
+    assert standardizer.diagnostic_counts == {
+        DateDiagnostic.COLLECTION_DATE_SELECTION: 1,
+        DateDiagnostic.FALLBACK_DATE_SELECTION: 1,
+    }
 
 
 # =============================================================================
@@ -185,7 +207,6 @@ def test_conflicting_collection_dates_preserve_and_deduplicate_supporting_pairs(
 
     assert outcome == DateOutcome(
         bounds=DateBounds(date(1993, 1, 1), date(2009, 12, 31)),
-        event=DateEvent.SAMPLE_COLLECTION,
         structure=DateStructure.CONFLICT_RANGE,
         precision=DatePrecision.YEAR,
         diagnostics=(),
@@ -216,7 +237,6 @@ def test_equivalent_collection_date_bounds_keep_all_distinct_supporting_pairs(
 
     assert outcome == DateOutcome(
         bounds=DateBounds(date(2019, 3, 4), date(2019, 3, 4)),
-        event=DateEvent.SAMPLE_COLLECTION,
         structure=DateStructure.SINGLE_VALUE,
         precision=DatePrecision.DAY,
         diagnostics=("ambiguous_numeric_assumed_day_first",),
@@ -277,7 +297,6 @@ def test_explicit_interval_preserves_record_selection_and_supporting_pair(standa
 
     assert outcome == DateOutcome(
         bounds=DateBounds(date(2016, 11, 1), date(2017, 5, 29)),
-        event=DateEvent.SAMPLE_COLLECTION,
         structure=DateStructure.REPORTED_INTERVAL,
         precision=DatePrecision.MONTH,
         diagnostics=(),
@@ -402,13 +421,13 @@ def test_collection_date_ignores_soft_limit_before_the_claim():
 def test_fallback_date_does_not_use_biosample_last_update_soft_limit():
     standardizer = RecordDateStandardizer(metadata_reference_date=date(2026, 7, 9))
 
-    outcome = standardize_record(
+    outcome = standardize_dates(
         standardizer,
         attributes="submission_date",
         values="2026",
         categories="f",
         biosample_last_update="2026-02-28T12:34:56",
-    )
+    ).record
 
     assert outcome.bounds == DateBounds(date(2026, 1, 1), date(2026, 7, 9))
     assert outcome.diagnostics == ("reference_date_limit",)
@@ -609,7 +628,6 @@ def test_ambiguous_numeric_date_keeps_day_first_outcome_and_marks_assumption(sta
 
     assert outcome == DateOutcome(
         bounds=DateBounds(date(2019, 3, 4), date(2019, 3, 4)),
-        event=DateEvent.SAMPLE_COLLECTION,
         structure=DateStructure.SINGLE_VALUE,
         precision=DatePrecision.DAY,
         diagnostics=("ambiguous_numeric_assumed_day_first",),
