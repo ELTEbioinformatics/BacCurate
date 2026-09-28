@@ -166,7 +166,7 @@ wheels = [
 
 [[package]]
 name = "baccurate"
-version = "1.0.0"
+version = "1.0.0rc2"
 source = { editable = "." }
 dependencies = [
     { name = "country-converter" },
