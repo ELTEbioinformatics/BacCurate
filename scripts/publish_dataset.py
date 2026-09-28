@@ -54,6 +54,7 @@ LIST_COLUMNS = frozenset(
 SCALAR_TYPES = {
     "date_start": "DATE",
     "date_end": "DATE",
+    "date_record": "DATE",
     "loc_latitude": "DOUBLE",
     "loc_longitude": "DOUBLE",
     "host_taxid": "INTEGER",
