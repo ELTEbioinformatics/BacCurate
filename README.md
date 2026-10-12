@@ -26,9 +26,9 @@ _ESKAPEE_ pathogens:
 1. The NCBI BioSample XML dump is parsed and the records of the registered taxa are indexed.
 2. The attribute-value pairs of interest from each record are selected.
 3. Values are resolved against the reference vocabularies in [`data/reference/`](data/reference):
-   - **Isolation source**: Large Language Model (LLM) assisted mapping to a purpose-built ontology
-     of 103 terms (`ontology/terms.tsv`), with [SSSOM](https://mapping-commons.github.io/sssom/)
-     mappings to external ontologies.
+   - **Isolation source**: Large Language Model (LLM) assisted mapping to a purpose-built controlled
+     vocabulary of 153 terms (`ontology/terms.tsv`), with
+     [SSSOM](https://mapping-commons.github.io/sssom/) mappings to external ontologies.
    - **Host organism**: mapped to [NCBI taxonomy](https://www.ncbi.nlm.nih.gov/taxonomy)
      (`taxonomy/`) taxids and scientific names.
    - **Geographic location**: mapped to the
