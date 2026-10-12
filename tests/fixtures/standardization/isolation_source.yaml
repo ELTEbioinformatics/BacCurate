@@ -1,6 +1,62 @@
 schema_version: 3
 prompt_version: fixture-v3
 ontology_directory: tests/fixtures/standardization/ontology
+
+facets:
+  source_type:
+    output_column: iso_source_type
+    render_order: 1
+    classifier_guidance: Preserve every independently supported source type.
+  body_product:
+    output_column: iso_body_product
+    render_order: 2
+    classifier_guidance:
+      Use this facet only for substances. Use body_site for an organ or anatomical region.
+  body_site:
+    output_column: iso_body_site
+    render_order: 3
+    classifier_guidance: Set this facet only when the metadata names the anatomical location.
+  lesion:
+    output_column: iso_lesion
+    render_order: 4
+    classifier_guidance: Use this facet for the sampled structure, not the host diagnosis.
+  environmental_material:
+    output_column: iso_environmental_material
+    render_order: 5
+    classifier_guidance: Use the material that was sampled, not its location.
+  facility:
+    output_column: iso_facility
+    render_order: 6
+    classifier_guidance: Set this facet for the collection setting, never for what was sampled.
+  sampled_object:
+    output_column: iso_sampled_object
+    render_order: 7
+    classifier_guidance:
+      Set this facet when the object itself was sampled, not for the collection device.
+  food_type:
+    output_column: iso_food_type
+    render_order: 8
+    classifier_guidance: Use the sampled food or feed.
+  host_disease:
+    output_column: iso_host_disease
+    render_order: 9
+    classifier_guidance: Use the diagnosis or the health state of the host.
+
+host_recovery_term_ids:
+  - BACC:0000001
+  - BACC:0000002
+  - BACC:0000003
+  - BACC:0000095
+  - BACC:0000097
+direct_match_values:
+  human: BACC:0000122
+  inpatient: [BACC:0000122, BACC:0000079]
+  rectal swab: BACC:0000041
+non_source_values:
+  - no host
+  - plasmid DNA
+laboratory_strain_names:
+  Escherichia coli: [K-12, MG1655, DH5, DH5-alpha]
 system_prompt: |
   Classify isolation-source evidence using this ontology:
   {ontology_tree}

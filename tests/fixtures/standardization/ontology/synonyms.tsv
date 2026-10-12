@@ -1,0 +1,17 @@
+term_id	synonym	synonym_type
+BACC:0000001	clinical material	narrow
+BACC:0000001	clinical sample	narrow
+BACC:0000001	clinical specimen	narrow
+BACC:0000001	human-associated	narrow
+BACC:0000004	environment	exact
+BACC:0000007	food	narrow
+BACC:0000008	lab strain	exact
+BACC:0000009	bodily fluid	exact
+BACC:0000010	venous blood	narrow
+BACC:0000025	faeces	exact
+BACC:0000025	stool	exact
+BACC:0000035	gut	broad
+BACC:0000035	human gut	narrow
+BACC:0000065	rhizosphere	related
+BACC:0000097	chicken meat	narrow
+BACC:0000097	meat	exact

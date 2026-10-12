@@ -225,6 +225,22 @@ targets:
       care_setting:
         - specimen submitter
         - location type
+      host_disease:
+        - host disease
+        - host disease stage
+        - host disease status
+        - host health
+        - host health state
+        - health state
+        - health status
+        - disease
+        - diagnosis
+        - clinical diagnosis
+        - clinical manifestation
+        - patient disease
+        - patient clinicalinformation
+        - infection or colonization
+        - healthy or ill chicken
       environmental_origin:
         - env_broad_scale
         - env_local_scale

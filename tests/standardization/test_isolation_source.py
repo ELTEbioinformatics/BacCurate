@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import re
 import shutil
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -31,10 +33,22 @@ from baccurate.standardization.isolation_source import (
     SelectedTerm,
     SQLiteCache,
 )
+from baccurate.standardization.supporting_attribute_value_pair import SupportingAttributeValuePair
 
 ROOT = Path(__file__).parents[2]
 CONFIG_PATH = ROOT / "config" / "isolation_source.yaml"
 FIXTURE_ROOT = ROOT / "tests" / "fixtures" / "standardization"
+PRODUCTION_VOCABULARY = {
+    "ontology_directory": (ROOT / "data" / "reference" / "ontology").as_posix(),
+    **{
+        key: yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))[key]
+        for key in (
+            "host_recovery_term_ids",
+            "direct_match_values",
+            "disease_body_terms",
+        )
+    },
+}
 
 
 # Stable term identifiers used across the tests.
@@ -44,12 +58,14 @@ BLOOD = "BACC:0000010"
 BODY_FLUID = "BACC:0000009"
 DIGESTIVE_TRACT = "BACC:0000035"
 INTESTINE = "BACC:0000039"
+LIVER = "BACC:0000057"
 WOUND = "BACC:0000061"
 SKIN = "BACC:0000060"
 RHIZOSPHERE = "BACC:0000065"
 SOIL = "BACC:0000064"
 HOST_ASSOCIATED = "BACC:0000001"
 ANIMAL_HOST = "BACC:0000002"
+HUMAN_HOST = "BACC:0000122"
 PLANT_HOST = "BACC:0000003"
 ENVIRONMENTAL = "BACC:0000004"
 FOOD_OR_FEED = "BACC:0000007"
@@ -62,7 +78,11 @@ SINK = "BACC:0000088"
 ANIMAL_FOOD_PRODUCT = "BACC:0000095"
 MEAT_PRODUCT = "BACC:0000097"
 SOFT_TISSUE = "BACC:0000103"
+SKIN_AND_SOFT_TISSUE = "BACC:0000117"
 HUMAN_MILK = "BACC:0000105"
+DISEASE = "BACC:0000128"
+CYSTIC_FIBROSIS = "BACC:0000149"
+URINARY_TRACT_INFECTION = "BACC:0000134"
 
 FACET_BY_LABEL = {
     "host-associated": "source_type",
@@ -91,6 +111,7 @@ def _classifier_answer(
     facility: list[str] | None = None,
     sampled_object: list[str] | None = None,
     food_type: list[str] | None = None,
+    host_disease: list[str] | None = None,
 ) -> dict[str, object]:
     return {
         "source_type": [source_type] if isinstance(source_type, str) else source_type or [],
@@ -101,6 +122,7 @@ def _classifier_answer(
         "facility": facility or [],
         "sampled_object": sampled_object or [],
         "food_type": food_type or [],
+        "host_disease": host_disease or [],
         "reasoning": reasoning,
     }
 
@@ -144,6 +166,7 @@ class FakeClient:
             "facility": [],
             "sampled_object": [],
             "food_type": [],
+            "host_disease": [],
         }
         for term in terms:
             facet = FACET_BY_LABEL[term]
@@ -171,6 +194,7 @@ class FakeClient:
         facility: list[str] | None = None,
         sampled_object: list[str] | None = None,
         food_type: list[str] | None = None,
+        host_disease: list[str] | None = None,
     ) -> None:
         self.behavior = _classifier_answer(
             reasoning=reasoning,
@@ -182,6 +206,7 @@ class FakeClient:
             facility=facility,
             sampled_object=sampled_object,
             food_type=food_type,
+            host_disease=host_disease,
         )
 
     def close(self) -> None:
@@ -278,7 +303,6 @@ def _classify_fixture_record(
             "feces",
             (
                 SelectedTerm(HOST_ASSOCIATED, "source_type", "host-associated"),
-                SelectedTerm(ANIMAL_HOST, "source_type", "animal host"),
                 SelectedTerm(FECES, "body_product", "feces"),
             ),
         ),
@@ -286,17 +310,23 @@ def _classify_fixture_record(
             "rectal swab",
             (
                 SelectedTerm(HOST_ASSOCIATED, "source_type", "host-associated"),
-                SelectedTerm(ANIMAL_HOST, "source_type", "animal host"),
                 SelectedTerm(DIGESTIVE_TRACT, "body_site", "digestive tract"),
                 SelectedTerm(INTESTINE, "body_site", "intestine"),
                 SelectedTerm(RECTUM, "body_site", "rectum"),
             ),
         ),
         (
+            "inpatient",
+            (
+                SelectedTerm(HOST_ASSOCIATED, "source_type", "host-associated"),
+                SelectedTerm(HUMAN_HOST, "source_type", "human host"),
+                SelectedTerm(HEALTHCARE_FACILITY, "facility", "healthcare facility"),
+            ),
+        ),
+        (
             "ENVO:02000020",
             (
                 SelectedTerm(HOST_ASSOCIATED, "source_type", "host-associated"),
-                SelectedTerm(ANIMAL_HOST, "source_type", "animal host"),
                 SelectedTerm(BODY_FLUID, "body_product", "body fluid"),
                 SelectedTerm(BLOOD, "body_product", "blood"),
             ),
@@ -346,7 +376,7 @@ def test_assigned_term_flag_decides_host_recovery_eligibility_without_classifier
     policy = IsolationSourcePromptPolicy.load(
         _isolation_source_config(
             tmp_path,
-            overrides={"ontology_directory": (ROOT / "data" / "reference" / "ontology").as_posix()},
+            overrides=PRODUCTION_VOCABULARY,
         )
     )
 
@@ -357,30 +387,398 @@ def test_assigned_term_flag_decides_host_recovery_eligibility_without_classifier
     assert result.llm_calls == 0
 
 
-def test_host_recovery_eligibility_follows_the_flag_instead_of_term_identity(
+PHARYNX_BODY_SITES = {"respiratory system", "upper respiratory tract", "pharynx"}
+
+
+@pytest.mark.parametrize(
+    ("submitted_value", "expected_body_sites"),
+    [
+        ("leg", {"limb", "lower limb"}),
+        ("Knee", {"limb", "lower limb"}),
+        ("Left-Popliteal-Fossa", {"limb", "lower limb"}),
+        ("foot", {"limb", "lower limb"}),
+        ("arm", {"limb", "upper limb"}),
+        ("hand swab", {"limb", "upper limb"}),
+        ("Groin", {"abdomen", "inguinal region"}),
+        ("groin swab", {"abdomen", "inguinal region"}),
+        ("Axilla", {"axilla"}),
+        ("perineal swab", {"perineum"}),
+        ("abdominal", {"abdomen"}),
+        ("spleen", {"spleen"}),
+        ("gall bladder", {"digestive system", "gallbladder"}),
+        ("UBERON:0008337", {"abdomen", "inguinal region"}),
+        ("stool", {"digestive system", "digestive tract"}),
+        ("throat", {*PHARYNX_BODY_SITES, "digestive system", "digestive tract"}),
+        ("pharynx", {*PHARYNX_BODY_SITES, "digestive system", "digestive tract"}),
+        ("nasopharyngeal swab", {*PHARYNX_BODY_SITES, "nasopharynx"}),
+        (
+            "oropharyngeal swab",
+            {*PHARYNX_BODY_SITES, "oropharynx", "digestive system", "digestive tract"},
+        ),
+        ("skin", {"skin and soft tissue", "skin"}),
+        ("Soft tissue", {"skin and soft tissue", "soft tissue"}),
+        ("skeletal muscle", {"skin and soft tissue", "soft tissue", "muscle tissue"}),
+        ("SSTI", {"skin and soft tissue"}),
+        ("skin and soft tissue infection", {"skin and soft tissue"}),
+        ("Skin/Soft Tissue Infection", {"skin and soft tissue"}),
+        ("Skin or soft tissue", {"skin and soft tissue"}),
+    ],
+)
+def test_anatomical_input_resolves_without_classifier(
     tmp_path: Path,
+    submitted_value: str,
+    expected_body_sites: set[str],
 ) -> None:
-    ontology_directory = tmp_path / "ontology"
-    shutil.copytree(FIXTURE_ROOT / "ontology", ontology_directory)
-    terms_path = ontology_directory / "terms.tsv"
-    terms_text = terms_path.read_text(encoding="utf-8")
-    terms_text = terms_text.replace(
-        "BACC:0000001\thost-associated\tsource_type\t\t"
-        "human-associated;clinical sample;clinical material;clinical specimen;clinical isolate\t\t"
-        "Host evidence\ttrue",
-        "BACC:0000001\thost-associated\tsource_type\t\t"
-        "human-associated;clinical sample;clinical material;clinical specimen;clinical isolate\t\t"
-        "Host evidence\tfalse",
-    )
-    terms_text = terms_text.replace(
-        "BACC:0000004\tenvironmental\tsource_type\t\tenvironment\t\tEnvironmental evidence\tfalse",
-        "BACC:0000004\tenvironmental\tsource_type\t\tenvironment\t\tEnvironmental evidence\ttrue",
-    )
-    terms_path.write_text(terms_text, encoding="utf-8")
     policy = IsolationSourcePromptPolicy.load(
         _isolation_source_config(
             tmp_path,
-            overrides={"ontology_directory": ontology_directory.as_posix()},
+            overrides=PRODUCTION_VOCABULARY,
+        )
+    )
+
+    result = _classify_fixture_record(policy, tmp_path, values=submitted_value)
+
+    assert {
+        term.label for term in result.selected_terms if term.facet == "body_site"
+    } == expected_body_sites
+    assert result.llm_calls == 0
+
+
+@pytest.mark.parametrize(
+    ("label", "implies_environmental"),
+    [("catheter", False), ("medical device", False), ("equipment", True), ("sink", True)],
+)
+def test_only_a_sampled_object_outside_a_patient_implies_environmental(
+    tmp_path: Path, label: str, implies_environmental: bool
+) -> None:
+    ontology = _repository_policy(tmp_path).ontology
+    term_id = next(term_id for term_id, term in ontology.terms.items() if term.label == label)
+
+    assert (ENVIRONMENTAL in ontology.derive({term_id})) == implies_environmental
+
+
+@pytest.mark.parametrize(
+    ("submitted_value", "expected_labels"),
+    [
+        ("catheter tip", {"inanimate object", "medical device", "catheter"}),
+        (
+            "urine from catheter",
+            {"host-associated", "body fluid", "urine", "genitourinary system", "urinary system"},
+        ),
+    ],
+)
+def test_catheter_specimen_resolves_without_a_model_call(
+    tmp_path: Path, submitted_value: str, expected_labels: set[str]
+) -> None:
+    result = _classify_fixture_record(
+        _repository_policy(tmp_path), tmp_path, values=submitted_value
+    )
+
+    assert {term.label for term in result.selected_terms} == expected_labels
+    assert result.llm_calls == 0
+
+
+def test_derive_of_every_term_holds_its_ancestors_and_relation_objects_as_production_does(
+    tmp_path: Path,
+) -> None:
+    policy = _repository_policy(tmp_path)
+    ontology = policy.ontology
+
+    for term_id, term in ontology.terms.items():
+        if term.facet == "host_disease":
+            continue
+        ancestors = set()
+        parent_id = term.parent_id
+        while parent_id is not None:
+            ancestors.add(parent_id)
+            parent_id = ontology.terms[parent_id].parent_id
+        relation_objects = {
+            relation.object_id for relation in ontology.relations if relation.subject_id == term_id
+        }
+        derived = ontology.derive({term_id})
+        result = _classify_fixture_record(policy, tmp_path, values=term.label)
+
+        assert {term_id, *ancestors, *relation_objects} <= derived, term.label
+        assert {selected.term_id for selected in result.selected_terms} == derived, term.label
+
+
+@pytest.mark.parametrize(
+    ("label", "expected_labels", "expected_source_types"),
+    [
+        (
+            "pharynx",
+            {
+                "respiratory system",
+                "upper respiratory tract",
+                "pharynx",
+                "digestive system",
+                "digestive tract",
+            },
+            set(),
+        ),
+        (
+            "nasopharynx",
+            {"respiratory system", "upper respiratory tract", "pharynx", "nasopharynx"},
+            set(),
+        ),
+        (
+            "sputum",
+            {"respiratory secretion", "sputum", "respiratory system", "lower respiratory tract"},
+            set(),
+        ),
+        (
+            "bronchoalveolar lavage fluid",
+            {
+                "bronchoalveolar lavage fluid",
+                "respiratory secretion",
+                "respiratory system",
+                "lower respiratory tract",
+                "lung",
+            },
+            set(),
+        ),
+        ("abscess", {"abscess", "body fluid", "pus"}, set()),
+        ("rhizosphere soil", {"soil", "rhizosphere soil"}, {"plant host", "host-associated"}),
+    ],
+)
+def test_term_derivation_gives_the_accepted_final_terms(
+    tmp_path: Path,
+    label: str,
+    expected_labels: set[str],
+    expected_source_types: set[str],
+) -> None:
+    result = _classify_fixture_record(_repository_policy(tmp_path), tmp_path, values=label)
+
+    assert {
+        term.label for term in result.selected_terms if term.facet != "source_type"
+    } == expected_labels
+    assert expected_source_types <= {
+        term.label for term in result.selected_terms if term.facet == "source_type"
+    }
+    assert result.llm_calls == 0
+
+
+def _repository_policy(tmp_path: Path) -> IsolationSourcePromptPolicy:
+    return IsolationSourcePromptPolicy.load(
+        _isolation_source_config(
+            tmp_path,
+            overrides=PRODUCTION_VOCABULARY,
+        )
+    )
+
+
+DIGESTIVE_TRACT_SITES = {"digestive system", "digestive tract"}
+URINARY_SITES = {"genitourinary system", "urinary system"}
+
+
+@pytest.mark.parametrize(
+    ("submitted_value", "expected_labels"),
+    [
+        ("rectal swab", {*DIGESTIVE_TRACT_SITES, "intestine", "rectum"}),
+        ("gut contents", {"digestive tract content", *DIGESTIVE_TRACT_SITES}),
+        *[
+            (value, {"digestive tract content", *DIGESTIVE_TRACT_SITES, "intestine", "caecum"})
+            for value in ("caecal contents", "cecal content")
+        ],
+        (
+            "intestinal contents",
+            {"digestive tract content", *DIGESTIVE_TRACT_SITES, "intestine"},
+        ),
+        ("animal-swine-sow (cecal)", {*DIGESTIVE_TRACT_SITES, "intestine", "caecum"}),
+        ("perianal swab", {"perineum"}),
+        ("fecal swab", {"feces", *DIGESTIVE_TRACT_SITES}),
+        *[
+            (
+                value,
+                {
+                    "respiratory secretion",
+                    "tracheal aspirate",
+                    "respiratory system",
+                    "lower respiratory tract",
+                    "trachea",
+                },
+            )
+            for value in ("tracheal aspirate", "endotracheal aspirate")
+        ],
+        ("drainage", {"body fluid", "drainage fluid"}),
+        ("drainage fluid", {"body fluid", "drainage fluid"}),
+        ("Cyst", {"cyst"}),
+        ("urinary", URINARY_SITES),
+        ("urinary tract", URINARY_SITES),
+        *[
+            (value, {"body fluid", "urine", *URINARY_SITES})
+            for value in (
+                "URINE_CLEAN CATCH/VOIDED",
+                "Urine, Clean Catch",
+                "void urine",
+                "midstream urine",
+            )
+        ],
+    ],
+)
+def test_product_and_lesion_input_resolves_without_classifier(
+    tmp_path: Path,
+    submitted_value: str,
+    expected_labels: set[str],
+) -> None:
+    result = _classify_fixture_record(
+        _repository_policy(tmp_path), tmp_path, values=submitted_value
+    )
+
+    assert {
+        term.label for term in result.selected_terms if term.facet != "source_type"
+    } == expected_labels
+    assert result.llm_calls == 0
+
+
+@pytest.mark.parametrize(
+    "submitted_value",
+    ["drain", "clean catch"],
+)
+def test_input_that_needs_a_site_or_context_reaches_classifier(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    submitted_value: str,
+) -> None:
+    fake = FakeClient()
+    fake.respond_with_facets()
+
+    result = _classify_fixture_record(
+        _repository_policy(tmp_path),
+        tmp_path,
+        values=submitted_value,
+        fake=fake,
+        monkeypatch=monkeypatch,
+    )
+
+    assert result.llm_calls == 1
+
+
+@pytest.mark.parametrize(
+    ("submitted_value", "model_labels", "expected_labels"),
+    [
+        (
+            "caecal contents",
+            ["digestive tract content", "caecum"],
+            {"digestive tract content", *DIGESTIVE_TRACT_SITES, "intestine", "caecum"},
+        ),
+        (
+            "intestinal contents",
+            ["digestive tract content", "intestine"],
+            {"digestive tract content", *DIGESTIVE_TRACT_SITES, "intestine"},
+        ),
+        (
+            "rectum contents",
+            ["digestive tract content", "rectum"],
+            {"digestive tract content", *DIGESTIVE_TRACT_SITES, "intestine", "rectum"},
+        ),
+        (
+            "wound drainage",
+            ["drainage fluid", "wound"],
+            {"body fluid", "drainage fluid", "wound"},
+        ),
+        (
+            "liver abscess drainage fluid",
+            ["liver", "abscess"],
+            {"body fluid", "pus", "digestive system", "liver", "abscess"},
+        ),
+        ("cyst fluid", ["cyst", "body fluid"], {"body fluid", "cyst"}),
+        (
+            "cystocentesis urine sample",
+            ["urine", "lower urinary tract"],
+            {"body fluid", "urine", *URINARY_SITES, "lower urinary tract"},
+        ),
+    ],
+)
+def test_model_answer_labels_derive_the_same_terms_as_derive(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    submitted_value: str,
+    model_labels: list[str],
+    expected_labels: set[str],
+) -> None:
+    policy = _repository_policy(tmp_path)
+    terms_by_label = {term.label: term for term in policy.ontology.terms.values()}
+    answer: dict[str, list[str]] = {}
+    for label in model_labels:
+        answer.setdefault(terms_by_label[label].facet, []).append(label)
+    fake = FakeClient()
+    fake.respond_with_facets(**answer)
+
+    result = _classify_fixture_record(
+        policy, tmp_path, values=submitted_value, fake=fake, monkeypatch=monkeypatch
+    )
+
+    selected = [term for term in result.selected_terms if term.facet != "source_type"]
+    explicit_ids = {terms_by_label[label].term_id for label in model_labels}
+    assert {term.label for term in selected} == expected_labels
+    assert {term.term_id for term in result.selected_terms} == policy.ontology.derive(explicit_ids)
+
+
+def test_configured_host_recovery_term_is_eligible_after_a_direct_match(tmp_path: Path) -> None:
+    policy = _repository_policy(tmp_path)
+
+    for term_id in sorted(policy.host_recovery_term_ids):
+        result = _classify_fixture_record(
+            policy, tmp_path, values=policy.ontology.terms[term_id].label
+        )
+
+        assert result.llm_calls == 0, term_id
+        assert result.host_recovery_eligible is True, term_id
+
+
+def test_each_label_synonym_and_direct_match_value_resolves_to_its_term(tmp_path: Path) -> None:
+    policy = _repository_policy(tmp_path)
+    names = [
+        *(
+            (name, term.term_id)
+            for term in policy.ontology.terms.values()
+            for name in (
+                term.label,
+                *(synonym.text for synonym in term.synonyms),
+            )
+        ),
+        *(
+            (value, term_id)
+            for value, term_ids in policy.direct_match_values.items()
+            for term_id in term_ids
+        ),
+    ]
+    standardizer = IsolationSourceStandardizer(policy, client=None)
+    try:
+        for name, term_id in names:
+            result = standardizer.standardize(
+                {"accession": "DIRECT", "iso_attr_orig": "isolation_source", "iso_val_orig": name}
+            )
+
+            assert isinstance(result, IsolationSourceOutcome), name
+            assert result.llm_calls == 0, name
+            assert term_id in {term.term_id for term in result.selected_terms}, name
+    finally:
+        standardizer.close()
+
+
+@pytest.mark.parametrize("value", ["cell culture", "Nickels Lab"])
+def test_cell_culture_and_a_laboratory_name_go_to_the_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    fake = FakeClient()
+    fake.respond_with_facets()
+
+    result = _classify_fixture_record(
+        _repository_policy(tmp_path), tmp_path, values=value, fake=fake, monkeypatch=monkeypatch
+    )
+
+    assert result.llm_calls == 1
+
+
+def test_host_recovery_eligibility_follows_the_configuration_instead_of_term_identity(
+    tmp_path: Path,
+) -> None:
+    policy = IsolationSourcePromptPolicy.load(
+        _isolation_source_config(
+            tmp_path,
+            overrides={"host_recovery_term_ids": [ENVIRONMENTAL]},
         )
     )
 
@@ -406,7 +804,7 @@ def test_required_plant_host_term_must_descend_from_host_associated(
     )
     with pytest.raises(
         PolicyConfigurationError,
-        match=r"BACC:0000003.*must descend from.*BACC:0000001",
+        match=r"BACC:0000003.*to descend from.*BACC:0000001",
     ):
         IsolationSourcePromptPolicy.load(
             _isolation_source_config(
@@ -608,14 +1006,56 @@ def test_repository_ontology_directory_publishes_opaque_term_identifiers(tmp_pat
 
     assert result.selected_terms == (
         SelectedTerm(HOST_ASSOCIATED, "source_type", "host-associated"),
-        SelectedTerm(ANIMAL_HOST, "source_type", "animal host"),
         SelectedTerm(FECES, "body_product", "feces"),
+        SelectedTerm("BACC:0000113", "body_site", "digestive system"),
         SelectedTerm(DIGESTIVE_TRACT, "body_site", "digestive tract"),
     )
     assert result.evidence_level is IsolationSourceEvidenceLevel.SAMPLE
     assert result.exact_matches == 1
     assert result.llm_calls == 0
     assert result.diagnostics == (IsolationSourceDiagnostic.EXACT_MATCH,)
+
+
+def test_obsolete_identifier_resolves_like_its_replacements(tmp_path: Path) -> None:
+    policy = replace(
+        IsolationSourcePromptPolicy.load(CONFIG_PATH),
+        cache_db_path=tmp_path / "obsolete-cache.db",
+    )
+
+    for obsolete in policy.ontology.obsolete_terms.values():
+        if not obsolete.replaced_by:
+            continue
+        replacements = _classify_fixture_record(
+            policy,
+            tmp_path,
+            values="||".join(obsolete.replaced_by),
+            attributes="||".join(["isolation_source"] * len(obsolete.replaced_by)),
+        )
+        resolved = _classify_fixture_record(policy, tmp_path, values=obsolete.term_id)
+
+        assert resolved.llm_calls == 0, obsolete.term_id
+        assert resolved.selected_terms == replacements.selected_terms, obsolete.term_id
+
+
+def test_obsolete_caecal_content_resolves_to_content_and_site(tmp_path: Path) -> None:
+    policy = replace(
+        IsolationSourcePromptPolicy.load(CONFIG_PATH),
+        cache_db_path=tmp_path / "caecal-content-cache.db",
+    )
+
+    result = _classify_fixture_record(policy, tmp_path, values="BACC:0000024")
+
+    assert [
+        (term.facet, term.label)
+        for term in result.selected_terms
+        if term.facet in {"body_product", "body_site"}
+    ] == [
+        ("body_product", "digestive tract content"),
+        ("body_site", "digestive system"),
+        ("body_site", "digestive tract"),
+        ("body_site", "intestine"),
+        ("body_site", "caecum"),
+    ]
 
 
 def test_repository_ontology_resolves_soft_tissue_to_a_body_site(tmp_path: Path) -> None:
@@ -629,7 +1069,7 @@ def test_repository_ontology_resolves_soft_tissue_to_a_body_site(tmp_path: Path)
 
     assert result.selected_terms == (
         SelectedTerm(HOST_ASSOCIATED, "source_type", "host-associated"),
-        SelectedTerm(ANIMAL_HOST, "source_type", "animal host"),
+        SelectedTerm(SKIN_AND_SOFT_TISSUE, "body_site", "skin and soft tissue"),
         SelectedTerm(SOFT_TISSUE, "body_site", "soft tissue"),
     )
     assert result.llm_calls == 0
@@ -659,14 +1099,14 @@ def test_skin_and_soft_tissue_are_disjoint_body_sites(
     result = _classify_fixture_record(
         policy,
         tmp_path,
-        values="Skin/Soft Tissue Infection",
+        values="skin and subcutaneous tissue biopsy",
         fake=fake,
         monkeypatch=monkeypatch,
     )
 
     assert result.selected_terms == (
         SelectedTerm(HOST_ASSOCIATED, "source_type", "host-associated"),
-        SelectedTerm(ANIMAL_HOST, "source_type", "animal host"),
+        SelectedTerm(SKIN_AND_SOFT_TISSUE, "body_site", "skin and soft tissue"),
         SelectedTerm(SKIN, "body_site", "skin"),
         SelectedTerm(SOFT_TISSUE, "body_site", "soft tissue"),
     )
@@ -692,6 +1132,29 @@ def test_explicit_non_source_value_does_not_call_model(
     assert result.llm_calls == 0
     assert result.diagnostics == (IsolationSourceDiagnostic.UNSPECIFIED,)
     assert fake.calls == []
+
+
+def test_non_source_value_next_to_a_source_value_never_reaches_the_model(
+    fixture_isolation_source_prompt_policy: IsolationSourcePromptPolicy,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeClient()
+    fake.respond_with(["soil"], reasoning="The value names soil.")
+
+    result = _classify_fixture_record(
+        fixture_isolation_source_prompt_policy,
+        tmp_path,
+        attributes="isolation_source||env_medium",
+        values="Plasmid DNA||garden soil",
+        fake=fake,
+        monkeypatch=monkeypatch,
+    )
+
+    assert fake.calls[0]["messages"][1]["content"] == (
+        'Sample evidence:\nMetadata:\n"env_medium" = "garden soil"\n'
+    )
+    assert SOIL in {term.term_id for term in result.selected_terms}
 
 
 def test_submitted_value_spanning_lines_stays_one_attribute_value_pair(
@@ -754,9 +1217,9 @@ def test_public_classification_assigns_one_value_to_independent_facets(
 
     assert [(term.term_id, term.facet, term.label) for term in result.selected_terms] == [
         ("BACC:0000001", "source_type", "host-associated"),
-        ("BACC:0000002", "source_type", "animal host"),
         ("BACC:0000009", "body_product", "body fluid"),
         ("BACC:0000017", "body_product", "pus"),
+        ("BACC:0000113", "body_site", "digestive system"),
         ("BACC:0000057", "body_site", "liver"),
         ("BACC:0000063", "lesion", "abscess"),
     ]
@@ -789,6 +1252,7 @@ def test_classifier_response_schema_enforces_the_faceted_contract(
         "facility": [],
         "sampled_object": [],
         "food_type": [],
+        "host_disease": [],
         "reasoning": "No origin is supported.",
     }
 
@@ -801,6 +1265,7 @@ def test_classifier_response_schema_enforces_the_faceted_contract(
         "facility",
         "sampled_object",
         "food_type",
+        "host_disease",
         "reasoning",
     )
     response_schema = response_model.model_json_schema()
@@ -990,13 +1455,12 @@ def test_partial_deterministic_result_uses_sample_evidence_when_llm_is_disabled(
     assert isinstance(result, IsolationSourceOutcome)
     assert result.selected_terms == (
         SelectedTerm(HOST_ASSOCIATED, "source_type", "host-associated"),
-        SelectedTerm(ANIMAL_HOST, "source_type", "animal host"),
         SelectedTerm(FECES, "body_product", "feces"),
     )
     assert result.evidence_level is IsolationSourceEvidenceLevel.SAMPLE
 
 
-def test_warm_cache_uses_current_crosslinks(tmp_path: Path) -> None:
+def test_warm_cache_uses_current_relations(tmp_path: Path) -> None:
     ontology_directory = tmp_path / "ontology"
     shutil.copytree(FIXTURE_ROOT / "ontology", ontology_directory)
     config_path = _isolation_source_config(
@@ -1010,11 +1474,11 @@ def test_warm_cache_uses_current_crosslinks(tmp_path: Path) -> None:
     )
 
     first = _standardize_model_isolation_source(config_path, fake)
-    terms_path = ontology_directory / "terms.tsv"
-    terms_path.write_text(
-        terms_path.read_text(encoding="utf-8").replace(
-            "BACC:0000063\tabscess\tlesion\t\t\tBACC:0000017",
-            "BACC:0000063\tabscess\tlesion\t\t\tBACC:0000010",
+    relations_path = ontology_directory / "relations.tsv"
+    relations_path.write_text(
+        relations_path.read_text(encoding="utf-8").replace(
+            "BACC:0000063\thas_part\tBACC:0000017",
+            "BACC:0000063\thas_part\tBACC:0000010",
         ),
         encoding="utf-8",
     )
@@ -1173,7 +1637,7 @@ def test_direct_matches_receive_derived_source_kind_ancestors_and_preorder(
     try:
         outcome = standardizer.standardize(
             {
-                "accession": "DIRECT_ENRICHMENT",
+                "accession": "DIRECT_TERM_DERIVATION",
                 "iso_attr_orig": "specimen||isolation_source||anatomical_site||lesion",
                 "iso_val_orig": "blood||stool||rectal swab||abscess",
             },
@@ -1184,7 +1648,6 @@ def test_direct_matches_receive_derived_source_kind_ancestors_and_preorder(
     assert isinstance(outcome, IsolationSourceOutcome)
     assert outcome.selected_terms == (
         SelectedTerm(HOST_ASSOCIATED, "source_type", "host-associated"),
-        SelectedTerm(ANIMAL_HOST, "source_type", "animal host"),
         SelectedTerm(BODY_FLUID, "body_product", "body fluid"),
         SelectedTerm(BLOOD, "body_product", "blood"),
         SelectedTerm(PUS, "body_product", "pus"),
@@ -1196,7 +1659,7 @@ def test_direct_matches_receive_derived_source_kind_ancestors_and_preorder(
     )
 
 
-def test_crosslink_derives_source_kind_without_classifier_disagreement(
+def test_relation_derives_source_kind_without_classifier_disagreement(
     tmp_path: Path,
 ) -> None:
     fake = FakeClient()
@@ -1212,7 +1675,7 @@ def test_crosslink_derives_source_kind_without_classifier_disagreement(
     try:
         outcome = standardizer.standardize(
             {
-                "accession": "CROSSLINK_OVERRIDE",
+                "accession": "RELATION_OVERRIDE",
                 "iso_attr_orig": "isolation_source",
                 "iso_val_orig": "root-zone material 8472",
             },
@@ -1231,7 +1694,7 @@ def test_crosslink_derives_source_kind_without_classifier_disagreement(
     assert outcome.diagnostics == (IsolationSourceDiagnostic.LLM_CALL,)
 
 
-def test_direct_crosslink_conflict_does_not_report_classifier_disagreement(
+def test_direct_relation_conflict_does_not_report_classifier_disagreement(
     tmp_path: Path,
 ) -> None:
     standardizer = IsolationSourceStandardizer(
@@ -1241,7 +1704,7 @@ def test_direct_crosslink_conflict_does_not_report_classifier_disagreement(
     try:
         outcome = standardizer.standardize(
             {
-                "accession": "DIRECT_CROSSLINK_CONFLICT",
+                "accession": "DIRECT_RELATION_CONFLICT",
                 "iso_attr_orig": "environment||isolation_source",
                 "iso_val_orig": "environment||rhizosphere",
             },
@@ -1258,7 +1721,6 @@ def test_derived_source_kinds_preserve_supported_contexts(tmp_path: Path) -> Non
     fake.respond_with_facets(
         body_product=["blood"],
         environmental_material=["soil"],
-        food_type=["meat product"],
     )
     standardizer = IsolationSourceStandardizer(
         IsolationSourcePromptPolicy.load(_isolation_source_config(tmp_path)),
@@ -1280,14 +1742,10 @@ def test_derived_source_kinds_preserve_supported_contexts(tmp_path: Path) -> Non
     assert isinstance(outcome, IsolationSourceOutcome)
     assert outcome.selected_terms == (
         SelectedTerm(HOST_ASSOCIATED, "source_type", "host-associated"),
-        SelectedTerm(ANIMAL_HOST, "source_type", "animal host"),
         SelectedTerm(ENVIRONMENTAL, "source_type", "environmental"),
-        SelectedTerm(FOOD_OR_FEED, "source_type", "food or feed"),
         SelectedTerm(BODY_FLUID, "body_product", "body fluid"),
         SelectedTerm(BLOOD, "body_product", "blood"),
         SelectedTerm(SOIL, "environmental_material", "soil"),
-        SelectedTerm(ANIMAL_FOOD_PRODUCT, "food_type", "animal food product"),
-        SelectedTerm(MEAT_PRODUCT, "food_type", "meat product"),
     )
     assert outcome.diagnostics == (IsolationSourceDiagnostic.LLM_CALL,)
 
@@ -1299,7 +1757,10 @@ def test_derived_source_kinds_preserve_supported_contexts(tmp_path: Path) -> Non
             "host-associated",
             (SelectedTerm(HOST_ASSOCIATED, "source_type", "host-associated"),),
         ),
-        ("laboratory", (SelectedTerm(LABORATORY, "source_type", "laboratory"),)),
+        (
+            "laboratory strain",
+            (SelectedTerm(LABORATORY, "source_type", "laboratory strain"),),
+        ),
         (
             "environmental",
             (SelectedTerm(ENVIRONMENTAL, "source_type", "environmental"),),
@@ -1322,7 +1783,7 @@ def test_classifier_source_type_stands_when_no_narrower_facet_applies(
     outcome = _classify_fixture_record(
         policy,
         tmp_path,
-        values=f"broad source context 7291 {source_type}",
+        values=f"source type 7291 {source_type}",
         fake=fake,
         monkeypatch=monkeypatch,
     )
@@ -1341,7 +1802,7 @@ def test_classifier_source_type_stands_when_no_narrower_facet_applies(
                 "iso_val_orig": "laboratory strain",
             },
             None,
-            (SelectedTerm(LABORATORY, "source_type", "laboratory"),),
+            (SelectedTerm(LABORATORY, "source_type", "laboratory strain"),),
         ),
     ],
 )
@@ -1376,29 +1837,34 @@ def _isolation_source_config(
 ) -> Path:
     config_path = tmp_path / f"isolation-{len(list(tmp_path.glob('isolation-*.yaml')))}.yaml"
     config = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
+    fixture_config = yaml.safe_load(
+        (FIXTURE_ROOT / "isolation_source.yaml").read_text(encoding="utf-8")
+    )
+    config["ontology_directory"] = (FIXTURE_ROOT / "ontology").as_posix()
+    config["host_recovery_term_ids"] = fixture_config["host_recovery_term_ids"]
+    config["direct_match_values"] = fixture_config["direct_match_values"]
+    config.pop("disease_body_terms")
     config.update(overrides or {})
-    if not overrides or "ontology_directory" not in overrides:
-        config["ontology_directory"] = (FIXTURE_ROOT / "ontology").as_posix()
     config["cache_db_path"] = (tmp_path / "isolation-cache.db").as_posix()
     config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     return config_path
 
 
-def test_prompt_policy_rejects_enrichment_term_in_the_wrong_facet(tmp_path: Path) -> None:
+def test_prompt_policy_rejects_term_derivation_term_in_the_wrong_facet(tmp_path: Path) -> None:
     ontology_directory = tmp_path / "ontology"
     shutil.copytree(FIXTURE_ROOT / "ontology", ontology_directory)
     terms_path = ontology_directory / "terms.tsv"
     terms_path.write_text(
         terms_path.read_text(encoding="utf-8").replace(
-            "BACC:0000004\tenvironmental\tsource_type",
-            "BACC:0000004\tenvironmental\tfood_type",
+            "BACC:0000007\tfood or feed\tsource_type",
+            "BACC:0000007\tfood or feed\tfood_type",
         ),
         encoding="utf-8",
     )
 
     with pytest.raises(
         PolicyConfigurationError,
-        match=r"BACC:0000004.*source_type",
+        match=r"term derivation requires term 'BACC:0000007'.*source_type",
     ):
         IsolationSourcePromptPolicy.load(
             _isolation_source_config(
@@ -1408,11 +1874,115 @@ def test_prompt_policy_rejects_enrichment_term_in_the_wrong_facet(tmp_path: Path
         )
 
 
+def _add_synonym(row: str) -> Callable[[Path], None]:
+    def edit(ontology_directory: Path) -> None:
+        with (ontology_directory / "synonyms.tsv").open("a", encoding="utf-8") as synonyms:
+            synonyms.write(f"{row}\n")
+
+    return edit
+
+
+def _replace_in_terms(old: str, new: str) -> Callable[[Path], None]:
+    def edit(ontology_directory: Path) -> None:
+        terms_path = ontology_directory / "terms.tsv"
+        terms_path.write_text(
+            terms_path.read_text(encoding="utf-8").replace(old, new, 1), encoding="utf-8"
+        )
+
+    return edit
+
+
+@pytest.mark.parametrize(
+    ("edit", "direct_match_values", "message"),
+    [
+        (_add_synonym("BACC:9999999\tdirt\texact"), {}, r"unknown term 'BACC:9999999'"),
+        (_add_synonym("BACC:0000064\tdirt\thidden"), {}, r"unknown synonym type 'hidden'"),
+        (_add_synonym("BACC:0000035\tgut\tnarrow"), {}, r"row \d+: duplicate of row \d+"),
+        (_replace_in_terms("\tdefinition", "\tsynonyms"), {}, r"header: must contain"),
+        (_replace_in_terms("\tscope_note", "\tcuration_note"), {}, r"header: must contain"),
+        (
+            _replace_in_terms("Environmental evidence.", ""),
+            {},
+            r"term 'BACC:0000004' definition: required",
+        ),
+        (_add_synonym("BACC:0000025\tSoil\texact"), {}, r"match key 'soil' already names"),
+        (_add_synonym("BACC:0000025\thuman-gut\texact"), {}, r"match key 'human_gut'"),
+        (None, {"mud": "BACC:0000005"}, r"'BACC:0000005' is not an active term"),
+        (None, {"mud": [SOIL, "BACC:0000005"]}, r"'BACC:0000005' is not an active term"),
+        (None, {"mud": []}, r"must map values to a term identifier or a list"),
+        (None, {"Venous-Blood": "BACC:0000010"}, r"match key 'venous_blood' already"),
+        (None, {"rectal_swab": "BACC:0000041"}, r"match key 'rectal_swab' already"),
+    ],
+    ids=[
+        "synonym of an unknown term",
+        "unknown synonym type",
+        "duplicate synonym",
+        "synonyms column",
+        "curation_note column",
+        "no definition and no exactMatch",
+        "synonym repeats a label",
+        "synonym repeats a synonym",
+        "direct-match value of an obsolete term",
+        "direct-match list with an obsolete term",
+        "direct-match value with an empty list",
+        "direct-match value repeats a synonym",
+        "direct-match value repeats a direct-match value",
+    ],
+)
+def test_prompt_policy_rejects_invalid_synonyms_notes_and_direct_match_values(
+    tmp_path: Path,
+    edit: Callable[[Path], None] | None,
+    direct_match_values: dict[str, str],
+    message: str,
+) -> None:
+    ontology_directory = Path(shutil.copytree(FIXTURE_ROOT / "ontology", tmp_path / "ontology"))
+    if edit is not None:
+        edit(ontology_directory)
+    fixture_config = yaml.safe_load(
+        (FIXTURE_ROOT / "isolation_source.yaml").read_text(encoding="utf-8")
+    )
+
+    with pytest.raises(PolicyConfigurationError, match=message):
+        IsolationSourcePromptPolicy.load(
+            _isolation_source_config(
+                tmp_path,
+                overrides={
+                    "ontology_directory": ontology_directory.as_posix(),
+                    "direct_match_values": {
+                        **fixture_config["direct_match_values"],
+                        **direct_match_values,
+                    },
+                },
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("non_source_values", "message"),
+    [
+        ("plasmid DNA", r"non_source_values: must be a list of values"),
+        (["Soil"], r"non_source_values\.Soil: match key 'soil' already names a term"),
+        (["rectal-swab"], r"match key 'rectal_swab' already names a term"),
+    ],
+    ids=["not a list", "repeats a label", "repeats a direct-match value"],
+)
+def test_prompt_policy_rejects_invalid_non_source_values(
+    tmp_path: Path,
+    non_source_values: object,
+    message: str,
+) -> None:
+    with pytest.raises(PolicyConfigurationError, match=message):
+        IsolationSourcePromptPolicy.load(
+            _isolation_source_config(tmp_path, overrides={"non_source_values": non_source_values})
+        )
+
+
 def _standardize_model_isolation_source(
     config_path: Path,
     fake: FakeClient,
     *,
     model: str = "test-model",
+    value: str = "wound patient 739105",
 ) -> IsolationSourceOutcome:
     standardizer = IsolationSourceStandardizer(
         IsolationSourcePromptPolicy.load(config_path),
@@ -1425,7 +1995,7 @@ def _standardize_model_isolation_source(
             {
                 "accession": "REQUEST_FINGERPRINT",
                 "iso_attr_orig": "isolation_source",
-                "iso_val_orig": "wound patient 739105",
+                "iso_val_orig": value,
             },
         )
     finally:
@@ -1473,7 +2043,6 @@ def test_isolation_source_standardizer_does_not_reopen_loaded_policy_source(tmp_
     assert isinstance(outcome, IsolationSourceOutcome)
     assert outcome.selected_terms == (
         SelectedTerm(HOST_ASSOCIATED, "source_type", "host-associated"),
-        SelectedTerm(ANIMAL_HOST, "source_type", "animal host"),
         SelectedTerm(FECES, "body_product", "feces"),
     )
 
@@ -1553,7 +2122,13 @@ def test_isolation_source_request_uses_rendered_synthetic_prompts(tmp_path: Path
 
 @pytest.mark.parametrize(
     "changed_component",
-    ["message", "model", "parameter", "schema_id", "structured_output_mode"],
+    [
+        "message",
+        "model",
+        "parameter",
+        "schema_id",
+        "structured_output_mode",
+    ],
 )
 def test_isolation_source_cache_misses_when_canonical_request_changes(
     tmp_path, monkeypatch, changed_component
@@ -1600,6 +2175,259 @@ def test_isolation_source_cache_misses_when_canonical_request_changes(
     assert len(fake.calls) == 2
 
 
+def test_ontology_tree_shows_the_facet_guidance_under_its_heading(tmp_path):
+    config = _isolation_source_config(tmp_path)
+    system_prompt = IsolationSourcePromptPolicy.load(config).effective_prompts.system
+
+    guidance = "Use the sampled food or feed, including feed given to a host."
+    assert re.search(rf"## food_type\n[^\n]+ {re.escape(guidance)}\n- ", system_prompt)
+
+
+def test_underscores_become_spaces_only_in_the_model_request(tmp_path):
+    fake = FakeClient()
+    fake.respond_with(["wound"])
+    config = _isolation_source_config(tmp_path)
+    outcome = _standardize_model_isolation_source(config, fake, value="wound_swab_739105")
+
+    assert '"isolation_source" = "wound swab 739105"' in fake.calls[0]["messages"][1]["content"]
+    assert outcome.supporting_pairs[0].value == "wound_swab_739105"
+
+
+def test_model_request_shows_the_host_as_context_only(tmp_path):
+    fake = FakeClient()
+    fake.respond_with(["wound"])
+    standardizer = IsolationSourceStandardizer(
+        IsolationSourcePromptPolicy.load(_isolation_source_config(tmp_path)),
+        client=None,
+        llm_settings=LLMSettings(None, None, "test-model"),
+    )
+    standardizer.pipeline.client = fake
+    try:
+        outcome = standardizer.standardize(
+            {"accession": "A", "iso_attr_orig": "isolation_source", "iso_val_orig": "carcass swab"},
+            host_pairs=(SupportingAttributeValuePair("host", "feces"),),
+        )
+    finally:
+        standardizer.close()
+
+    assert '"host" = "feces"' in fake.calls[0]["messages"][1]["content"]
+    assert FECES not in {term.term_id for term in outcome.selected_terms}
+    assert [pair.value for pair in outcome.supporting_pairs] == ["carcass swab"]
+
+
+@pytest.mark.parametrize(
+    ("value", "disease_id"),
+    [
+        ("rectal swab||urinary tract infection", URINARY_TRACT_INFECTION),
+        ("rectal swab||cystic fibrosis", CYSTIC_FIBROSIS),
+    ],
+)
+def test_a_diagnosis_resolves_next_to_a_direct_match(tmp_path, value, disease_id):
+    standardizer = IsolationSourceStandardizer(
+        IsolationSourcePromptPolicy.load(_isolation_source_config(tmp_path)), client=None
+    )
+    try:
+        outcome = standardizer.standardize(
+            {
+                "accession": "A",
+                "iso_attr_orig": "isolation_source||host_disease",
+                "iso_val_orig": value,
+            }
+        )
+    finally:
+        standardizer.close()
+
+    assert outcome.llm_calls == 0
+    assert {RECTUM, disease_id, DISEASE, HOST_ASSOCIATED} <= {
+        term.term_id for term in outcome.selected_terms
+    }
+
+
+def test_food_excludes_host_terms(tmp_path):
+    fake = FakeClient()
+    fake.respond_with_facets(
+        source_type=["animal host"],
+        body_product=["blood"],
+        body_site=["rectum"],
+        food_type=["meat product"],
+        host_disease=["cystic fibrosis"],
+    )
+    outcome = _standardize_model_isolation_source(_isolation_source_config(tmp_path), fake)
+
+    selected_ids = {term.term_id for term in outcome.selected_terms}
+    assert selected_ids == {FOOD_OR_FEED, ANIMAL_FOOD_PRODUCT, MEAT_PRODUCT}
+    assert "food_host_removal" in {step.node for step in outcome.reasoning}
+
+
+def _body_labels(outcome: IsolationSourceOutcome) -> set[str]:
+    return {
+        term.label for term in outcome.selected_terms if term.facet in {"body_product", "body_site"}
+    }
+
+
+@pytest.mark.parametrize(
+    ("host_disease", "expected_body_labels"),
+    [
+        ("mastitis", {"mammary gland"}),
+        ("bacteremia", {"body fluid", "blood", "circulatory system"}),
+        ("bone and joint infection", {"skeletal system"}),
+        ("colibacillosis", set()),
+    ],
+)
+def test_a_diagnosis_alone_gets_its_body_term(tmp_path, host_disease, expected_body_labels):
+    fake = FakeClient()
+    fake.respond_with_facets(source_type=["animal host"], host_disease=[host_disease])
+    config = _isolation_source_config(tmp_path, overrides=PRODUCTION_VOCABULARY)
+    outcome = _standardize_model_isolation_source(config, fake)
+
+    assert _body_labels(outcome) == expected_body_labels
+    assert ("disease_body_term" in {step.node for step in outcome.reasoning}) is bool(
+        expected_body_labels
+    )
+
+
+@pytest.mark.parametrize(
+    ("value", "expected_body_labels"),
+    [
+        ("bacteremia", {"body fluid", "blood", "circulatory system"}),
+        ("cystitis", {"genitourinary system", "urinary system"}),
+        ("wound swab||SSTI", set()),
+    ],
+)
+def test_a_direct_diagnosis_gets_its_body_term_without_the_model(
+    tmp_path, value, expected_body_labels
+):
+    standardizer = IsolationSourceStandardizer(
+        IsolationSourcePromptPolicy.load(
+            _isolation_source_config(tmp_path, overrides=PRODUCTION_VOCABULARY)
+        ),
+        client=None,
+    )
+    try:
+        outcome = standardizer.standardize(
+            {
+                "accession": "A",
+                "iso_attr_orig": "||".join(["isolation_source"] * (value.count("||") + 1)),
+                "iso_val_orig": value,
+            }
+        )
+    finally:
+        standardizer.close()
+
+    assert outcome.llm_calls == 0
+    assert _body_labels(outcome) == expected_body_labels
+
+
+@pytest.mark.parametrize(
+    "sampled",
+    [{"lesion": ["abscess"]}, {"sampled_object": ["sink"]}, {"body_site": ["skin"]}],
+)
+def test_a_diagnosis_next_to_a_sampled_part_gets_no_body_term(tmp_path, sampled):
+    fake = FakeClient()
+    fake.respond_with_facets(host_disease=["pneumonia"], **sampled)
+    config = _isolation_source_config(tmp_path, overrides=PRODUCTION_VOCABULARY)
+    outcome = _standardize_model_isolation_source(config, fake)
+
+    assert "lung" not in _body_labels(outcome)
+    assert "disease_body_term" not in {step.node for step in outcome.reasoning}
+
+
+@pytest.mark.parametrize(
+    ("body_product", "body_sites", "host_disease", "removed", "kept"),
+    [
+        ("sputum", ["lung", "nasal cavity"], "pneumonia", "lung", "nasal cavity"),
+        (
+            "pus",
+            ["lower respiratory tract", "skin"],
+            "pneumonia",
+            "lower respiratory tract",
+            "skin",
+        ),
+        ("urine", ["kidney", "rectum"], "urinary tract infection", "kidney", "rectum"),
+    ],
+)
+def test_a_diagnosis_next_to_a_body_product_loses_the_model_body_sites_on_its_lineage(
+    tmp_path, body_product, body_sites, host_disease, removed, kept
+):
+    fake = FakeClient()
+    fake.respond_with_facets(
+        body_product=[body_product], body_site=body_sites, host_disease=[host_disease]
+    )
+    config = _isolation_source_config(tmp_path, overrides=PRODUCTION_VOCABULARY)
+    outcome = _standardize_model_isolation_source(config, fake)
+
+    assert removed not in _body_labels(outcome)
+    assert kept in _body_labels(outcome)
+    assert "disease_body_site_removal" in {step.node for step in outcome.reasoning}
+
+
+def test_a_diagnosis_next_to_a_body_product_keeps_a_body_site_from_a_direct_match(tmp_path):
+    fake = FakeClient()
+    fake.respond_with_facets(
+        body_product=["sputum"], body_site=["lung"], host_disease=["pneumonia"]
+    )
+    standardizer = IsolationSourceStandardizer(
+        IsolationSourcePromptPolicy.load(
+            _isolation_source_config(tmp_path, overrides=PRODUCTION_VOCABULARY)
+        ),
+        client=None,
+        llm_settings=LLMSettings(None, None, "test-model"),
+    )
+    standardizer.pipeline.client = fake
+    try:
+        outcome = standardizer.standardize(
+            {
+                "accession": "A",
+                "iso_attr_orig": "isolation_source||host_disease",
+                "iso_val_orig": "lung||sputum of a pneumonia patient",
+            }
+        )
+    finally:
+        standardizer.close()
+
+    assert outcome.llm_calls == 1
+    assert "lung" in _body_labels(outcome)
+
+
+@pytest.mark.parametrize(
+    "disease_body_terms",
+    [{RECTUM: BLOOD}, {URINARY_TRACT_INFECTION: DISEASE}, {URINARY_TRACT_INFECTION: [BLOOD]}],
+)
+def test_prompt_policy_rejects_a_wrong_disease_body_term(tmp_path, disease_body_terms):
+    with pytest.raises(PolicyConfigurationError, match=r"disease_body_terms"):
+        IsolationSourcePromptPolicy.load(
+            _isolation_source_config(tmp_path, overrides={"disease_body_terms": disease_body_terms})
+        )
+
+
+@pytest.mark.parametrize(
+    ("value", "replaced"),
+    [
+        ("blood or pus from rectum or liver", True),
+        ("blood/pus from rectum/liver", True),
+        ("pooled blood and pus from rectum and liver", False),
+        ("blood and pus, Veterinary Facility or Diagnostic Laboratory", False),
+    ],
+)
+def test_named_alternatives_get_their_common_ancestor(tmp_path, value, replaced):
+    fake = FakeClient()
+    fake.respond_with_facets(
+        source_type=["animal host", "human host"],
+        body_product=["blood", "pus"],
+        body_site=["rectum", "liver"],
+    )
+    config = _isolation_source_config(tmp_path)
+    outcome = _standardize_model_isolation_source(config, fake, value=value)
+
+    selected_ids = {term.term_id for term in outcome.selected_terms}
+    common_ids = {HOST_ASSOCIATED, BODY_FLUID, DIGESTIVE_TRACT, INTESTINE, RECTUM, LIVER}
+    if replaced:
+        assert selected_ids == common_ids
+        assert "alternatives_common_ancestor" in {step.node for step in outcome.reasoning}
+    else:
+        assert selected_ids == common_ids | {ANIMAL_HOST, HUMAN_HOST, BLOOD, PUS}
+
+
 # --- Cache persistence adapter ---
 
 
@@ -1614,6 +2442,7 @@ def test_cache_round_trip_preserves_only_the_classifier_answer(cache):
             "facility": (),
             "sampled_object": (),
             "food_type": (),
+            "host_disease": (),
         },
         reasoning="The sample is fecal material from an animal host.",
     )
@@ -1624,7 +2453,13 @@ def test_cache_round_trip_preserves_only_the_classifier_answer(cache):
     assert got == answer
 
 
-def test_records_differing_only_in_digits_share_one_model_call(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("first_value", "second_value"),
+    [("patient 1", "patient 2"), ("Patient 1", "PATIENT   1")],
+)
+def test_records_differing_only_in_digits_case_or_spaces_share_one_model_call(
+    tmp_path: Path, first_value: str, second_value: str
+) -> None:
     fake = FakeClient()
     fake.respond_with(["wound"], reasoning="clinical wound")
     standardizer = IsolationSourceStandardizer(
@@ -1638,14 +2473,14 @@ def test_records_differing_only_in_digits_share_one_model_call(tmp_path: Path) -
             {
                 "accession": "SAMN00000001",
                 "iso_attr_orig": "isolation_source",
-                "iso_val_orig": "patient 1",
+                "iso_val_orig": first_value,
             },
         )
         second = standardizer.standardize(
             {
                 "accession": "SAMN00000002",
                 "iso_attr_orig": "isolation_source",
-                "iso_val_orig": "patient 2",
+                "iso_val_orig": second_value,
             },
         )
     finally:
@@ -1657,7 +2492,7 @@ def test_records_differing_only_in_digits_share_one_model_call(tmp_path: Path) -
     assert second.diagnostics == (IsolationSourceDiagnostic.CACHE_HIT,)
     assert first.request_fingerprint == second.request_fingerprint
     assert len(fake.calls) == 1
-    assert "patient 1" in fake.calls[0]["messages"][1]["content"]
+    assert first_value in fake.calls[0]["messages"][1]["content"]
 
 
 def test_strip_keeps_the_digits_of_an_ontology_identifier() -> None:

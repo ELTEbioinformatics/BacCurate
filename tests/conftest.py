@@ -297,7 +297,7 @@ def fixture_dataset_builder_factory(
 
         @staticmethod
         def is_descendant_or_self(taxid: int, ancestor_taxid: int) -> bool:
-            return (taxid, ancestor_taxid) in {(9606, 33208), (9031, 33208)}
+            return (taxid, ancestor_taxid) in {(9606, 9606), (9606, 33208), (9031, 33208)}
 
     def build(
         *,
