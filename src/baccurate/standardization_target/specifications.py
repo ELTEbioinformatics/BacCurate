@@ -112,7 +112,9 @@ TARGET_SPECS: Mapping[StandardizationTarget, TargetSpec] = MappingProxyType(
                 "iso_facility",
                 "iso_sampled_object",
                 "iso_food_type",
+                "iso_host_disease",
                 "iso_term_ids",
+                "iso_external_ids",
             ),
         ),
     }

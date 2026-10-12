@@ -305,6 +305,7 @@ def test_extraction_publishes_provenance_bound_metadata_bundle(
   <BioSample accession="SAMN00000001" last_update="2025-06-30T12:34:56.000">
     <Attributes>
       <Attribute attribute_name="isolation_source">farm soil</Attribute>
+      <Attribute attribute_name="strain" harmonized_name="strain">K-12 MG1655</Attribute>
     </Attributes>
     <Links><Link target="bioproject">1050647</Link></Links>
   </BioSample>
@@ -367,6 +368,7 @@ def test_extraction_publishes_provenance_bound_metadata_bundle(
     assert rows[0]["genbank_assembly_accessions"] == "GCA_1.1"
     assert rows[0]["refseq_assembly_accessions"] == ""
     assert rows[0]["biosample_last_update"] == "2025-06-30T12:34:56.000"
+    assert rows[0]["strain"] == "K-12 MG1655"
     assert "title" not in rows[0]
     assert "description" not in rows[0]
 

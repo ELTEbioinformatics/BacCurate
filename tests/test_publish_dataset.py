@@ -6,6 +6,7 @@ import importlib.util
 from pathlib import Path
 from types import ModuleType
 
+import duckdb
 import pytest
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "publish_dataset.py"
@@ -51,11 +52,12 @@ def test_publish_writes_the_five_release_files(
             "blood||serum",
             "2020-01-02",
             "2020-01-03",
+            "2019-06-01",
             "1.5",
             "2.5",
             "9606",
         ],
-        ["SAMN2", "NA", "NA", "", "", "", "", ""],
+        ["SAMN2", "NA", "NA", "", "", "", "", "", ""],
     ]
     (run_dir / "run.tsv").write_text(
         "\n".join("\t".join(record) for record in (columns, *rows)) + "\n",
@@ -69,6 +71,11 @@ def test_publish_writes_the_five_release_files(
         assert (run_dir / name).is_file()
     parquet = run_dir / f"{stem}.parquet"
     assert parquet.is_file()
+    schema = duckdb.sql(f"DESCRIBE SELECT * FROM '{parquet.as_posix()}'").fetchall()
+    types = {row[0]: row[1] for row in schema}
+    assert {column: types[column] for column in publish_dataset.SCALAR_TYPES} == dict(
+        publish_dataset.SCALAR_TYPES
+    )
 
     jsonl = (run_dir / f"{stem}.jsonl").read_text(encoding="utf-8").splitlines()
     assert '"iso_val_orig":["blood","serum"]' in jsonl[0].replace(" ", "")
