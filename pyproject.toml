@@ -30,6 +30,7 @@ dependencies = [
     "pytest>=9.1.1",
     "ruff>=0.16.1",
     "duckdb>=1.5.5",
+    "rdflib~=7.6",
 ]
 
 
