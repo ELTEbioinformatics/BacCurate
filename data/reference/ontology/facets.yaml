@@ -1,14 +1,8 @@
 schema_version: 1
-vocabulary_version: "2.3.0"
-retired_term_ids:
-  - BACC:0000005
-  - BACC:0000006
+vocabulary_version: "1.0.0rc1"
 
 facets:
   source_type:
-    cardinality: multiple
-    output_column: iso_source_type
-    render_order: 1
     standards_bindings:
       mixs:
         - package/checklist choice
@@ -16,16 +10,9 @@ facets:
       external_ontology_namespaces:
         - ENVO
         - FOODON
-    meaning: The broad source contexts the isolate came from.
-    classifier_guidance: >-
-      Preserve every independently supported broad source context. If the metadata names only a
-      host, use `host-associated`. A host name alone does not support `food or feed`. Use
-      `laboratory` only when laboratory wording describes the source rather than specimen culture.
+    meaning: The broad kinds of source the isolate came from.
 
   body_product:
-    cardinality: multiple
-    output_column: iso_body_product
-    render_order: 2
     standards_bindings:
       mixs:
         - host_body_product
@@ -34,13 +21,8 @@ facets:
       external_ontology_namespaces:
         - UBERON
     meaning: The body substance sampled from a host.
-    classifier_guidance: >-
-      Use this facet only for substances. Use `body_site` for an organ or anatomical region.
 
   body_site:
-    cardinality: multiple
-    output_column: iso_body_site
-    render_order: 3
     standards_bindings:
       mixs:
         - host_body_site
@@ -50,30 +32,16 @@ facets:
         - UBERON
         - NCIT
     meaning: The anatomical location the sample came from.
-    classifier_guidance: >-
-      Set this facet only when the metadata names the anatomical location. Do not infer a location
-      from a substance alone.
 
   lesion:
-    cardinality: multiple
-    output_column: iso_lesion
-    render_order: 4
     standards_bindings:
-      mixs:
-        - host_disease_stat (loosely)
-      pha4ge_geneepio:
-        - host disease
+      mixs: []
+      pha4ge_geneepio: []
       external_ontology_namespaces:
         - MONDO
     meaning: The pathological structure sampled.
-    classifier_guidance: >-
-      Use this facet for the pathological structure that was sampled, not the host's diagnosis. Example: set
-      it for `wound swab`, but not for `patient with pneumonia`.
 
   environmental_material:
-    cardinality: multiple
-    output_column: iso_environmental_material
-    render_order: 5
     standards_bindings:
       mixs:
         - env_medium
@@ -82,12 +50,8 @@ facets:
       external_ontology_namespaces:
         - ENVO
     meaning: The non-host material sampled.
-    classifier_guidance: Use the non-host material that was sampled, not its location.
 
   facility:
-    cardinality: multiple
-    output_column: iso_facility
-    render_order: 6
     standards_bindings:
       mixs:
         - env_local_scale (part)
@@ -96,14 +60,7 @@ facets:
       external_ontology_namespaces:
         - ENVO
     meaning: The kind of built facility where the sample was collected.
-    classifier_guidance: >-
-      Set this facet for the collection setting, whether a host or the built environment was
-      sampled there. It states where the isolate was collected, never what was sampled. Use
-      `environmental_material` or `sampled_object` for a sampled material, object, or surface.
   sampled_object:
-    cardinality: multiple
-    output_column: iso_sampled_object
-    render_order: 7
     standards_bindings:
       mixs:
         - env_local_scale (part)
@@ -114,15 +71,8 @@ facets:
         - ENVO
         - OBI
     meaning: The object or surface of a built environment that was sampled.
-    classifier_guidance: >-
-      Set this facet when the object itself was sampled, which is how a sampled built environment
-      is recorded. A swab used to collect material from a patient describes the collection method,
-      not a sampled object.
 
   food_type:
-    cardinality: multiple
-    output_column: iso_food_type
-    render_order: 8
     standards_bindings:
       mixs:
         - food package food_product_type
@@ -130,4 +80,13 @@ facets:
       external_ontology_namespaces:
         - FOODON
     meaning: The food or feed sampled.
-    classifier_guidance: Use the sampled food or feed, including feed given to a host.
+
+  host_disease:
+    standards_bindings:
+      mixs:
+        - host_disease_stat
+      pha4ge_geneepio:
+        - host disease
+      external_ontology_namespaces:
+        - MONDO
+    meaning: The diagnosis or the health state of the host.

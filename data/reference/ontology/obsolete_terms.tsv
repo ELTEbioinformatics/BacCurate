@@ -1,0 +1,7 @@
+term_id	label	replaced_by	note
+BACC:0000005	built environment	BACC:0000004	Obsolete since 2026-10-12. The source type does not separate built and natural environments.
+BACC:0000006	natural environment	BACC:0000004	Obsolete since 2026-10-12. The source type does not separate built and natural environments.
+BACC:0000023	intestinal content	BACC:0000022;BACC:0000039	Obsolete since 2026-10-12. The content and its site are two terms in two facets.
+BACC:0000024	caecal content	BACC:0000022;BACC:0000040	Obsolete since 2026-10-12. The content and its site are two terms in two facets.
+BACC:0000078	biofilm		Obsolete since 2026-10-12. A biofilm is a growth form, not a source. The terms of its place describe a real biofilm.
+BACC:0000081	laboratory facility		Obsolete since 2026-10-12. Sampling inside a laboratory is rare. Most of its records named a laboratory that handled the isolate.

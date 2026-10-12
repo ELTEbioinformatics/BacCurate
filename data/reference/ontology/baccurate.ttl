@@ -1,0 +1,2015 @@
+@prefix bacc: <https://w3id.org/baccurate/BACC_> .
+@prefix baccv: <https://w3id.org/baccurate/vocabulary/> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix iso-thes: <http://purl.org/iso25964/skos-thes#> .
+@prefix oboInOwl: <http://www.geneontology.org/formats/oboInOwl#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+
+bacc:0000005 a skos:Concept ;
+    dcterms:isReplacedBy bacc:0000004 ;
+    owl:deprecated true ;
+    skos:historyNote "Obsolete since 2026-10-12. The source type does not separate built and natural environments."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:prefLabel "built environment"@en .
+
+bacc:0000006 a skos:Concept ;
+    dcterms:isReplacedBy bacc:0000004 ;
+    owl:deprecated true ;
+    skos:historyNote "Obsolete since 2026-10-12. The source type does not separate built and natural environments."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:prefLabel "natural environment"@en .
+
+bacc:0000023 a skos:Concept ;
+    dcterms:isReplacedBy bacc:0000022,
+        bacc:0000039 ;
+    owl:deprecated true ;
+    skos:historyNote "Obsolete since 2026-10-12. The content and its site are two terms in two facets."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:prefLabel "intestinal content"@en .
+
+bacc:0000024 a skos:Concept ;
+    dcterms:isReplacedBy bacc:0000022,
+        bacc:0000040 ;
+    owl:deprecated true ;
+    skos:historyNote "Obsolete since 2026-10-12. The content and its site are two terms in two facets."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:prefLabel "caecal content"@en .
+
+bacc:0000078 a skos:Concept ;
+    owl:deprecated true ;
+    skos:historyNote "Obsolete since 2026-10-12. A biofilm is a growth form, not a source. The terms of its place describe a real biofilm."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:prefLabel "biofilm"@en .
+
+bacc:0000081 a skos:Concept ;
+    owl:deprecated true ;
+    skos:historyNote "Obsolete since 2026-10-12. Sampling inside a laboratory is rare. Most of its records named a laboratory that handled the isolate."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:prefLabel "laboratory facility"@en .
+
+baccv:body_product a skos:Collection ;
+    skos:definition "The body substance sampled from a host."@en ;
+    skos:member bacc:0000009,
+        bacc:0000010,
+        bacc:0000011,
+        bacc:0000012,
+        bacc:0000013,
+        bacc:0000014,
+        bacc:0000015,
+        bacc:0000016,
+        bacc:0000017,
+        bacc:0000018,
+        bacc:0000019,
+        bacc:0000020,
+        bacc:0000021,
+        bacc:0000022,
+        bacc:0000025,
+        bacc:0000105,
+        bacc:0000119 ;
+    skos:prefLabel "body product"@en .
+
+baccv:body_site a skos:Collection ;
+    skos:definition "The anatomical location the sample came from."@en ;
+    skos:member bacc:0000026,
+        bacc:0000027,
+        bacc:0000028,
+        bacc:0000029,
+        bacc:0000030,
+        bacc:0000031,
+        bacc:0000032,
+        bacc:0000033,
+        bacc:0000034,
+        bacc:0000035,
+        bacc:0000036,
+        bacc:0000037,
+        bacc:0000038,
+        bacc:0000039,
+        bacc:0000040,
+        bacc:0000041,
+        bacc:0000042,
+        bacc:0000043,
+        bacc:0000044,
+        bacc:0000045,
+        bacc:0000046,
+        bacc:0000047,
+        bacc:0000048,
+        bacc:0000049,
+        bacc:0000050,
+        bacc:0000051,
+        bacc:0000052,
+        bacc:0000053,
+        bacc:0000054,
+        bacc:0000055,
+        bacc:0000056,
+        bacc:0000057,
+        bacc:0000058,
+        bacc:0000059,
+        bacc:0000060,
+        bacc:0000103,
+        bacc:0000104,
+        bacc:0000106,
+        bacc:0000107,
+        bacc:0000108,
+        bacc:0000109,
+        bacc:0000110,
+        bacc:0000111,
+        bacc:0000112,
+        bacc:0000113,
+        bacc:0000114,
+        bacc:0000115,
+        bacc:0000116,
+        bacc:0000117,
+        bacc:0000118,
+        bacc:0000121,
+        bacc:0000127,
+        bacc:0000154,
+        bacc:0000155,
+        bacc:0000156,
+        bacc:0000157,
+        bacc:0000158 ;
+    skos:prefLabel "body site"@en .
+
+baccv:collected_from rdfs:label "collected from"@en ;
+    rdfs:subPropertyOf skos:related ;
+    skos:definition "The specimen is taken from the site."@en .
+
+baccv:environmental_material a skos:Collection ;
+    skos:definition "The non-host material sampled."@en ;
+    skos:member bacc:0000064,
+        bacc:0000065,
+        bacc:0000066,
+        bacc:0000067,
+        bacc:0000068,
+        bacc:0000069,
+        bacc:0000070,
+        bacc:0000071,
+        bacc:0000072,
+        bacc:0000073,
+        bacc:0000074,
+        bacc:0000075,
+        bacc:0000076,
+        bacc:0000077,
+        bacc:0000101,
+        bacc:0000102 ;
+    skos:prefLabel "environmental material"@en .
+
+baccv:facility a skos:Collection ;
+    skos:definition "The kind of built facility where the sample was collected."@en ;
+    skos:member bacc:0000079,
+        bacc:0000080,
+        bacc:0000082,
+        bacc:0000083,
+        bacc:0000084,
+        bacc:0000085,
+        bacc:0000086,
+        bacc:0000123,
+        bacc:0000124,
+        bacc:0000125,
+        bacc:0000126 ;
+    skos:prefLabel "facility"@en .
+
+baccv:food_type a skos:Collection ;
+    skos:definition "The food or feed sampled."@en ;
+    skos:member bacc:0000094,
+        bacc:0000095,
+        bacc:0000096,
+        bacc:0000097,
+        bacc:0000098,
+        bacc:0000099,
+        bacc:0000100 ;
+    skos:prefLabel "food type"@en .
+
+baccv:has_part rdfs:label "has part"@en ;
+    rdfs:subPropertyOf skos:related ;
+    skos:definition "The subject contains the object."@en .
+
+baccv:host_disease a skos:Collection ;
+    skos:definition "The diagnosis or the health state of the host."@en ;
+    skos:member bacc:0000128,
+        bacc:0000129,
+        bacc:0000130,
+        bacc:0000131,
+        bacc:0000132,
+        bacc:0000133,
+        bacc:0000134,
+        bacc:0000135,
+        bacc:0000136,
+        bacc:0000137,
+        bacc:0000138,
+        bacc:0000139,
+        bacc:0000140,
+        bacc:0000141,
+        bacc:0000142,
+        bacc:0000143,
+        bacc:0000144,
+        bacc:0000145,
+        bacc:0000146,
+        bacc:0000147,
+        bacc:0000148,
+        bacc:0000149,
+        bacc:0000150,
+        bacc:0000151,
+        bacc:0000152,
+        bacc:0000153 ;
+    skos:prefLabel "host disease"@en .
+
+baccv:implies_source_type rdfs:label "implies source type"@en ;
+    rdfs:subPropertyOf skos:related ;
+    skos:definition "Every sample under the subject belongs to the source-type term."@en .
+
+baccv:lesion a skos:Collection ;
+    skos:definition "The pathological structure sampled."@en ;
+    skos:member bacc:0000061,
+        bacc:0000062,
+        bacc:0000063,
+        bacc:0000120 ;
+    skos:prefLabel "lesion"@en .
+
+baccv:located_in rdfs:label "located in"@en ;
+    rdfs:subPropertyOf skos:related ;
+    skos:definition "The material is inside the site."@en .
+
+baccv:part_of rdfs:label "part of"@en ;
+    rdfs:subPropertyOf skos:related ;
+    skos:definition "The site is part of a second whole outside its parent path."@en .
+
+baccv:produced_by rdfs:label "produced by"@en ;
+    rdfs:subPropertyOf skos:related ;
+    skos:definition "The site produces the material."@en .
+
+baccv:sampled_object a skos:Collection ;
+    skos:definition "The object or surface of a built environment that was sampled."@en ;
+    skos:member bacc:0000087,
+        bacc:0000088,
+        bacc:0000089,
+        bacc:0000090,
+        bacc:0000091,
+        bacc:0000092,
+        bacc:0000093 ;
+    skos:prefLabel "sampled object"@en .
+
+baccv:source_type a skos:Collection ;
+    skos:definition "The broad kinds of source the isolate came from."@en ;
+    skos:member bacc:0000001,
+        bacc:0000002,
+        bacc:0000003,
+        bacc:0000004,
+        bacc:0000007,
+        bacc:0000008,
+        bacc:0000122 ;
+    skos:prefLabel "source type"@en .
+
+bacc:0000002 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000001 ;
+    skos:broader bacc:0000001 ;
+    skos:definition "Material taken from or produced by an animal other than a human."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000002" ;
+    skos:prefLabel "animal host"@en .
+
+bacc:0000007 a skos:Concept ;
+    oboInOwl:hasNarrowSynonym "food"@en ;
+    skos:definition "Food for humans or feed for animals."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000007" ;
+    skos:prefLabel "food or feed"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000008 a skos:Concept ;
+    oboInOwl:hasExactSynonym "lab strain"@en ;
+    skos:altLabel "lab strain"@en ;
+    skos:definition "A bacterial strain that was kept, evolved, or engineered in a laboratory."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000008" ;
+    skos:prefLabel "laboratory strain"@en ;
+    skos:scopeNote "Not for a new isolate from a natural or clinical source. Wording about culture, medium, plate, isolate, or a diagnostic laboratory does not qualify."@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000010 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000009 ;
+    oboInOwl:hasNarrowSynonym "human blood"@en,
+        "venous blood"@en ;
+    oboInOwl:hasRelatedSynonym "bloodstream"@en ;
+    skos:broader bacc:0000009 ;
+    skos:closeMatch <http://purl.obolibrary.org/obo/ENVO_02000020> ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0000178> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000010" ;
+    skos:prefLabel "blood"@en ;
+    skos:related bacc:0000050 ;
+    baccv:located_in bacc:0000050 .
+
+bacc:0000012 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000009 ;
+    skos:broader bacc:0000009 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0001090> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000012" ;
+    skos:prefLabel "synovial fluid"@en ;
+    skos:related bacc:0000059 ;
+    baccv:located_in bacc:0000059 .
+
+bacc:0000013 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000009 ;
+    oboInOwl:hasExactSynonym "csf"@en ;
+    skos:altLabel "csf"@en ;
+    skos:broader bacc:0000009 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0001359> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000013" ;
+    skos:prefLabel "cerebrospinal fluid"@en ;
+    skos:related bacc:0000052 ;
+    baccv:located_in bacc:0000052 .
+
+bacc:0000014 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000009 ;
+    oboInOwl:hasNarrowSynonym "clean catch urine"@en,
+        "human urine"@en,
+        "midstream urine"@en,
+        "urine clean catch"@en,
+        "urine, clean catch"@en,
+        "urine, midstream"@en,
+        "void urine"@en,
+        "voided urine"@en ;
+    skos:broadMatch <http://purl.obolibrary.org/obo/ENVO_02000022> ;
+    skos:broader bacc:0000009 ;
+    skos:closeMatch <http://purl.obolibrary.org/obo/ENVO_00002047> ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0001088> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000014" ;
+    skos:prefLabel "urine"@en ;
+    skos:related bacc:0000104 ;
+    skos:scopeNote "Cystocentesis urine also names the lower urinary tract."@en ;
+    baccv:produced_by bacc:0000104 .
+
+bacc:0000015 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000009 ;
+    oboInOwl:hasRelatedSynonym "ascites"@en ;
+    skos:broader bacc:0000009 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0001268> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000015" ;
+    skos:prefLabel "peritoneal fluid"@en .
+
+bacc:0000016 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000009 ;
+    skos:broader bacc:0000009 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0001970> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000016" ;
+    skos:prefLabel "bile"@en .
+
+bacc:0000019 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000018 ;
+    skos:broader bacc:0000018 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0007311> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000019" ;
+    skos:prefLabel "sputum"@en ;
+    skos:related bacc:0000031 ;
+    baccv:produced_by bacc:0000031 .
+
+bacc:0000020 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000018 ;
+    oboInOwl:hasExactSynonym "endotracheal aspirate"@en ;
+    skos:altLabel "endotracheal aspirate"@en ;
+    skos:broadMatch <http://purl.obolibrary.org/obo/UBERON_0006538> ;
+    skos:broader bacc:0000018 ;
+    skos:definition "Respiratory secretion collected from the trachea by suction."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000020" ;
+    skos:prefLabel "tracheal aspirate"@en ;
+    skos:related bacc:0000032 ;
+    baccv:collected_from bacc:0000032 .
+
+bacc:0000021 a skos:Concept ;
+    oboInOwl:hasExactSynonym "bal fluid"@en,
+        "balf"@en ;
+    oboInOwl:hasRelatedSynonym "bal"@en,
+        "bronchoalveolar lavage"@en ;
+    skos:altLabel "bal fluid"@en,
+        "balf"@en ;
+    skos:definition "Fluid that is washed through the bronchi and alveoli of a lung and then recovered with the respiratory secretion in it."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000021" ;
+    skos:prefLabel "bronchoalveolar lavage fluid"@en ;
+    skos:related bacc:0000018,
+        bacc:0000034 ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> ;
+    baccv:collected_from bacc:0000034 ;
+    baccv:has_part bacc:0000018 .
+
+bacc:0000025 a skos:Concept ;
+    oboInOwl:hasExactSynonym "faecal material"@en,
+        "faeces"@en,
+        "fecal material"@en,
+        "stool"@en,
+        "stools"@en ;
+    oboInOwl:hasNarrowSynonym "cattle faeces"@en,
+        "cattle feces"@en,
+        "chicken feces"@en,
+        "dairy calf feces"@en,
+        "human faeces"@en,
+        "human feces"@en,
+        "human stool"@en,
+        "mouse feces"@en,
+        "mouse stool"@en ;
+    skos:altLabel "faecal material"@en,
+        "faeces"@en,
+        "fecal material"@en,
+        "stool"@en,
+        "stools"@en ;
+    skos:broadMatch <http://purl.obolibrary.org/obo/ENVO_02000022> ;
+    skos:closeMatch <http://purl.obolibrary.org/obo/ENVO_00002003>,
+        <http://purl.obolibrary.org/obo/ENVO_01001029> ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0001988> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000025" ;
+    skos:prefLabel "feces"@en ;
+    skos:related bacc:0000035 ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> ;
+    baccv:produced_by bacc:0000035 .
+
+bacc:0000027 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000026 ;
+    skos:broader bacc:0000026 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0000977> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000027" ;
+    skos:prefLabel "pleura"@en .
+
+bacc:0000029 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000028 ;
+    oboInOwl:hasBroadSynonym "nose"@en ;
+    oboInOwl:hasNarrowSynonym "nares"@en ;
+    skos:broader bacc:0000028 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0001707> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000029" ;
+    skos:prefLabel "nasal cavity"@en .
+
+bacc:0000033 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000031 ;
+    skos:broader bacc:0000031 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0002185> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000033" ;
+    skos:prefLabel "bronchus"@en .
+
+bacc:0000036 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000035 ;
+    skos:broader bacc:0000035 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0000165> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000036" ;
+    skos:prefLabel "mouth"@en .
+
+bacc:0000037 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000035 ;
+    skos:broader bacc:0000035 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0000945> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000037" ;
+    skos:prefLabel "stomach"@en .
+
+bacc:0000038 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000035 ;
+    skos:broader bacc:0000035 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0007365> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000038" ;
+    skos:prefLabel "rumen"@en .
+
+bacc:0000041 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000039 ;
+    skos:broader bacc:0000039 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0001052> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000041" ;
+    skos:prefLabel "rectum"@en .
+
+bacc:0000042 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000035 ;
+    skos:broader bacc:0000035 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0000162> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000042" ;
+    skos:prefLabel "cloaca"@en .
+
+bacc:0000045 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000044 ;
+    skos:broader bacc:0000044 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0002113> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000045" ;
+    skos:prefLabel "kidney"@en .
+
+bacc:0000046 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000104 ;
+    skos:broader bacc:0000104 ;
+    skos:definition "The bladder and the urethra."@en ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0001556> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000046" ;
+    skos:prefLabel "lower urinary tract"@en .
+
+bacc:0000048 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000047 ;
+    skos:broader bacc:0000047 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0000996> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000048" ;
+    skos:prefLabel "vagina"@en .
+
+bacc:0000049 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000047 ;
+    skos:broader bacc:0000047 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0000995> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000049" ;
+    skos:prefLabel "uterus"@en .
+
+bacc:0000051 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000050 ;
+    skos:broader bacc:0000050 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0001981> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000051" ;
+    skos:prefLabel "blood vessel"@en .
+
+bacc:0000055 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000054 ;
+    skos:broader bacc:0000054 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0000964> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000055" ;
+    skos:prefLabel "cornea"@en .
+
+bacc:0000056 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000053 ;
+    skos:broader bacc:0000053 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0001690> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000056" ;
+    skos:prefLabel "ear"@en .
+
+bacc:0000057 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000113 ;
+    oboInOwl:hasExactSynonym "iecur"@en,
+        "jecur"@en ;
+    skos:altLabel "iecur"@en,
+        "jecur"@en ;
+    skos:broader bacc:0000113 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0002107> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000057" ;
+    skos:prefLabel "liver"@en .
+
+bacc:0000058 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000158 ;
+    skos:broader bacc:0000158 ;
+    skos:closeMatch <http://purl.obolibrary.org/obo/UBERON_0001474> ;
+    skos:definition "A bone of the skeleton or the bone tissue it is made of."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000058" ;
+    skos:prefLabel "bone"@en .
+
+bacc:0000060 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000117 ;
+    skos:broader bacc:0000117 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0000014> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000060" ;
+    skos:prefLabel "skin"@en .
+
+bacc:0000061 a skos:Concept ;
+    skos:definition "A break in the skin or another tissue caused by injury or surgery."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000061" ;
+    skos:prefLabel "wound"@en ;
+    skos:relatedMatch <http://purl.obolibrary.org/obo/MONDO_0021178> ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000062 a skos:Concept ;
+    skos:closeMatch <http://purl.obolibrary.org/obo/MONDO_0043839> ;
+    skos:definition "An open sore on the skin or a mucous membrane where the surface tissue is lost."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000062" ;
+    skos:prefLabel "ulcer"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000063 a skos:Concept ;
+    skos:closeMatch <http://purl.obolibrary.org/obo/MONDO_0005227> ;
+    skos:definition "A pus-filled cavity in a tissue."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000063" ;
+    skos:prefLabel "abscess"@en ;
+    skos:related bacc:0000017 ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> ;
+    baccv:has_part bacc:0000017 .
+
+bacc:0000065 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000064 ;
+    oboInOwl:hasRelatedSynonym "rhizosphere"@en ;
+    skos:broader bacc:0000064 ;
+    skos:closeMatch <http://purl.obolibrary.org/obo/ENVO_00005801> ;
+    skos:definition "Soil directly around living plant roots and influenced by them."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000065" ;
+    skos:prefLabel "rhizosphere soil"@en ;
+    skos:related bacc:0000003 ;
+    baccv:implies_source_type bacc:0000003 .
+
+bacc:0000067 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000066 ;
+    oboInOwl:hasExactSynonym "freshwater"@en ;
+    skos:altLabel "freshwater"@en ;
+    skos:broader bacc:0000066 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/ENVO_00002011> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000067" ;
+    skos:prefLabel "fresh water"@en .
+
+bacc:0000068 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000066 ;
+    oboInOwl:hasExactSynonym "ground water"@en ;
+    skos:altLabel "ground water"@en ;
+    skos:broader bacc:0000066 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/ENVO_01001004> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000068" ;
+    skos:prefLabel "groundwater"@en .
+
+bacc:0000069 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000066 ;
+    oboInOwl:hasExactSynonym "seawater"@en ;
+    skos:altLabel "seawater"@en ;
+    skos:broader bacc:0000066 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/ENVO_00002149> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000069" ;
+    skos:prefLabel "sea water"@en .
+
+bacc:0000070 a skos:Concept ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/ENVO_00002007> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000070" ;
+    skos:prefLabel "sediment"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000072 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000071 ;
+    oboInOwl:hasNarrowSynonym "cattle manure"@en,
+        "chicken manure"@en,
+        "dairy cattle manure"@en,
+        "farmyard manure"@en ;
+    skos:broader bacc:0000071 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/ENVO_00003031> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrowMatch <http://purl.obolibrary.org/obo/ENVO_00003884>,
+        <http://purl.obolibrary.org/obo/ENVO_03501252> ;
+    skos:notation "BACC:0000072" ;
+    skos:prefLabel "animal manure"@en .
+
+bacc:0000073 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000071 ;
+    skos:broader bacc:0000071 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/ENVO_00002170> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000073" ;
+    skos:prefLabel "compost"@en .
+
+bacc:0000075 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000074 ;
+    oboInOwl:hasNarrowSynonym "hospital sewage"@en ;
+    skos:broader bacc:0000074 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/ENVO_00002018> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000075" ;
+    skos:prefLabel "sewage"@en .
+
+bacc:0000077 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000076 ;
+    skos:broader bacc:0000076 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/ENVO_00002046> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000077" ;
+    skos:prefLabel "activated sludge"@en .
+
+bacc:0000080 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000124 ;
+    skos:broader bacc:0000124 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/ENVO_03600008> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000080" ;
+    skos:prefLabel "intensive care unit"@en .
+
+bacc:0000082 a skos:Concept ;
+    skos:closeMatch <http://purl.obolibrary.org/obo/ENVO_00000078> ;
+    skos:definition "A building or other built structure on a farm, such as an animal house."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrowMatch <http://purl.obolibrary.org/obo/ENVO_03501258> ;
+    skos:notation "BACC:0000082" ;
+    skos:prefLabel "farm facility"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000084 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000083 ;
+    skos:broader bacc:0000083 ;
+    skos:closeMatch <http://purl.obolibrary.org/obo/ENVO_00003863> ;
+    skos:definition "A food production facility where raw agricultural products are processed into food, in one or more buildings."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000084" ;
+    skos:prefLabel "food processing plant"@en .
+
+bacc:0000085 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000083 ;
+    oboInOwl:hasExactSynonym "slaughter house"@en,
+        "slaughterhouse"@en ;
+    skos:altLabel "slaughter house"@en,
+        "slaughterhouse"@en ;
+    skos:broader bacc:0000083 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/ENVO_01000925> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000085" ;
+    skos:prefLabel "abattoir"@en .
+
+bacc:0000086 a skos:Concept ;
+    oboInOwl:hasExactSynonym "sewage treatment plant"@en,
+        "waste water treatment plant"@en,
+        "wwtp"@en ;
+    skos:altLabel "sewage treatment plant"@en,
+        "waste water treatment plant"@en,
+        "wwtp"@en ;
+    skos:broadMatch <http://purl.obolibrary.org/obo/ENVO_00002272> ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/ENVO_00002043> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000086" ;
+    skos:prefLabel "wastewater treatment plant"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000088 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000087 ;
+    skos:broader bacc:0000087 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/ENVO_01000990> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000088" ;
+    skos:prefLabel "sink"@en .
+
+bacc:0000089 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000087 ;
+    skos:broader bacc:0000087 ;
+    skos:definition "An inanimate object through which water drains into a plumbing system, such as a sink, floor, or shower drain."@en ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/ENVO_01000924> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000089" ;
+    skos:prefLabel "plumbing drain"@en .
+
+bacc:0000090 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000087 ;
+    skos:broader bacc:0000087 ;
+    skos:definition "An inanimate object used as a tool or an apparatus, such as a machine, an instrument, a ventilator, or a monitor."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000090" ;
+    skos:prefLabel "equipment"@en .
+
+bacc:0000092 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000091 ;
+    oboInOwl:hasNarrowSynonym "urinary catheter"@en,
+        "vascular catheter"@en ;
+    skos:broader bacc:0000091 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/OBI_0002830> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000092" ;
+    skos:prefLabel "catheter"@en .
+
+bacc:0000093 a skos:Concept ;
+    oboInOwl:hasNarrowSynonym "environmental surface"@en ;
+    skos:closeMatch <http://purl.obolibrary.org/obo/ENVO_00010504> ;
+    skos:definition "The outer boundary of an object or structure in a built environment, such as a floor, a wall, or a bench."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000093" ;
+    skos:prefLabel "surface"@en ;
+    skos:scopeNote "Use when the surface itself was sampled, not the whole object."@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000094 a skos:Concept ;
+    skos:definition "A food product made from plants or plant parts, such as fruit, vegetables, grain, or sprouts."@en ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/FOODON_00001015> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrowMatch <http://purl.obolibrary.org/obo/FOODON_03309861> ;
+    skos:notation "BACC:0000094" ;
+    skos:prefLabel "plant food product"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000096 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000095 ;
+    oboInOwl:hasExactSynonym "dairy product"@en ;
+    skos:altLabel "dairy product"@en ;
+    skos:broader bacc:0000095 ;
+    skos:definition "An animal food product that is milk or is made from milk, such as raw milk, cheese, or yogurt."@en ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/FOODON_00001256> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000096" ;
+    skos:prefLabel "dairy food product"@en .
+
+bacc:0000097 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000095 ;
+    oboInOwl:hasExactSynonym "meat"@en ;
+    oboInOwl:hasNarrowSynonym "beef"@en,
+        "broiler meat"@en,
+        "chicken breast"@en,
+        "chicken meat"@en,
+        "chicken thighs"@en,
+        "comminuted beef"@en,
+        "ground beef"@en,
+        "ground turkey"@en,
+        "pork"@en,
+        "pork chop"@en,
+        "product raw intact beef"@en ;
+    skos:altLabel "meat"@en ;
+    skos:broader bacc:0000095 ;
+    skos:closeMatch <http://purl.obolibrary.org/obo/FOODON_00002671> ;
+    skos:definition "An animal food product made from the flesh of land animals, such as beef, pork, or chicken."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrowMatch <http://purl.obolibrary.org/obo/FOODON_00001006>,
+        <http://purl.obolibrary.org/obo/FOODON_00003363>,
+        <http://purl.obolibrary.org/obo/FOODON_02020235> ;
+    skos:notation "BACC:0000097" ;
+    skos:prefLabel "meat product"@en .
+
+bacc:0000098 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000095 ;
+    skos:broader bacc:0000095 ;
+    skos:definition "An animal food product made from fish, shellfish, or other aquatic animals."@en ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/FOODON_00001046> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000098" ;
+    skos:prefLabel "seafood product"@en .
+
+bacc:0000099 a skos:Concept ;
+    skos:definition "A food product made by microbial fermentation, such as sauerkraut, kimchi, or tempeh."@en ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/FOODON_00001258> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000099" ;
+    skos:prefLabel "fermented food"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000100 a skos:Concept ;
+    oboInOwl:hasExactSynonym "feed"@en ;
+    skos:altLabel "feed"@en ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/FOODON_00004325> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000100" ;
+    skos:prefLabel "animal feed"@en ;
+    skos:scopeNote "An organism named in feed is not the bacterial host."@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000101 a skos:Concept ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/ENVO_00002005> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000101" ;
+    skos:prefLabel "air"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000102 a skos:Concept ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/ENVO_00002008> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000102" ;
+    skos:prefLabel "dust"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000105 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000011 ;
+    oboInOwl:hasExactSynonym "breast milk"@en,
+        "human breast milk"@en,
+        "maternal milk"@en ;
+    skos:altLabel "breast milk"@en,
+        "human breast milk"@en,
+        "maternal milk"@en ;
+    skos:broadMatch <http://purl.obolibrary.org/obo/UBERON_0001913> ;
+    skos:broader bacc:0000011 ;
+    skos:definition "Mammalian milk produced by a human."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000105" ;
+    skos:prefLabel "human milk"@en ;
+    skos:scopeNote "Use only when evidence identifies human milk."@en .
+
+bacc:0000107 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000106 ;
+    oboInOwl:hasExactSynonym "hind limb"@en,
+        "hindlimb"@en,
+        "lower extremity"@en,
+        "lower limbs"@en ;
+    oboInOwl:hasNarrowSynonym "ankle"@en,
+        "buttock"@en,
+        "buttocks"@en,
+        "feet"@en,
+        "foot"@en,
+        "gluteal region"@en,
+        "heel"@en,
+        "hip"@en,
+        "knee"@en,
+        "knees"@en,
+        "left popliteal fossa"@en,
+        "leg"@en,
+        "legs"@en,
+        "popliteal fossa"@en,
+        "right popliteal fossa"@en,
+        "thigh"@en,
+        "toe"@en,
+        "toes"@en ;
+    skos:altLabel "hind limb"@en,
+        "hindlimb"@en,
+        "lower extremity"@en,
+        "lower limbs"@en ;
+    skos:broader bacc:0000106 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0002103> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000107" ;
+    skos:prefLabel "lower limb"@en ;
+    skos:scopeNote "Includes the buttock, hip, thigh, knee, popliteal fossa, leg, ankle, heel, foot, and toes. Not the sacral region, which is part of the back."@en .
+
+bacc:0000108 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000106 ;
+    oboInOwl:hasExactSynonym "fore limb"@en,
+        "foreleg"@en,
+        "forelimb"@en,
+        "upper extremity"@en,
+        "upper limbs"@en ;
+    oboInOwl:hasNarrowSynonym "arm"@en,
+        "arms"@en,
+        "elbow"@en,
+        "finger"@en,
+        "fingers"@en,
+        "forearm"@en,
+        "hand"@en,
+        "hands"@en,
+        "shoulder"@en,
+        "wrist"@en ;
+    skos:altLabel "fore limb"@en,
+        "foreleg"@en,
+        "forelimb"@en,
+        "upper extremity"@en,
+        "upper limbs"@en ;
+    skos:broader bacc:0000106 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0002102> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000108" ;
+    skos:prefLabel "upper limb"@en ;
+    skos:scopeNote "Includes the shoulder, arm, elbow, forearm, wrist, hand, and fingers."@en .
+
+bacc:0000110 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000109 ;
+    oboInOwl:hasExactSynonym "groin"@en ;
+    skos:altLabel "groin"@en ;
+    skos:broader bacc:0000109 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0008337> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000110" ;
+    skos:prefLabel "inguinal region"@en .
+
+bacc:0000111 a skos:Concept ;
+    oboInOwl:hasExactSynonym "armpit"@en,
+        "axillae"@en,
+        "underarm"@en ;
+    skos:altLabel "armpit"@en,
+        "axillae"@en,
+        "underarm"@en ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0009472> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000111" ;
+    skos:prefLabel "axilla"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000112 a skos:Concept ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0002106> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000112" ;
+    skos:prefLabel "spleen"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000114 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000113 ;
+    oboInOwl:hasExactSynonym "cholecyst"@en,
+        "gall bladder"@en ;
+    skos:altLabel "cholecyst"@en,
+        "gall bladder"@en ;
+    skos:broader bacc:0000113 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0002110> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000114" ;
+    skos:prefLabel "gallbladder"@en .
+
+bacc:0000115 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000030 ;
+    skos:broader bacc:0000030 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0001728> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000115" ;
+    skos:prefLabel "nasopharynx"@en .
+
+bacc:0000116 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000030 ;
+    skos:broader bacc:0000030 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0001729> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000116" ;
+    skos:prefLabel "oropharynx"@en ;
+    skos:related bacc:0000035 ;
+    baccv:part_of bacc:0000035 .
+
+bacc:0000118 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000103 ;
+    oboInOwl:hasBroadSynonym "muscle"@en ;
+    oboInOwl:hasExactSynonym "muscular tissue"@en ;
+    oboInOwl:hasNarrowSynonym "skeletal muscle"@en ;
+    skos:altLabel "muscular tissue"@en ;
+    skos:broader bacc:0000103 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0002385> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000118" ;
+    skos:prefLabel "muscle tissue"@en .
+
+bacc:0000119 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000009 ;
+    oboInOwl:hasExactSynonym "drain fluid"@en,
+        "drained fluid"@en ;
+    oboInOwl:hasRelatedSynonym "drainage"@en ;
+    skos:altLabel "drain fluid"@en,
+        "drained fluid"@en ;
+    skos:broader bacc:0000009 ;
+    skos:definition "Body fluid drained from a wound, a body cavity, or a fluid collection."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000119" ;
+    skos:prefLabel "drainage fluid"@en ;
+    skos:scopeNote "Use when the metadata does not name the fluid. If the metadata names the fluid, or names a lesion that implies it, use that instead."@en .
+
+bacc:0000120 a skos:Concept ;
+    oboInOwl:hasExactSynonym "cysts"@en ;
+    skos:altLabel "cysts"@en ;
+    skos:definition "A closed sac that is empty or filled with fluid or semisolid material."@en ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/NCIT_C2978> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000120" ;
+    skos:prefLabel "cyst"@en ;
+    skos:scopeNote "Do not use for cystic fibrosis, cystitis, cystocentesis, a pseudocyst, or the cyst stage of an organism."@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000121 a skos:Concept ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0002356> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000121" ;
+    skos:prefLabel "perineum"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000122 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000001 ;
+    oboInOwl:hasNarrowSynonym "human-associated"@en ;
+    skos:broader bacc:0000001 ;
+    skos:definition "Material taken from or produced by a human."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000122" ;
+    skos:prefLabel "human host"@en .
+
+bacc:0000123 a skos:Concept ;
+    skos:definition "A facility where animals receive veterinary care, such as a veterinary clinic or a veterinary hospital."@en ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/ENVO_03501348> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000123" ;
+    skos:prefLabel "veterinary facility"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000125 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000079 ;
+    skos:broader bacc:0000079 ;
+    skos:definition "A healthcare facility outside a hospital where people get first-contact care, such as a general practice."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrowMatch <http://purl.obolibrary.org/obo/ENVO_03501186>,
+        <http://purl.obolibrary.org/obo/ENVO_03501341> ;
+    skos:notation "BACC:0000125" ;
+    skos:prefLabel "primary care facility"@en .
+
+bacc:0000126 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000079 ;
+    skos:broader bacc:0000079 ;
+    skos:definition "A healthcare facility where residents receive long-term care, such as a nursing home or a care home."@en ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/ENVO_03501194> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrowMatch <http://purl.obolibrary.org/obo/ENVO_01000932> ;
+    skos:notation "BACC:0000126" ;
+    skos:prefLabel "long-term care facility"@en .
+
+bacc:0000127 a skos:Concept ;
+    oboInOwl:hasBroadSynonym "udder"@en ;
+    oboInOwl:hasNarrowSynonym "teat"@en ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0001911> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000127" ;
+    skos:prefLabel "mammary gland"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000130 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000129 ;
+    oboInOwl:hasExactSynonym "BSI"@en,
+        "bacteraemia"@en,
+        "bloodstream infection"@en ;
+    skos:altLabel "BSI"@en,
+        "bacteraemia"@en,
+        "bloodstream infection"@en ;
+    skos:broader bacc:0000129 ;
+    skos:definition "Bacteria in the blood, also called a bloodstream infection."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000130" ;
+    skos:prefLabel "bacteremia"@en .
+
+bacc:0000131 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000129 ;
+    oboInOwl:hasRelatedSynonym "septicemia"@en ;
+    skos:broader bacc:0000129 ;
+    skos:closeMatch <http://purl.obolibrary.org/obo/MONDO_0005229> ;
+    skos:definition "A life-threatening response of the body to an infection, including septicemia and neonatal sepsis."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000131" ;
+    skos:prefLabel "sepsis"@en .
+
+bacc:0000133 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000132 ;
+    skos:broader bacc:0000132 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/MONDO_0005249> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000133" ;
+    skos:prefLabel "pneumonia"@en .
+
+bacc:0000134 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000129 ;
+    oboInOwl:hasExactSynonym "UTI"@en ;
+    oboInOwl:hasNarrowSynonym "cystitis"@en,
+        "pyelonephritis"@en ;
+    skos:altLabel "UTI"@en ;
+    skos:broader bacc:0000129 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/MONDO_0100338> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000134" ;
+    skos:prefLabel "urinary tract infection"@en ;
+    skos:scopeNote "Asymptomatic bacteriuria is colonization."@en .
+
+bacc:0000135 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000129 ;
+    oboInOwl:hasNarrowSynonym "dysentery"@en,
+        "enteritis"@en,
+        "gastroenteritis"@en,
+        "shigellosis"@en ;
+    oboInOwl:hasRelatedSynonym "diarrhea"@en ;
+    skos:broader bacc:0000129 ;
+    skos:definition "An infection of the stomach or the intestine, such as gastroenteritis, diarrheal disease, dysentery, shigellosis, or an STEC infection."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrowMatch <http://purl.obolibrary.org/obo/MONDO_0000916> ;
+    skos:notation "BACC:0000135" ;
+    skos:prefLabel "gastrointestinal infection"@en .
+
+bacc:0000136 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000129 ;
+    oboInOwl:hasNarrowSynonym "cholangitis"@en,
+        "peritonitis"@en ;
+    skos:broader bacc:0000129 ;
+    skos:definition "An infection in the abdomen outside the intestine, such as peritonitis, a liver abscess, or cholangitis."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000136" ;
+    skos:prefLabel "intra-abdominal infection"@en .
+
+bacc:0000137 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000129 ;
+    oboInOwl:hasExactSynonym "SSTI"@en ;
+    oboInOwl:hasNarrowSynonym "cellulitis"@en,
+        "impetigo"@en,
+        "skin infection"@en ;
+    skos:altLabel "SSTI"@en ;
+    skos:broader bacc:0000129 ;
+    skos:definition "An infection of the skin or the tissue under it, such as cellulitis, impetigo, a furuncle, or an infected wound or burn."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrowMatch <http://purl.obolibrary.org/obo/MONDO_0021201> ;
+    skos:notation "BACC:0000137" ;
+    skos:prefLabel "skin and soft tissue infection"@en ;
+    skos:scopeNote "A sampled wound or abscess alone is a lesion, not this diagnosis."@en .
+
+bacc:0000138 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000129 ;
+    oboInOwl:hasExactSynonym "SSI"@en ;
+    skos:altLabel "SSI"@en ;
+    skos:broader bacc:0000129 ;
+    skos:definition "An infection of the incision or of the operated organ after surgery."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000138" ;
+    skos:prefLabel "surgical site infection"@en .
+
+bacc:0000139 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000129 ;
+    oboInOwl:hasNarrowSynonym "catheter-related infection"@en,
+        "prosthetic joint infection"@en ;
+    skos:broader bacc:0000129 ;
+    skos:definition "An infection of a device placed in a patient, such as a catheter, a prosthetic joint, or a cardiac device."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrowMatch <http://purl.obolibrary.org/obo/MONDO_0043892> ;
+    skos:notation "BACC:0000139" ;
+    skos:prefLabel "device-associated infection"@en .
+
+bacc:0000140 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000129 ;
+    oboInOwl:hasExactSynonym "osteoarticular infection"@en ;
+    oboInOwl:hasNarrowSynonym "osteomyelitis"@en,
+        "septic arthritis"@en ;
+    skos:altLabel "osteoarticular infection"@en ;
+    skos:broader bacc:0000129 ;
+    skos:definition "An infection of a bone or a joint, such as osteomyelitis or septic arthritis."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrowMatch <http://purl.obolibrary.org/obo/MONDO_0004471>,
+        <http://purl.obolibrary.org/obo/MONDO_0005246> ;
+    skos:notation "BACC:0000140" ;
+    skos:prefLabel "bone and joint infection"@en .
+
+bacc:0000142 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000141 ;
+    skos:broadMatch <http://purl.obolibrary.org/obo/MONDO_0021108> ;
+    skos:broader bacc:0000141 ;
+    skos:definition "Inflammation of the meninges caused by an infection."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrowMatch <http://purl.obolibrary.org/obo/MONDO_0006670> ;
+    skos:notation "BACC:0000142" ;
+    skos:prefLabel "meningitis"@en .
+
+bacc:0000143 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000129 ;
+    oboInOwl:hasExactSynonym "infective endocarditis"@en ;
+    skos:altLabel "infective endocarditis"@en ;
+    skos:broader bacc:0000129 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/MONDO_0000565> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000143" ;
+    skos:prefLabel "endocarditis"@en .
+
+bacc:0000144 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000129 ;
+    oboInOwl:hasNarrowSynonym "conjunctivitis"@en,
+        "endophthalmitis"@en,
+        "keratitis"@en ;
+    skos:broader bacc:0000129 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/MONDO_0043885> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000144" ;
+    skos:prefLabel "eye infection"@en .
+
+bacc:0000145 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000129 ;
+    oboInOwl:hasExactSynonym "otitis"@en ;
+    oboInOwl:hasNarrowSynonym "otitis externa"@en,
+        "otitis media"@en ;
+    skos:altLabel "otitis"@en ;
+    skos:broader bacc:0000129 ;
+    skos:definition "An infection of the ear, such as otitis externa or otitis media."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrowMatch <http://purl.obolibrary.org/obo/MONDO_0004795>,
+        <http://purl.obolibrary.org/obo/MONDO_0024330> ;
+    skos:notation "BACC:0000145" ;
+    skos:prefLabel "ear infection"@en .
+
+bacc:0000146 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000129 ;
+    oboInOwl:hasNarrowSynonym "endometritis"@en,
+        "metritis"@en,
+        "pyometra"@en,
+        "vaginitis"@en ;
+    skos:broader bacc:0000129 ;
+    skos:definition "An infection of the reproductive organs, such as endometritis, metritis, pyometra, or vaginitis."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000146" ;
+    skos:prefLabel "reproductive tract infection"@en .
+
+bacc:0000147 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000129 ;
+    oboInOwl:hasExactSynonym "intramammary infection"@en ;
+    skos:altLabel "intramammary infection"@en ;
+    skos:broader bacc:0000129 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/MONDO_0006849> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000147" ;
+    skos:prefLabel "mastitis"@en .
+
+bacc:0000148 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000129 ;
+    skos:broader bacc:0000129 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/MONDO_1014888> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000148" ;
+    skos:prefLabel "colibacillosis"@en .
+
+bacc:0000149 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000128 ;
+    oboInOwl:hasExactSynonym "CF"@en,
+        "mucoviscidosis"@en ;
+    skos:altLabel "CF"@en,
+        "mucoviscidosis"@en ;
+    skos:broader bacc:0000128 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/MONDO_0009061> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000149" ;
+    skos:prefLabel "cystic fibrosis"@en ;
+    skos:scopeNote "Do not use for \"non-CF\" values."@en .
+
+bacc:0000150 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000128 ;
+    skos:broader bacc:0000128 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/MONDO_0004822> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000150" ;
+    skos:prefLabel "bronchiectasis"@en ;
+    skos:scopeNote "Non-CF bronchiectasis is bronchiectasis without cystic fibrosis."@en .
+
+bacc:0000151 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000128 ;
+    oboInOwl:hasExactSynonym "COPD"@en ;
+    skos:altLabel "COPD"@en ;
+    skos:broader bacc:0000128 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/MONDO_0005002> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000151" ;
+    skos:prefLabel "chronic obstructive pulmonary disease"@en .
+
+bacc:0000152 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000128 ;
+    oboInOwl:hasExactSynonym "atopic eczema"@en ;
+    skos:altLabel "atopic eczema"@en ;
+    skos:broader bacc:0000128 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/MONDO_0004980> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000152" ;
+    skos:prefLabel "atopic dermatitis"@en .
+
+bacc:0000153 a skos:Concept ;
+    oboInOwl:hasExactSynonym "carriage"@en,
+        "colonisation"@en ;
+    skos:altLabel "carriage"@en,
+        "colonisation"@en ;
+    skos:definition "Bacteria live in or on the host without causing disease."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000153" ;
+    skos:prefLabel "colonization"@en ;
+    skos:scopeNote "Use for carriage, colonization, a screening sample, asymptomatic bacteriuria, or a healthy host."@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000154 a skos:Concept ;
+    oboInOwl:hasNarrowSynonym "face"@en,
+        "scalp"@en ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0000033> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000154" ;
+    skos:prefLabel "head"@en ;
+    skos:scopeNote "Does not imply an organ of the head, such as the brain or the eye."@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000155 a skos:Concept ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0000974> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000155" ;
+    skos:prefLabel "neck"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000156 a skos:Concept ;
+    oboInOwl:hasExactSynonym "chest"@en ;
+    skos:altLabel "chest"@en ;
+    skos:definition "The front and the sides of the trunk between the neck and the abdomen."@en ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0001443> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000156" ;
+    skos:prefLabel "thorax"@en ;
+    skos:scopeNote "Does not imply a thoracic organ, such as the lung or the heart."@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000157 a skos:Concept ;
+    oboInOwl:hasNarrowSynonym "lumbar region"@en,
+        "sacral region"@en,
+        "sacrum"@en ;
+    skos:definition "The rear of the trunk, including the lumbar and the sacral regions."@en ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0001137> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000157" ;
+    skos:prefLabel "back"@en ;
+    skos:scopeNote "Does not imply the vertebral column or the spinal cord."@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000040 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000039 ;
+    oboInOwl:hasExactSynonym "cecum"@en ;
+    skos:altLabel "cecum"@en ;
+    skos:broader bacc:0000039 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0001153> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000040" ;
+    skos:prefLabel "caecum"@en .
+
+bacc:0000003 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000001 ;
+    skos:broader bacc:0000001 ;
+    skos:definition "Material taken from or produced by a plant, including rhizosphere soil around its living roots."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000003" ;
+    skos:prefLabel "plant host"@en .
+
+bacc:0000004 a skos:Concept ;
+    oboInOwl:hasExactSynonym "environment"@en ;
+    skos:altLabel "environment"@en ;
+    skos:definition "Material from the environment outside a host, or an object or surface in a built environment."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000004" ;
+    skos:prefLabel "environmental"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000011 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000009 ;
+    oboInOwl:hasExactSynonym "milk"@en ;
+    skos:altLabel "milk"@en ;
+    skos:broader bacc:0000009 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0001913> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000105 ;
+    skos:notation "BACC:0000011" ;
+    skos:prefLabel "mammalian milk"@en .
+
+bacc:0000017 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000009 ;
+    skos:broader bacc:0000009 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0000177> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000017" ;
+    skos:prefLabel "pus"@en .
+
+bacc:0000022 a skos:Concept ;
+    oboInOwl:hasExactSynonym "digestive tract contents"@en,
+        "gut content"@en,
+        "gut contents"@en ;
+    skos:altLabel "digestive tract contents"@en,
+        "gut content"@en,
+        "gut contents"@en ;
+    skos:definition "Material taken from inside the digestive tract, usually at necropsy or slaughter."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000022" ;
+    skos:prefLabel "digestive tract content"@en ;
+    skos:related bacc:0000035 ;
+    skos:scopeNote "For passed stool, use feces. Also select the named site, for example caecum or intestine."@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> ;
+    baccv:located_in bacc:0000035 .
+
+bacc:0000032 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000031 ;
+    skos:broader bacc:0000031 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0003126> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000032" ;
+    skos:prefLabel "trachea"@en .
+
+bacc:0000034 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000031 ;
+    skos:broader bacc:0000031 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0002048> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000034" ;
+    skos:prefLabel "lung"@en .
+
+bacc:0000044 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000104 ;
+    skos:broader bacc:0000104 ;
+    skos:definition "The kidneys and the ureters."@en ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0011143> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000045 ;
+    skos:notation "BACC:0000044" ;
+    skos:prefLabel "upper urinary tract"@en .
+
+bacc:0000052 a skos:Concept ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0001016> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000052" ;
+    skos:prefLabel "nervous system"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000054 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000053 ;
+    skos:broader bacc:0000053 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0000970> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000055 ;
+    skos:notation "BACC:0000054" ;
+    skos:prefLabel "eye"@en .
+
+bacc:0000059 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000158 ;
+    skos:broader bacc:0000158 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0002217> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:notation "BACC:0000059" ;
+    skos:prefLabel "synovial joint"@en .
+
+bacc:0000064 a skos:Concept ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/ENVO_00001998> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrowMatch <http://purl.obolibrary.org/obo/ENVO_00005767> ;
+    skos:narrower bacc:0000065 ;
+    skos:notation "BACC:0000064" ;
+    skos:prefLabel "soil"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000076 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000074 ;
+    skos:broadMatch <http://purl.obolibrary.org/obo/ENVO_00002044> ;
+    skos:broader bacc:0000074 ;
+    skos:definition "Semisolid residue separated from wastewater during its treatment."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000077 ;
+    skos:notation "BACC:0000076" ;
+    skos:prefLabel "sludge"@en .
+
+bacc:0000091 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000087 ;
+    oboInOwl:hasExactSynonym "clinical device"@en ;
+    skos:altLabel "clinical device"@en ;
+    skos:broader bacc:0000087 ;
+    skos:definition "A device placed in or on a patient, such as a catheter, a tube, a drain, or an implant."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000092 ;
+    skos:notation "BACC:0000091" ;
+    skos:prefLabel "medical device"@en .
+
+bacc:0000103 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000117 ;
+    oboInOwl:hasExactSynonym "soft tissues"@en ;
+    skos:altLabel "soft tissues"@en ;
+    skos:broader bacc:0000117 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/NCIT_C12471> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000118 ;
+    skos:notation "BACC:0000103" ;
+    skos:prefLabel "soft tissue"@en .
+
+bacc:0000109 a skos:Concept ;
+    oboInOwl:hasExactSynonym "belly"@en ;
+    oboInOwl:hasNarrowSynonym "flank"@en ;
+    skos:altLabel "belly"@en ;
+    skos:definition "The region of the trunk between the thorax and the pelvis, including the flank and the inguinal region."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrowMatch <http://purl.obolibrary.org/obo/UBERON_0000916> ;
+    skos:narrower bacc:0000110 ;
+    skos:notation "BACC:0000109" ;
+    skos:prefLabel "abdomen"@en ;
+    skos:scopeNote "Does not imply an abdominal organ."@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000124 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000079 ;
+    oboInOwl:hasNarrowSynonym "ward"@en ;
+    skos:broader bacc:0000079 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/ENVO_00002173> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrowMatch <http://purl.obolibrary.org/obo/ENVO_03501137>,
+        <http://purl.obolibrary.org/obo/ENVO_03501158> ;
+    skos:narrower bacc:0000080 ;
+    skos:notation "BACC:0000124" ;
+    skos:prefLabel "hospital"@en .
+
+bacc:0000132 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000129 ;
+    skos:broader bacc:0000129 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/MONDO_0024355> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000133 ;
+    skos:notation "BACC:0000132" ;
+    skos:prefLabel "respiratory tract infection"@en .
+
+bacc:0000141 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000129 ;
+    oboInOwl:hasNarrowSynonym "brain abscess"@en ;
+    skos:broader bacc:0000129 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/MONDO_0024619> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000142 ;
+    skos:notation "BACC:0000141" ;
+    skos:prefLabel "central nervous system infection"@en .
+
+bacc:0000028 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000026 ;
+    oboInOwl:hasExactSynonym "upper respiratory system"@en ;
+    skos:altLabel "upper respiratory system"@en ;
+    skos:broader bacc:0000026 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0001557> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000029,
+        bacc:0000030 ;
+    skos:notation "BACC:0000028" ;
+    skos:prefLabel "upper respiratory tract"@en ;
+    skos:scopeNote "Do not use for sputum, which comes from the lower respiratory tract."@en .
+
+bacc:0000030 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000028 ;
+    oboInOwl:hasBroadSynonym "throat"@en ;
+    skos:broader bacc:0000028 ;
+    skos:definition "The part of the upper respiratory tract behind the nasal cavity and the mouth that is shared with the digestive tract."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrowMatch <http://purl.obolibrary.org/obo/UBERON_0001042> ;
+    skos:narrower bacc:0000115,
+        bacc:0000116 ;
+    skos:notation "BACC:0000030" ;
+    skos:prefLabel "pharynx"@en ;
+    skos:related bacc:0000035 ;
+    baccv:part_of bacc:0000035 .
+
+bacc:0000043 a skos:Concept ;
+    oboInOwl:hasExactSynonym "urogenital tract"@en ;
+    skos:altLabel "urogenital tract"@en ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0004122> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000047,
+        bacc:0000104 ;
+    skos:notation "BACC:0000043" ;
+    skos:prefLabel "genitourinary system"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000047 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000043 ;
+    oboInOwl:hasExactSynonym "genital tract"@en ;
+    skos:altLabel "genital tract"@en ;
+    skos:broadMatch <http://purl.obolibrary.org/obo/UBERON_0000990> ;
+    skos:broader bacc:0000043 ;
+    skos:definition "The part of the genitourinary system made up of the reproductive ducts and organs other than the gonads, such as the uterus and the vagina, and the external genitalia, such as the penis, the scrotum, and the vulva."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000048,
+        bacc:0000049 ;
+    skos:notation "BACC:0000047" ;
+    skos:prefLabel "reproductive tract"@en .
+
+bacc:0000050 a skos:Concept ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0001009> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000051 ;
+    skos:notation "BACC:0000050" ;
+    skos:prefLabel "circulatory system"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000053 a skos:Concept ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0000020> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000054,
+        bacc:0000056 ;
+    skos:notation "BACC:0000053" ;
+    skos:prefLabel "sense organ"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000071 a skos:Concept ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/ENVO_03501300> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000072,
+        bacc:0000073 ;
+    skos:notation "BACC:0000071" ;
+    skos:prefLabel "manure"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000074 a skos:Concept ;
+    oboInOwl:hasExactSynonym "waste water"@en ;
+    skos:altLabel "waste water"@en ;
+    skos:definition "Water discharged after domestic, industrial, or other human use, including the sludge from wastewater treatment."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrowMatch <http://purl.obolibrary.org/obo/ENVO_00002001> ;
+    skos:narrower bacc:0000075,
+        bacc:0000076 ;
+    skos:notation "BACC:0000074" ;
+    skos:prefLabel "wastewater"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000083 a skos:Concept ;
+    skos:definition "A built facility where food is produced, harvested, or processed."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrowMatch <http://purl.obolibrary.org/obo/ENVO_00003862> ;
+    skos:narrower bacc:0000084,
+        bacc:0000085 ;
+    skos:notation "BACC:0000083" ;
+    skos:prefLabel "food production facility"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000106 a skos:Concept ;
+    oboInOwl:hasExactSynonym "extremities"@en,
+        "extremity"@en,
+        "limbs"@en ;
+    skos:altLabel "extremities"@en,
+        "extremity"@en,
+        "limbs"@en ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0002101> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000107,
+        bacc:0000108 ;
+    skos:notation "BACC:0000106" ;
+    skos:prefLabel "limb"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000117 a skos:Concept ;
+    oboInOwl:hasExactSynonym "skin or soft tissue"@en,
+        "skin soft tissue"@en ;
+    skos:altLabel "skin or soft tissue"@en,
+        "skin soft tissue"@en ;
+    skos:definition "Skin, soft tissue, or both, taken together as one clinical category."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000060,
+        bacc:0000103 ;
+    skos:notation "BACC:0000117" ;
+    skos:prefLabel "skin and soft tissue"@en ;
+    skos:scopeNote "Use when the metadata names skin and soft tissue as one clinical category, or does not tell which of the two was sampled."@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000158 a skos:Concept ;
+    skos:definition "The bones and the joints of the body."@en ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0001434> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000058,
+        bacc:0000059 ;
+    skos:notation "BACC:0000158" ;
+    skos:prefLabel "skeletal system"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000039 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000035 ;
+    skos:broader bacc:0000035 ;
+    skos:closeMatch <http://purl.obolibrary.org/obo/ENVO_2100002> ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0000160> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000040,
+        bacc:0000041 ;
+    skos:notation "BACC:0000039" ;
+    skos:prefLabel "intestine"@en .
+
+bacc:0000001 a skos:Concept ;
+    oboInOwl:hasNarrowSynonym "clinical material"@en,
+        "clinical sample"@en,
+        "clinical specimen"@en ;
+    skos:definition "Material taken from or produced by a host organism, including rhizosphere soil around living plant roots."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000002,
+        bacc:0000003,
+        bacc:0000122 ;
+    skos:notation "BACC:0000001" ;
+    skos:prefLabel "host-associated"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000018 a skos:Concept ;
+    oboInOwl:hasExactSynonym "airway secretion"@en,
+        "respiratory secretions"@en ;
+    oboInOwl:hasNarrowSynonym "tracheal secretion"@en ;
+    skos:altLabel "airway secretion"@en,
+        "respiratory secretions"@en ;
+    skos:closeMatch <http://purl.obolibrary.org/obo/UBERON_0006538> ;
+    skos:definition "A substance secreted by the respiratory system into the airways."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000019,
+        bacc:0000020 ;
+    skos:notation "BACC:0000018" ;
+    skos:prefLabel "respiratory secretion"@en ;
+    skos:related bacc:0000026 ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> ;
+    baccv:produced_by bacc:0000026 .
+
+bacc:0000066 a skos:Concept ;
+    oboInOwl:hasNarrowSynonym "river water"@en,
+        "surface water"@en ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/ENVO_00002006> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrowMatch <http://purl.obolibrary.org/obo/ENVO_00002042>,
+        <http://purl.obolibrary.org/obo/ENVO_01000599>,
+        <http://purl.obolibrary.org/obo/ENVO_01001018>,
+        <http://purl.obolibrary.org/obo/ENVO_01001268> ;
+    skos:narrower bacc:0000067,
+        bacc:0000068,
+        bacc:0000069 ;
+    skos:notation "BACC:0000066" ;
+    skos:prefLabel "water"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000079 a skos:Concept ;
+    skos:definition "A facility where people receive health care."@en ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/ENVO_03501134> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000124,
+        bacc:0000125,
+        bacc:0000126 ;
+    skos:notation "BACC:0000079" ;
+    skos:prefLabel "healthcare facility"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000095 a skos:Concept ;
+    skos:definition "A food product made from an animal or from a substance that an animal produces."@en ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/FOODON_00004242> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrowMatch <http://purl.obolibrary.org/obo/FOODON_03317170> ;
+    skos:narrower bacc:0000096,
+        bacc:0000097,
+        bacc:0000098 ;
+    skos:notation "BACC:0000095" ;
+    skos:prefLabel "animal food product"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000104 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000043 ;
+    oboInOwl:hasExactSynonym "urinary tract"@en ;
+    skos:altLabel "urinary tract"@en ;
+    skos:broader bacc:0000043 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0001008> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000044,
+        bacc:0000046 ;
+    skos:notation "BACC:0000104" ;
+    skos:prefLabel "urinary system"@en .
+
+bacc:0000113 a skos:Concept ;
+    oboInOwl:hasExactSynonym "gastrointestinal system"@en ;
+    skos:altLabel "gastrointestinal system"@en ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0001007> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000035,
+        bacc:0000057,
+        bacc:0000114 ;
+    skos:notation "BACC:0000113" ;
+    skos:prefLabel "digestive system"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000026 a skos:Concept ;
+    oboInOwl:hasNarrowSynonym "respiratory tract"@en ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0001004> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000027,
+        bacc:0000028,
+        bacc:0000031 ;
+    skos:notation "BACC:0000026" ;
+    skos:prefLabel "respiratory system"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000031 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000026 ;
+    oboInOwl:hasExactSynonym "lower respiratory system"@en ;
+    skos:altLabel "lower respiratory system"@en ;
+    skos:broader bacc:0000026 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0001558> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000032,
+        bacc:0000033,
+        bacc:0000034 ;
+    skos:notation "BACC:0000031" ;
+    skos:prefLabel "lower respiratory tract"@en .
+
+bacc:0000087 a skos:Concept ;
+    skos:closeMatch <http://purl.obolibrary.org/obo/ENVO_00010358> ;
+    skos:definition "A physical object that is not alive."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000088,
+        bacc:0000089,
+        bacc:0000090,
+        bacc:0000091 ;
+    skos:notation "BACC:0000087" ;
+    skos:prefLabel "inanimate object"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000128 a skos:Concept ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/MONDO_0000001> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000129,
+        bacc:0000149,
+        bacc:0000150,
+        bacc:0000151,
+        bacc:0000152 ;
+    skos:notation "BACC:0000128" ;
+    skos:prefLabel "disease"@en ;
+    skos:scopeNote "Use only when the metadata states that the host is ill without naming the disease, such as \"diseased\" or \"ill\"."@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000009 a skos:Concept ;
+    oboInOwl:hasExactSynonym "bodily fluid"@en ;
+    skos:altLabel "bodily fluid"@en ;
+    skos:closeMatch <http://purl.obolibrary.org/obo/ENVO_02000019> ;
+    skos:definition "A liquid substance of a host body, including excreted liquids such as urine and pathological liquids such as pus."@en ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrowMatch <http://purl.obolibrary.org/obo/UBERON_0001977>,
+        <http://purl.obolibrary.org/obo/UBERON_0006314> ;
+    skos:narrower bacc:0000010,
+        bacc:0000011,
+        bacc:0000012,
+        bacc:0000013,
+        bacc:0000014,
+        bacc:0000015,
+        bacc:0000016,
+        bacc:0000017,
+        bacc:0000119 ;
+    skos:notation "BACC:0000009" ;
+    skos:prefLabel "body fluid"@en ;
+    skos:relatedMatch <http://purl.obolibrary.org/obo/ENVO_02000040> ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
+bacc:0000035 a skos:Concept ;
+    iso-thes:broaderPartitive bacc:0000113 ;
+    oboInOwl:hasBroadSynonym "gut"@en ;
+    oboInOwl:hasExactSynonym "gastrointestinal tract"@en ;
+    oboInOwl:hasNarrowSynonym "human gut"@en ;
+    skos:altLabel "gastrointestinal tract"@en ;
+    skos:broader bacc:0000113 ;
+    skos:closeMatch <http://purl.obolibrary.org/obo/ENVO_01001033> ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0001555> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000036,
+        bacc:0000037,
+        bacc:0000038,
+        bacc:0000039,
+        bacc:0000042 ;
+    skos:notation "BACC:0000035" ;
+    skos:prefLabel "digestive tract"@en .
+
+bacc:0000129 a skos:Concept ;
+    iso-thes:broaderGeneric bacc:0000128 ;
+    oboInOwl:hasExactSynonym "infectious disease"@en ;
+    oboInOwl:hasNarrowSynonym "bacterial infection"@en ;
+    skos:altLabel "infectious disease"@en ;
+    skos:broader bacc:0000128 ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/MONDO_0005550> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000130,
+        bacc:0000131,
+        bacc:0000132,
+        bacc:0000134,
+        bacc:0000135,
+        bacc:0000136,
+        bacc:0000137,
+        bacc:0000138,
+        bacc:0000139,
+        bacc:0000140,
+        bacc:0000141,
+        bacc:0000143,
+        bacc:0000144,
+        bacc:0000145,
+        bacc:0000146,
+        bacc:0000147,
+        bacc:0000148 ;
+    skos:notation "BACC:0000129" ;
+    skos:prefLabel "infection"@en ;
+    skos:scopeNote "Use only when the metadata names an infection without its site or kind, such as \"infection\" or \"invasive disease\"."@en .
+
+<https://w3id.org/baccurate/vocabulary> a skos:ConceptScheme ;
+    dcterms:description "The BacCurate isolation-source vocabulary describes the sources of bacterial isolates in NCBI BioSample metadata." ;
+    dcterms:license <https://creativecommons.org/licenses/by/4.0/> ;
+    dcterms:title "BacCurate isolation-source vocabulary" ;
+    owl:versionInfo "1.0.0rc1" ;
+    skos:hasTopConcept bacc:0000001,
+        bacc:0000004,
+        bacc:0000007,
+        bacc:0000008,
+        bacc:0000009,
+        bacc:0000018,
+        bacc:0000021,
+        bacc:0000022,
+        bacc:0000025,
+        bacc:0000026,
+        bacc:0000043,
+        bacc:0000050,
+        bacc:0000052,
+        bacc:0000053,
+        bacc:0000061,
+        bacc:0000062,
+        bacc:0000063,
+        bacc:0000064,
+        bacc:0000066,
+        bacc:0000070,
+        bacc:0000071,
+        bacc:0000074,
+        bacc:0000079,
+        bacc:0000082,
+        bacc:0000083,
+        bacc:0000086,
+        bacc:0000087,
+        bacc:0000093,
+        bacc:0000094,
+        bacc:0000095,
+        bacc:0000099,
+        bacc:0000100,
+        bacc:0000101,
+        bacc:0000102,
+        bacc:0000106,
+        bacc:0000109,
+        bacc:0000111,
+        bacc:0000112,
+        bacc:0000113,
+        bacc:0000117,
+        bacc:0000120,
+        bacc:0000121,
+        bacc:0000123,
+        bacc:0000127,
+        bacc:0000128,
+        bacc:0000153,
+        bacc:0000154,
+        bacc:0000155,
+        bacc:0000156,
+        bacc:0000157,
+        bacc:0000158 .
+

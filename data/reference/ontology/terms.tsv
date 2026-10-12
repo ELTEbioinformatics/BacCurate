@@ -1,104 +1,153 @@
-term_id	label	facet	parent_id	synonyms	crosslink_targets	curation_note	enables_host_recovery
-BACC:0000001	host-associated	source_type		human-associated;clinical sample;clinical material;clinical specimen;clinical isolate			true
-BACC:0000002	animal host	source_type	BACC:0000001	human;homo sapiens;animal;patient;patients;hospitalized patient;hospitalised patient;hospital patient;inpatient;homo sapiens clinical;bovine;pig;cattle;cow			true
-BACC:0000003	plant host	source_type	BACC:0000001	plant			true
-BACC:0000004	environmental	source_type		environment			false
-BACC:0000007	food or feed	source_type		food			false
-BACC:0000008	laboratory	source_type		lab;laboratory strain;lab strain;lab evolved;cell culture;evolution experiment;tolerance adaptive laboratory evolution experiment;synthetic			false
-BACC:0000009	body fluid	body_product		bodily fluid			false
-BACC:0000010	blood	body_product	BACC:0000009	blood culture;blood cultures;bloodstream;venous blood;human blood;bloodstream isolates;hemoculture	BACC:0000050		false
-BACC:0000011	mammalian milk	body_product	BACC:0000009	milk			false
-BACC:0000105	human milk	body_product	BACC:0000011	breast milk;human breast milk;breast_milk;maternal milk		Use only when evidence identifies human milk.	true
-BACC:0000012	synovial fluid	body_product	BACC:0000009		BACC:0000059		false
-BACC:0000013	cerebrospinal fluid	body_product	BACC:0000009	csf	BACC:0000052		false
-BACC:0000014	urine	body_product	BACC:0000009	urine sample;urine culture;human urine	BACC:0000104		false
-BACC:0000015	peritoneal fluid	body_product	BACC:0000009	ascites			false
-BACC:0000016	bile	body_product	BACC:0000009				false
-BACC:0000017	pus	body_product	BACC:0000009				false
-BACC:0000018	respiratory secretion	body_product		respiratory secretions;tracheal secretion;airway secretion	BACC:0000026		false
-BACC:0000019	sputum	body_product	BACC:0000018		BACC:0000031		false
-BACC:0000020	tracheal aspirate	body_product	BACC:0000018	endotracheal aspirate	BACC:0000026		false
-BACC:0000021	bronchoalveolar lavage fluid	body_product	BACC:0000018	bronchoalveolar lavage;bal;bal fluid;balf	BACC:0000034		false
-BACC:0000022	digestive tract content	body_product		gut content;digestive tract contents	BACC:0000035		false
-BACC:0000023	intestinal content	body_product	BACC:0000022	intestinal contents	BACC:0000039		false
-BACC:0000024	caecal content	body_product	BACC:0000023	cecal content;cecal contents;caecal contents	BACC:0000040		false
-BACC:0000025	feces	body_product		stool;stools;faeces;fecal;faecal;stool sample;fecal sample;faecal sample;fecal samples;faecal samples;fecal material;faecal material;feces sample;feces samples;human feces;human stool;dairy calf feces;cattle feces;mouse stool;human faeces;chicken feces;cattle faeces;feces swab;mouse feces;fecal swab	BACC:0000035		false
-BACC:0000026	respiratory system	body_site		respiratory;respiratory tract			false
-BACC:0000027	pleura	body_site	BACC:0000026				false
-BACC:0000028	upper respiratory tract	body_site	BACC:0000026	upper respiratory system		Do NOT select for sputum; choose lower respiratory tract instead.	false
-BACC:0000029	nasal cavity	body_site	BACC:0000028	nasal swab;nose;nasal;nares;nare			false
-BACC:0000030	pharynx	body_site	BACC:0000028	throat;throat swab;oropharynx;oropharyngeal swab;nasopharyngeal swab	BACC:0000035		false
-BACC:0000031	lower respiratory tract	body_site	BACC:0000026	lower respiratory system			false
-BACC:0000032	trachea	body_site	BACC:0000031				false
-BACC:0000033	bronchus	body_site	BACC:0000031				false
-BACC:0000034	lung	body_site	BACC:0000031				false
-BACC:0000035	digestive tract	body_site		human gut;gut;gastrointestinal tract			false
-BACC:0000036	mouth	body_site	BACC:0000035	oral			false
-BACC:0000037	stomach	body_site	BACC:0000035				false
-BACC:0000038	rumen	body_site	BACC:0000035				false
-BACC:0000039	intestine	body_site	BACC:0000035				false
-BACC:0000040	caecum	body_site	BACC:0000039	cecal;caecal;cecum			false
-BACC:0000041	rectum	body_site	BACC:0000039	rectal swab;rectal;rectum swab			false
-BACC:0000042	cloaca	body_site	BACC:0000035	cloacal swab			false
-BACC:0000043	genitourinary system	body_site		urogenital tract			false
-BACC:0000104	urinary system	body_site	BACC:0000043				false
-BACC:0000044	upper urinary tract	body_site	BACC:0000104				false
-BACC:0000045	kidney	body_site	BACC:0000044				false
-BACC:0000046	lower urinary tract	body_site	BACC:0000104				false
-BACC:0000047	reproductive tract	body_site	BACC:0000043	genital tract			false
-BACC:0000048	vagina	body_site	BACC:0000047	vaginal swab			false
-BACC:0000049	uterus	body_site	BACC:0000047				false
-BACC:0000050	circulatory system	body_site					false
-BACC:0000051	blood vessel	body_site	BACC:0000050				false
-BACC:0000052	nervous system	body_site					false
-BACC:0000053	sense organ	body_site					false
-BACC:0000054	eye	body_site	BACC:0000053				false
-BACC:0000055	cornea	body_site	BACC:0000054				false
-BACC:0000056	ear	body_site	BACC:0000053				false
-BACC:0000057	liver	body_site					false
-BACC:0000058	bone	body_site					false
-BACC:0000059	synovial joint	body_site					false
-BACC:0000060	skin	body_site		skin swab			false
-BACC:0000103	soft tissue	body_site		soft tissues		Excludes skin.	false
-BACC:0000061	wound	lesion		wound swab;swab_wound			false
-BACC:0000062	ulcer	lesion					false
-BACC:0000063	abscess	lesion			BACC:0000017		false
-BACC:0000064	soil	environmental_material					false
-BACC:0000065	rhizosphere soil	environmental_material	BACC:0000064	rhizosphere	BACC:0000003		false
-BACC:0000066	water	environmental_material		surface water;river water			false
-BACC:0000067	fresh water	environmental_material	BACC:0000066	freshwater;stream			false
-BACC:0000068	groundwater	environmental_material	BACC:0000066	ground water			false
-BACC:0000069	sea water	environmental_material	BACC:0000066	seawater;marine			false
-BACC:0000070	sediment	environmental_material					false
-BACC:0000071	manure	environmental_material					false
-BACC:0000072	animal manure	environmental_material	BACC:0000071	farmyard manure;cattle manure;dairy cattle manure;chicken manure			false
-BACC:0000073	compost	environmental_material	BACC:0000071				false
-BACC:0000074	wastewater	environmental_material		waste water			false
-BACC:0000075	sewage	environmental_material	BACC:0000074	hospital sewage			false
-BACC:0000076	sludge	environmental_material	BACC:0000074				false
-BACC:0000077	activated sludge	environmental_material	BACC:0000076				false
-BACC:0000078	biofilm	environmental_material					false
-BACC:0000101	air	environmental_material					false
-BACC:0000102	dust	environmental_material					false
-BACC:0000079	healthcare facility	facility					false
-BACC:0000080	intensive care unit	facility	BACC:0000079				false
-BACC:0000081	laboratory facility	facility					false
-BACC:0000082	farm facility	facility					false
-BACC:0000083	food production facility	facility					false
-BACC:0000084	food processing plant	facility	BACC:0000083				false
-BACC:0000085	abattoir	facility	BACC:0000083	slaughterhouse;slaughter house			false
-BACC:0000086	wastewater treatment plant	facility		wwtp;waste water treatment plant;sewage treatment plant			false
-BACC:0000087	inanimate object	sampled_object					false
-BACC:0000088	sink	sampled_object	BACC:0000087				false
-BACC:0000089	drain	sampled_object	BACC:0000087				false
-BACC:0000090	equipment	sampled_object	BACC:0000087				false
-BACC:0000091	medical device	sampled_object	BACC:0000087	clinical device			false
-BACC:0000092	catheter	sampled_object	BACC:0000091	vascular catheter;urinary catheter			false
-BACC:0000093	surface	sampled_object		environmental surface		Use when the surface itself was sampled, not the whole object.	false
-BACC:0000094	plant food product	food_type					true
-BACC:0000095	animal food product	food_type					true
-BACC:0000096	dairy food product	food_type	BACC:0000095	dairy product			true
-BACC:0000097	meat product	food_type	BACC:0000095	meat;ground turkey;ground beef;chicken meat;pork;chicken breast;beef;pork chop;broiler meat;comminuted beef;product raw intact beef;chicken thighs			true
-BACC:0000098	seafood product	food_type	BACC:0000095				true
-BACC:0000099	fermented food	food_type					false
-BACC:0000100	animal feed	food_type		feed		An organism named in feed is not the bacterial host.	false
+term_id	label	facet	parent_id	parent_relation	definition	scope_note
+BACC:0000001	host-associated	source_type			Material taken from or produced by a host organism, including rhizosphere soil around living plant roots.	
+BACC:0000002	animal host	source_type	BACC:0000001	kind_of	Material taken from or produced by an animal other than a human.	
+BACC:0000122	human host	source_type	BACC:0000001	kind_of	Material taken from or produced by a human.	
+BACC:0000003	plant host	source_type	BACC:0000001	kind_of	Material taken from or produced by a plant, including rhizosphere soil around its living roots.	
+BACC:0000004	environmental	source_type			Material from the environment outside a host, or an object or surface in a built environment.	
+BACC:0000007	food or feed	source_type			Food for humans or feed for animals.	
+BACC:0000008	laboratory strain	source_type			A bacterial strain that was kept, evolved, or engineered in a laboratory.	Not for a new isolate from a natural or clinical source. Wording about culture, medium, plate, isolate, or a diagnostic laboratory does not qualify.
+BACC:0000009	body fluid	body_product			A liquid substance of a host body, including excreted liquids such as urine and pathological liquids such as pus.	
+BACC:0000010	blood	body_product	BACC:0000009	kind_of		
+BACC:0000011	mammalian milk	body_product	BACC:0000009	kind_of		
+BACC:0000105	human milk	body_product	BACC:0000011	kind_of	Mammalian milk produced by a human.	Use only when evidence identifies human milk.
+BACC:0000012	synovial fluid	body_product	BACC:0000009	kind_of		
+BACC:0000013	cerebrospinal fluid	body_product	BACC:0000009	kind_of		
+BACC:0000014	urine	body_product	BACC:0000009	kind_of		Cystocentesis urine also names the lower urinary tract.
+BACC:0000015	peritoneal fluid	body_product	BACC:0000009	kind_of		
+BACC:0000016	bile	body_product	BACC:0000009	kind_of		
+BACC:0000017	pus	body_product	BACC:0000009	kind_of		
+BACC:0000119	drainage fluid	body_product	BACC:0000009	kind_of	Body fluid drained from a wound, a body cavity, or a fluid collection.	Use when the metadata does not name the fluid. If the metadata names the fluid, or names a lesion that implies it, use that instead.
+BACC:0000018	respiratory secretion	body_product			A substance secreted by the respiratory system into the airways.	
+BACC:0000019	sputum	body_product	BACC:0000018	kind_of		
+BACC:0000020	tracheal aspirate	body_product	BACC:0000018	kind_of	Respiratory secretion collected from the trachea by suction.	
+BACC:0000021	bronchoalveolar lavage fluid	body_product			Fluid that is washed through the bronchi and alveoli of a lung and then recovered with the respiratory secretion in it.	
+BACC:0000022	digestive tract content	body_product			Material taken from inside the digestive tract, usually at necropsy or slaughter.	For passed stool, use feces. Also select the named site, for example caecum or intestine.
+BACC:0000025	feces	body_product				
+BACC:0000026	respiratory system	body_site				
+BACC:0000027	pleura	body_site	BACC:0000026	part_of		
+BACC:0000028	upper respiratory tract	body_site	BACC:0000026	part_of		Do not use for sputum, which comes from the lower respiratory tract.
+BACC:0000029	nasal cavity	body_site	BACC:0000028	part_of		
+BACC:0000030	pharynx	body_site	BACC:0000028	part_of	The part of the upper respiratory tract behind the nasal cavity and the mouth that is shared with the digestive tract.	
+BACC:0000115	nasopharynx	body_site	BACC:0000030	part_of		
+BACC:0000116	oropharynx	body_site	BACC:0000030	part_of		
+BACC:0000031	lower respiratory tract	body_site	BACC:0000026	part_of		
+BACC:0000032	trachea	body_site	BACC:0000031	part_of		
+BACC:0000033	bronchus	body_site	BACC:0000031	part_of		
+BACC:0000034	lung	body_site	BACC:0000031	part_of		
+BACC:0000113	digestive system	body_site				
+BACC:0000035	digestive tract	body_site	BACC:0000113	part_of		
+BACC:0000036	mouth	body_site	BACC:0000035	part_of		
+BACC:0000037	stomach	body_site	BACC:0000035	part_of		
+BACC:0000038	rumen	body_site	BACC:0000035	part_of		
+BACC:0000039	intestine	body_site	BACC:0000035	part_of		
+BACC:0000040	caecum	body_site	BACC:0000039	part_of		
+BACC:0000041	rectum	body_site	BACC:0000039	part_of		
+BACC:0000042	cloaca	body_site	BACC:0000035	part_of		
+BACC:0000057	liver	body_site	BACC:0000113	part_of		
+BACC:0000114	gallbladder	body_site	BACC:0000113	part_of		
+BACC:0000043	genitourinary system	body_site				
+BACC:0000104	urinary system	body_site	BACC:0000043	part_of		
+BACC:0000044	upper urinary tract	body_site	BACC:0000104	part_of	The kidneys and the ureters.	
+BACC:0000045	kidney	body_site	BACC:0000044	part_of		
+BACC:0000046	lower urinary tract	body_site	BACC:0000104	part_of	The bladder and the urethra.	
+BACC:0000047	reproductive tract	body_site	BACC:0000043	part_of	The part of the genitourinary system made up of the reproductive ducts and organs other than the gonads, such as the uterus and the vagina, and the external genitalia, such as the penis, the scrotum, and the vulva.	
+BACC:0000048	vagina	body_site	BACC:0000047	part_of		
+BACC:0000049	uterus	body_site	BACC:0000047	part_of		
+BACC:0000050	circulatory system	body_site				
+BACC:0000051	blood vessel	body_site	BACC:0000050	part_of		
+BACC:0000052	nervous system	body_site				
+BACC:0000053	sense organ	body_site				
+BACC:0000054	eye	body_site	BACC:0000053	kind_of		
+BACC:0000055	cornea	body_site	BACC:0000054	part_of		
+BACC:0000056	ear	body_site	BACC:0000053	kind_of		
+BACC:0000158	skeletal system	body_site			The bones and the joints of the body.	
+BACC:0000058	bone	body_site	BACC:0000158	part_of	A bone of the skeleton or the bone tissue it is made of.	
+BACC:0000059	synovial joint	body_site	BACC:0000158	part_of		
+BACC:0000117	skin and soft tissue	body_site			Skin, soft tissue, or both, taken together as one clinical category.	Use when the metadata names skin and soft tissue as one clinical category, or does not tell which of the two was sampled.
+BACC:0000060	skin	body_site	BACC:0000117	kind_of		
+BACC:0000103	soft tissue	body_site	BACC:0000117	kind_of		
+BACC:0000118	muscle tissue	body_site	BACC:0000103	kind_of		
+BACC:0000106	limb	body_site				
+BACC:0000107	lower limb	body_site	BACC:0000106	kind_of		Includes the buttock, hip, thigh, knee, popliteal fossa, leg, ankle, heel, foot, and toes. Not the sacral region, which is part of the back.
+BACC:0000108	upper limb	body_site	BACC:0000106	kind_of		Includes the shoulder, arm, elbow, forearm, wrist, hand, and fingers.
+BACC:0000154	head	body_site				Does not imply an organ of the head, such as the brain or the eye.
+BACC:0000155	neck	body_site				
+BACC:0000156	thorax	body_site			The front and the sides of the trunk between the neck and the abdomen.	Does not imply a thoracic organ, such as the lung or the heart.
+BACC:0000157	back	body_site			The rear of the trunk, including the lumbar and the sacral regions.	Does not imply the vertebral column or the spinal cord.
+BACC:0000109	abdomen	body_site			The region of the trunk between the thorax and the pelvis, including the flank and the inguinal region.	Does not imply an abdominal organ.
+BACC:0000110	inguinal region	body_site	BACC:0000109	part_of		
+BACC:0000111	axilla	body_site				
+BACC:0000121	perineum	body_site				
+BACC:0000127	mammary gland	body_site				
+BACC:0000112	spleen	body_site				
+BACC:0000061	wound	lesion			A break in the skin or another tissue caused by injury or surgery.	
+BACC:0000062	ulcer	lesion			An open sore on the skin or a mucous membrane where the surface tissue is lost.	
+BACC:0000063	abscess	lesion			A pus-filled cavity in a tissue.	
+BACC:0000120	cyst	lesion			A closed sac that is empty or filled with fluid or semisolid material.	Do not use for cystic fibrosis, cystitis, cystocentesis, a pseudocyst, or the cyst stage of an organism.
+BACC:0000064	soil	environmental_material				
+BACC:0000065	rhizosphere soil	environmental_material	BACC:0000064	kind_of	Soil directly around living plant roots and influenced by them.	
+BACC:0000066	water	environmental_material				
+BACC:0000067	fresh water	environmental_material	BACC:0000066	kind_of		
+BACC:0000068	groundwater	environmental_material	BACC:0000066	kind_of		
+BACC:0000069	sea water	environmental_material	BACC:0000066	kind_of		
+BACC:0000070	sediment	environmental_material				
+BACC:0000071	manure	environmental_material				
+BACC:0000072	animal manure	environmental_material	BACC:0000071	kind_of		
+BACC:0000073	compost	environmental_material	BACC:0000071	kind_of		
+BACC:0000074	wastewater	environmental_material			Water discharged after domestic, industrial, or other human use, including the sludge from wastewater treatment.	
+BACC:0000075	sewage	environmental_material	BACC:0000074	kind_of		
+BACC:0000076	sludge	environmental_material	BACC:0000074	kind_of	Semisolid residue separated from wastewater during its treatment.	
+BACC:0000077	activated sludge	environmental_material	BACC:0000076	kind_of		
+BACC:0000101	air	environmental_material				
+BACC:0000102	dust	environmental_material				
+BACC:0000079	healthcare facility	facility			A facility where people receive health care.	
+BACC:0000124	hospital	facility	BACC:0000079	kind_of		
+BACC:0000080	intensive care unit	facility	BACC:0000124	part_of		
+BACC:0000125	primary care facility	facility	BACC:0000079	kind_of	A healthcare facility outside a hospital where people get first-contact care, such as a general practice.	
+BACC:0000126	long-term care facility	facility	BACC:0000079	kind_of	A healthcare facility where residents receive long-term care, such as a nursing home or a care home.	
+BACC:0000123	veterinary facility	facility			A facility where animals receive veterinary care, such as a veterinary clinic or a veterinary hospital.	
+BACC:0000082	farm facility	facility			A building or other built structure on a farm, such as an animal house.	
+BACC:0000083	food production facility	facility			A built facility where food is produced, harvested, or processed.	
+BACC:0000084	food processing plant	facility	BACC:0000083	kind_of	A food production facility where raw agricultural products are processed into food, in one or more buildings.	
+BACC:0000085	abattoir	facility	BACC:0000083	kind_of		
+BACC:0000086	wastewater treatment plant	facility				
+BACC:0000087	inanimate object	sampled_object			A physical object that is not alive.	
+BACC:0000088	sink	sampled_object	BACC:0000087	kind_of		
+BACC:0000089	plumbing drain	sampled_object	BACC:0000087	kind_of	An inanimate object through which water drains into a plumbing system, such as a sink, floor, or shower drain.	
+BACC:0000090	equipment	sampled_object	BACC:0000087	kind_of	An inanimate object used as a tool or an apparatus, such as a machine, an instrument, a ventilator, or a monitor.	
+BACC:0000091	medical device	sampled_object	BACC:0000087	kind_of	A device placed in or on a patient, such as a catheter, a tube, a drain, or an implant.	
+BACC:0000092	catheter	sampled_object	BACC:0000091	kind_of		
+BACC:0000093	surface	sampled_object			The outer boundary of an object or structure in a built environment, such as a floor, a wall, or a bench.	Use when the surface itself was sampled, not the whole object.
+BACC:0000094	plant food product	food_type			A food product made from plants or plant parts, such as fruit, vegetables, grain, or sprouts.	
+BACC:0000095	animal food product	food_type			A food product made from an animal or from a substance that an animal produces.	
+BACC:0000096	dairy food product	food_type	BACC:0000095	kind_of	An animal food product that is milk or is made from milk, such as raw milk, cheese, or yogurt.	
+BACC:0000097	meat product	food_type	BACC:0000095	kind_of	An animal food product made from the flesh of land animals, such as beef, pork, or chicken.	
+BACC:0000098	seafood product	food_type	BACC:0000095	kind_of	An animal food product made from fish, shellfish, or other aquatic animals.	
+BACC:0000099	fermented food	food_type			A food product made by microbial fermentation, such as sauerkraut, kimchi, or tempeh.	
+BACC:0000100	animal feed	food_type				An organism named in feed is not the bacterial host.
+BACC:0000128	disease	host_disease				Use only when the metadata states that the host is ill without naming the disease, such as "diseased" or "ill".
+BACC:0000129	infection	host_disease	BACC:0000128	kind_of		Use only when the metadata names an infection without its site or kind, such as "infection" or "invasive disease".
+BACC:0000130	bacteremia	host_disease	BACC:0000129	kind_of	Bacteria in the blood, also called a bloodstream infection.	
+BACC:0000131	sepsis	host_disease	BACC:0000129	kind_of	A life-threatening response of the body to an infection, including septicemia and neonatal sepsis.	
+BACC:0000132	respiratory tract infection	host_disease	BACC:0000129	kind_of		
+BACC:0000133	pneumonia	host_disease	BACC:0000132	kind_of		
+BACC:0000134	urinary tract infection	host_disease	BACC:0000129	kind_of		Asymptomatic bacteriuria is colonization.
+BACC:0000135	gastrointestinal infection	host_disease	BACC:0000129	kind_of	An infection of the stomach or the intestine, such as gastroenteritis, diarrheal disease, dysentery, shigellosis, or an STEC infection.	
+BACC:0000136	intra-abdominal infection	host_disease	BACC:0000129	kind_of	An infection in the abdomen outside the intestine, such as peritonitis, a liver abscess, or cholangitis.	
+BACC:0000137	skin and soft tissue infection	host_disease	BACC:0000129	kind_of	An infection of the skin or the tissue under it, such as cellulitis, impetigo, a furuncle, or an infected wound or burn.	A sampled wound or abscess alone is a lesion, not this diagnosis.
+BACC:0000138	surgical site infection	host_disease	BACC:0000129	kind_of	An infection of the incision or of the operated organ after surgery.	
+BACC:0000139	device-associated infection	host_disease	BACC:0000129	kind_of	An infection of a device placed in a patient, such as a catheter, a prosthetic joint, or a cardiac device.	
+BACC:0000140	bone and joint infection	host_disease	BACC:0000129	kind_of	An infection of a bone or a joint, such as osteomyelitis or septic arthritis.	
+BACC:0000141	central nervous system infection	host_disease	BACC:0000129	kind_of		
+BACC:0000142	meningitis	host_disease	BACC:0000141	kind_of	Inflammation of the meninges caused by an infection.	
+BACC:0000143	endocarditis	host_disease	BACC:0000129	kind_of		
+BACC:0000144	eye infection	host_disease	BACC:0000129	kind_of		
+BACC:0000145	ear infection	host_disease	BACC:0000129	kind_of	An infection of the ear, such as otitis externa or otitis media.	
+BACC:0000146	reproductive tract infection	host_disease	BACC:0000129	kind_of	An infection of the reproductive organs, such as endometritis, metritis, pyometra, or vaginitis.	
+BACC:0000147	mastitis	host_disease	BACC:0000129	kind_of		
+BACC:0000148	colibacillosis	host_disease	BACC:0000129	kind_of		
+BACC:0000149	cystic fibrosis	host_disease	BACC:0000128	kind_of		Do not use for "non-CF" values.
+BACC:0000150	bronchiectasis	host_disease	BACC:0000128	kind_of		Non-CF bronchiectasis is bronchiectasis without cystic fibrosis.
+BACC:0000151	chronic obstructive pulmonary disease	host_disease	BACC:0000128	kind_of		
+BACC:0000152	atopic dermatitis	host_disease	BACC:0000128	kind_of		
+BACC:0000153	colonization	host_disease			Bacteria live in or on the host without causing disease.	Use for carriage, colonization, a screening sample, asymptomatic bacteriuria, or a healthy host.
