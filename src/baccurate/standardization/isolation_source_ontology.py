@@ -3,46 +3,95 @@
 from __future__ import annotations
 
 import csv
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
-from typing import Protocol
 
 from baccurate.adapters.llm.request import canonical_json_sha256
 from baccurate.adapters.policy_yaml import load_policy_mapping
+from baccurate.standardization._attribute_value_text import normalize_keyword
 
 FACETS_FILENAME = "facets.yaml"
 TERMS_FILENAME = "terms.tsv"
+SYNONYMS_FILENAME = "synonyms.tsv"
+OBSOLETE_TERMS_FILENAME = "obsolete_terms.tsv"
+RELATIONS_FILENAME = "relations.tsv"
 MAPPINGS_FILENAME = "mappings.sssom.tsv"
 MAPPING_SET_FILENAME = "mappings.sssom.yml"
 
+SOURCE_TYPE_FACET = "source_type"
+HOST_DISEASE_FACET = "host_disease"
+
+HOST_ASSOCIATED_TERM_ID = "BACC:0000001"
+ANIMAL_HOST_TERM_ID = "BACC:0000002"
+HUMAN_HOST_TERM_ID = "BACC:0000122"
+PLANT_HOST_TERM_ID = "BACC:0000003"
+ENVIRONMENTAL_TERM_ID = "BACC:0000004"
+FOOD_OR_FEED_TERM_ID = "BACC:0000007"
+LABORATORY_TERM_ID = "BACC:0000008"
+MEDICAL_DEVICE_TERM_ID = "BACC:0000091"
+SOURCE_TYPE_BY_IMPLYING_FACET = {
+    "body_product": HOST_ASSOCIATED_TERM_ID,
+    "body_site": HOST_ASSOCIATED_TERM_ID,
+    "lesion": HOST_ASSOCIATED_TERM_ID,
+    "environmental_material": ENVIRONMENTAL_TERM_ID,
+    "sampled_object": ENVIRONMENTAL_TERM_ID,
+    "food_type": FOOD_OR_FEED_TERM_ID,
+    HOST_DISEASE_FACET: HOST_ASSOCIATED_TERM_ID,
+}
+
 _RESOLVING_MAPPING_PREDICATES = frozenset({"skos:exactMatch", "skos:narrowMatch"})
+_FACET_FIELDS = frozenset({"meaning", "standards_bindings"})
 
 
 class IsolationSourceOntologyError(ValueError):
     """A source-aware error in the isolation-source ontology artifact."""
 
 
-class FacetCardinality(StrEnum):
-    """The number of terms a classification can select from one facet."""
+class ParentRelation(StrEnum):
+    """How a term relates to its parent."""
 
-    SINGLE = "single"
-    MULTIPLE = "multiple"
+    KIND_OF = "kind_of"
+    PART_OF = "part_of"
+
+
+class SynonymType(StrEnum):
+    """The oboInOwl scope of a synonym relative to its term."""
+
+    EXACT = "exact"
+    NARROW = "narrow"
+    BROAD = "broad"
+    RELATED = "related"
+
+
+class RelationType(StrEnum):
+    """A directed, non-hierarchical link from a subject term to an object term."""
+
+    LOCATED_IN = "located_in"
+    PRODUCED_BY = "produced_by"
+    COLLECTED_FROM = "collected_from"
+    PART_OF = "part_of"
+    HAS_PART = "has_part"
+    IMPLIES_SOURCE_TYPE = "implies_source_type"
 
 
 @dataclass(frozen=True, slots=True)
 class IsolationSourceFacet:
-    """Definition and classifier guidance for one isolation-source facet."""
+    """The meaning and standards bindings of one isolation-source facet."""
 
     key: str
-    cardinality: FacetCardinality
-    output_column: str
-    render_order: int
     standards_bindings: Mapping[str, tuple[str, ...]]
     meaning: str
-    classifier_guidance: str
+
+
+@dataclass(frozen=True, slots=True)
+class Synonym:
+    """One name of a term and its scope."""
+
+    text: str
+    synonym_type: SynonymType
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,10 +102,34 @@ class IsolationSourceTerm:
     label: str
     facet: str
     parent_id: str | None
-    synonyms: tuple[str, ...]
-    crosslink_target_ids: tuple[str, ...]
-    curation_note: str
-    enables_host_recovery: bool
+    parent_relation: ParentRelation | None
+    definition: str
+    scope_note: str
+    synonyms: tuple[Synonym, ...] = ()
+
+    @property
+    def note(self) -> str:
+        """Return the definition and the scope note as one text, in the form the prompt shows."""
+        return " ".join(text for text in (self.definition, self.scope_note) if text)
+
+
+@dataclass(frozen=True, slots=True)
+class ObsoleteTerm:
+    """One retired term and the active terms, if any, that together replace it."""
+
+    term_id: str
+    label: str
+    replaced_by: tuple[str, ...]
+    note: str
+
+
+@dataclass(frozen=True, slots=True)
+class TermRelation:
+    """One typed relation from a subject term to an object term."""
+
+    subject_id: str
+    relation: RelationType
+    object_id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,43 +166,109 @@ class IsolationSourceMappingSet:
 
 @dataclass(frozen=True, slots=True)
 class IsolationSourceOntology:
-    """The loaded facets, terms, relationships, and external mappings."""
+    """The loaded facets, terms, relations, and external mappings.
+
+    ``relation_object_ids`` holds, for every term, the relation objects that term derivation adds
+    when the term is explicit: the objects of its own relations and the objects of the
+    ``implies_source_type`` relations of its ancestors. ``match_keys`` maps the
+    ``normalize_keyword`` form of every label and synonym to its term identifier.
+    """
 
     schema_version: int
     vocabulary_version: str
-    retired_term_ids: tuple[str, ...]
     facets: Mapping[str, IsolationSourceFacet]
     terms: Mapping[str, IsolationSourceTerm]
+    obsolete_terms: Mapping[str, ObsoleteTerm]
+    relations: tuple[TermRelation, ...]
+    relation_object_ids: Mapping[str, tuple[str, ...]]
     mapping_set: IsolationSourceMappingSet
     resolved_mapping_terms: Mapping[str, IsolationSourceTerm]
+    exact_match_ids: Mapping[str, str]
+    match_keys: Mapping[str, str]
 
     @property
     def vocabulary_fingerprint(self) -> str:
         """Return the semantic fingerprint of the vocabulary files."""
-        return ontology_semantics_fingerprint(self)
+        return _ontology_semantics_fingerprint(self)
 
     @property
     def mapping_set_fingerprint(self) -> str:
         """Return the semantic fingerprint of the mapping-set files."""
         return _mapping_set_semantics_fingerprint(self)
 
+    def implied_source_type_ids(self, term_ids: Iterable[str]) -> frozenset[str]:
+        """Return the source types that the facets of the terms imply.
+
+        A medical device is placed in or on a patient, so it and its descendants imply no source
+        type, although their facet does.
+        """
+        facets = {
+            self.terms[term_id].facet
+            for term_id in term_ids
+            if MEDICAL_DEVICE_TERM_ID not in (term_id, *_ancestor_ids(self.terms, term_id))
+        }
+        return frozenset(
+            source_type_id
+            for facet, source_type_id in SOURCE_TYPE_BY_IMPLYING_FACET.items()
+            if facet in facets
+        )
+
+    def nearest_common_ancestors(self, term_ids: Iterable[str]) -> frozenset[str]:
+        """Replace the terms under each root with their nearest common ancestor.
+
+        A term that shares no root with another term stays as it is.
+        """
+        lineages_by_root: dict[str, list[list[str]]] = {}
+        for term_id in term_ids:
+            lineage = [term_id, *_ancestor_ids(self.terms, term_id)]
+            lineages_by_root.setdefault(lineage[-1], []).append(lineage)
+        return frozenset(
+            next(
+                term_id
+                for term_id in lineages[0]
+                if all(term_id in lineage for lineage in lineages[1:])
+            )
+            for lineages in lineages_by_root.values()
+        )
+
+    def derive(self, term_ids: Iterable[str]) -> frozenset[str]:
+        """Return the terms that production publishes for a set of explicit terms."""
+        derived = set(term_ids)
+        derived.update(
+            object_id
+            for term_id in tuple(derived)
+            for object_id in self.relation_object_ids[term_id]
+        )
+        derived |= self.implied_source_type_ids(derived)
+        derived.update(
+            ancestor_id
+            for term_id in tuple(derived)
+            for ancestor_id in _ancestor_ids(self.terms, term_id)
+        )
+        return frozenset(derived)
+
     @classmethod
     def load(cls, ontology_directory: Path | str) -> IsolationSourceOntology:
-        """Load the four fixed files in an ontology directory as one vocabulary."""
+        """Load the seven fixed files in an ontology directory as one vocabulary."""
         directory = Path(ontology_directory)
         facets_path = directory / FACETS_FILENAME
         terms_path = directory / TERMS_FILENAME
+        synonyms_path = directory / SYNONYMS_FILENAME
+        obsolete_terms_path = directory / OBSOLETE_TERMS_FILENAME
+        relations_path = directory / RELATIONS_FILENAME
         mappings_path = directory / MAPPINGS_FILENAME
         mapping_set_path = directory / MAPPING_SET_FILENAME
         facet_document = load_policy_mapping(facets_path)
         mapping_set_document = load_policy_mapping(mapping_set_path)
 
         facets = _load_facets(facet_document, facets_path)
-        terms = _load_terms(terms_path)
+        terms = _load_synonyms(synonyms_path, _load_terms(terms_path))
+        obsolete_terms = _load_obsolete_terms(obsolete_terms_path, terms)
         _validate_declared_facets(terms, facets, terms_path)
         _validate_term_references(terms, terms_path)
         _validate_parent_acyclicity(terms, terms_path)
-        _validate_crosslink_cardinality(terms, facets, terms_path)
+        relations = _load_relations(relations_path, terms)
+        relation_object_ids = _resolve_relation_objects(terms, relations)
         mappings = _load_mappings(mappings_path)
         _validate_mapping_subjects(terms, mappings, mappings_path)
         mapping_set = _load_mapping_set(
@@ -142,49 +281,35 @@ class IsolationSourceOntology:
             for mapping in mappings
             if mapping.predicate_id in _RESOLVING_MAPPING_PREDICATES
         }
+        exact_match_ids = {
+            mapping.subject_id: mapping.object_id
+            for mapping in mappings
+            if mapping.predicate_id == "skos:exactMatch"
+        }
+        _validate_definitions(terms, exact_match_ids, terms_path)
+        vocabulary_version = _required_text(facet_document, "vocabulary_version", facets_path)
+        _validate_versions(vocabulary_version, mapping_set, mapping_set_path)
 
         return cls(
             schema_version=_required_integer(facet_document, "schema_version", facets_path),
-            vocabulary_version=_required_text(facet_document, "vocabulary_version", facets_path),
-            retired_term_ids=_string_sequence(
-                facet_document.get("retired_term_ids"),
-                facets_path,
-                "retired_term_ids",
-            ),
+            vocabulary_version=vocabulary_version,
             facets=MappingProxyType(facets),
             terms=MappingProxyType(terms),
+            obsolete_terms=MappingProxyType(obsolete_terms),
+            relations=relations,
+            relation_object_ids=MappingProxyType(relation_object_ids),
             mapping_set=mapping_set,
             resolved_mapping_terms=MappingProxyType(resolved_mapping_terms),
+            exact_match_ids=MappingProxyType(exact_match_ids),
+            match_keys=MappingProxyType(_match_keys(terms, synonyms_path)),
         )
 
 
-class _LegacyOntologyGraph(Protocol):
-    """The graph shape retained until the faceted classifier swap."""
-
-    node_metadata: Mapping[str, Mapping[str, object]]
-    children_map: Mapping[str, list[str]]
-    crosslink_map: Mapping[str, list[str]]
-
-
-def ontology_semantics_fingerprint(
-    ontology: IsolationSourceOntology | _LegacyOntologyGraph | None,
-) -> str:
+def _ontology_semantics_fingerprint(ontology: IsolationSourceOntology) -> str:
     """Fingerprint parsed vocabulary content independently of file formatting."""
-    if ontology is None:
-        return _legacy_ontology_semantics_fingerprint({}, {}, {})
-    if not isinstance(ontology, IsolationSourceOntology):
-        return _legacy_ontology_semantics_fingerprint(
-            ontology.node_metadata,
-            ontology.children_map,
-            ontology.crosslink_map,
-        )
     facets = {
         key: {
-            "cardinality": facet.cardinality.value,
-            "classifier_guidance": facet.classifier_guidance,
             "meaning": facet.meaning,
-            "output_column": facet.output_column,
-            "render_order": facet.render_order,
             "standards_bindings": {
                 binding: sorted(values)
                 for binding, values in sorted(facet.standards_bindings.items())
@@ -194,45 +319,35 @@ def ontology_semantics_fingerprint(
     }
     terms = {
         term_id: {
-            "crosslink_target_ids": sorted(term.crosslink_target_ids),
-            "curation_note": term.curation_note,
-            "enables_host_recovery": term.enables_host_recovery,
+            "definition": term.definition,
             "facet": term.facet,
             "label": term.label,
             "parent_id": term.parent_id,
-            "synonyms": sorted(term.synonyms),
+            "parent_relation": term.parent_relation,
+            "scope_note": term.scope_note,
+            "synonyms": sorted([synonym.text, synonym.synonym_type] for synonym in term.synonyms),
         }
         for term_id, term in sorted(ontology.terms.items())
     }
     return canonical_json_sha256(
         {
             "facets": facets,
-            "retired_term_ids": sorted(ontology.retired_term_ids),
+            "relations": sorted(
+                [relation.subject_id, relation.relation.value, relation.object_id]
+                for relation in ontology.relations
+            ),
+            "obsolete_terms": {
+                term_id: {
+                    "label": term.label,
+                    "note": term.note,
+                    "replaced_by": sorted(term.replaced_by),
+                }
+                for term_id, term in sorted(ontology.obsolete_terms.items())
+            },
             "schema_version": ontology.schema_version,
             "terms": terms,
         }
     )
-
-
-def _legacy_ontology_semantics_fingerprint(
-    node_metadata: Mapping[str, Mapping[str, object]],
-    children_map: Mapping[str, list[str]],
-    crosslink_map: Mapping[str, list[str]],
-) -> str:
-    """Preserve current run identity until the directory policy becomes active."""
-    nodes = {
-        term_path: {
-            **metadata,
-            "synonyms": sorted(metadata.get("synonyms", [])),
-        }
-        for term_path, metadata in sorted(node_metadata.items())
-    }
-    hierarchy = {parent: sorted(children) for parent, children in sorted(children_map.items())}
-    crosslinks = {
-        source_term_path: sorted(targets)
-        for source_term_path, targets in sorted(crosslink_map.items())
-    }
-    return canonical_json_sha256({"nodes": nodes, "hierarchy": hierarchy, "crosslinks": crosslinks})
 
 
 def _mapping_set_semantics_fingerprint(ontology: IsolationSourceOntology) -> str:
@@ -314,14 +429,9 @@ def _load_facets(document: Mapping[object, object], path: Path) -> dict[str, Iso
         key = raw_key.strip()
         if not isinstance(raw_definition, Mapping):
             raise _ontology_error(path, f"facets.{key}", "must be a mapping")
-        try:
-            cardinality = FacetCardinality(_required_text(raw_definition, "cardinality", path))
-        except ValueError as error:
-            raise _ontology_error(
-                path,
-                f"facets.{key}.cardinality",
-                "must be 'single' or 'multiple'",
-            ) from error
+        unknown_fields = sorted(str(field) for field in set(raw_definition) - _FACET_FIELDS)
+        if unknown_fields:
+            raise _ontology_error(path, f"facets.{key}.{unknown_fields[0]}", "unknown facet field")
 
         raw_bindings = _required_mapping(raw_definition, "standards_bindings", path)
         standards_bindings = {
@@ -334,12 +444,8 @@ def _load_facets(document: Mapping[object, object], path: Path) -> dict[str, Iso
         }
         facets[key] = IsolationSourceFacet(
             key=key,
-            cardinality=cardinality,
-            output_column=_required_text(raw_definition, "output_column", path),
-            render_order=_required_integer(raw_definition, "render_order", path),
             standards_bindings=MappingProxyType(standards_bindings),
             meaning=_required_text(raw_definition, "meaning", path),
-            classifier_guidance=_required_text(raw_definition, "classifier_guidance", path),
         )
     return facets
 
@@ -393,10 +499,9 @@ def _load_terms(path: Path) -> dict[str, IsolationSourceTerm]:
         "label",
         "facet",
         "parent_id",
-        "synonyms",
-        "crosslink_targets",
-        "curation_note",
-        "enables_host_recovery",
+        "parent_relation",
+        "definition",
+        "scope_note",
     )
     terms: dict[str, IsolationSourceTerm] = {}
     term_rows: dict[str, int] = {}
@@ -426,27 +531,123 @@ def _load_terms(path: Path) -> dict[str, IsolationSourceTerm]:
                 f"duplicate label {label!r} {facet_message}; first declared by "
                 f"{previous_term_id!r} at row {previous_row}",
             )
-        recovery_text = row["enables_host_recovery"].lower()
-        if recovery_text not in {"true", "false"}:
-            raise _ontology_error(
-                path,
-                f"row {row_number} enables_host_recovery",
-                "must be true or false",
-            )
         term = IsolationSourceTerm(
             term_id=term_id,
             label=label,
             facet=facet,
             parent_id=row["parent_id"] or None,
-            synonyms=_semicolon_values(row["synonyms"]),
-            crosslink_target_ids=_semicolon_values(row["crosslink_targets"]),
-            curation_note=row["curation_note"],
-            enables_host_recovery=recovery_text == "true",
+            parent_relation=_parent_relation(row, path, row_number),
+            definition=row["definition"],
+            scope_note=row["scope_note"],
         )
         terms[term.term_id] = term
         term_rows[term.term_id] = row_number
         labels[normalized_label] = (term.term_id, term.facet, row_number)
     return terms
+
+
+def _load_synonyms(
+    path: Path, terms: Mapping[str, IsolationSourceTerm]
+) -> dict[str, IsolationSourceTerm]:
+    synonyms: dict[str, list[Synonym]] = {term_id: [] for term_id in terms}
+    synonym_rows: dict[tuple[str, str], int] = {}
+    for row_number, row in _load_tsv_rows(path, ("term_id", "synonym", "synonym_type")):
+        term_id = _required_tsv_value(row, "term_id", path, row_number, "term identifier")
+        if term_id not in terms:
+            raise _ontology_error(path, f"row {row_number} term_id", f"unknown term {term_id!r}")
+        text = _required_tsv_value(row, "synonym", path, row_number, "synonym")
+        try:
+            synonym_type = SynonymType(row["synonym_type"])
+        except ValueError as error:
+            raise _ontology_error(
+                path,
+                f"row {row_number} synonym_type",
+                f"unknown synonym type {row['synonym_type']!r}",
+            ) from error
+        if (term_id, text) in synonym_rows:
+            raise _ontology_error(
+                path, f"row {row_number}", f"duplicate of row {synonym_rows[term_id, text]}"
+            )
+        synonym_rows[term_id, text] = row_number
+        synonyms[term_id].append(Synonym(text, synonym_type))
+    return {
+        term_id: replace(term, synonyms=tuple(synonyms[term_id])) for term_id, term in terms.items()
+    }
+
+
+def _validate_definitions(
+    terms: Mapping[str, IsolationSourceTerm], exact_match_ids: Mapping[str, str], terms_path: Path
+) -> None:
+    for term in terms.values():
+        if not term.definition and term.term_id not in exact_match_ids:
+            raise _ontology_error(
+                terms_path,
+                f"term {term.term_id!r} definition",
+                "required for a term without a skos:exactMatch mapping",
+            )
+
+
+def _validate_versions(
+    vocabulary_version: str, mapping_set: IsolationSourceMappingSet, mapping_set_path: Path
+) -> None:
+    for key in ("mapping_set_version", "subject_source_version"):
+        version = getattr(mapping_set, key)
+        if version != vocabulary_version:
+            raise _ontology_error(
+                mapping_set_path,
+                key,
+                f"{version!r} differs from the vocabulary_version {vocabulary_version!r}",
+            )
+
+
+def _match_keys(terms: Mapping[str, IsolationSourceTerm], synonyms_path: Path) -> dict[str, str]:
+    match_keys: dict[str, str] = {}
+    for term in terms.values():
+        for name in (term.label, *(synonym.text for synonym in term.synonyms)):
+            key = normalize_keyword(name)
+            if key in match_keys:
+                raise _ontology_error(
+                    synonyms_path,
+                    f"term {term.term_id!r} name {name!r}",
+                    f"match key {key!r} already names {match_keys[key]!r}",
+                )
+            match_keys[key] = term.term_id
+    return match_keys
+
+
+def _load_obsolete_terms(
+    path: Path, terms: Mapping[str, IsolationSourceTerm]
+) -> dict[str, ObsoleteTerm]:
+    obsolete_terms: dict[str, ObsoleteTerm] = {}
+    for row_number, row in _load_tsv_rows(path, ("term_id", "label", "replaced_by", "note")):
+        term_id = _required_tsv_value(row, "term_id", path, row_number, "term identifier")
+        location = f"row {row_number} term_id"
+        if term_id in terms:
+            raise _ontology_error(path, location, f"{term_id!r} is an active term")
+        if term_id in obsolete_terms:
+            raise _ontology_error(path, location, f"duplicate term identifier {term_id!r}")
+        replaced_by = _semicolon_values(row["replaced_by"])
+        for replacement_id in replaced_by:
+            if replacement_id not in terms:
+                raise _ontology_error(
+                    path,
+                    f"row {row_number} replaced_by",
+                    f"replacement {replacement_id!r} is not an active term",
+                )
+        obsolete_terms[term_id] = ObsoleteTerm(term_id, row["label"], replaced_by, row["note"])
+    return obsolete_terms
+
+
+def _parent_relation(row: Mapping[str, str], path: Path, row_number: int) -> ParentRelation | None:
+    location = f"row {row_number} parent_relation"
+    if not row["parent_id"]:
+        if row["parent_relation"]:
+            raise _ontology_error(path, location, "must be empty when parent_id is empty")
+        return None
+    try:
+        return ParentRelation(row["parent_relation"])
+    except ValueError as error:
+        raise _ontology_error(path, location, "must be 'kind_of' or 'part_of'") from error
 
 
 def _load_mappings(path: Path) -> tuple[OntologyTermMapping, ...]:
@@ -506,13 +707,6 @@ def _validate_term_references(terms: Mapping[str, IsolationSourceTerm], terms_pa
                     f"parent {parent.term_id!r} belongs to facet {parent.facet!r}; "
                     f"parents must belong to {term.facet!r}",
                 )
-        for target_id in term.crosslink_target_ids:
-            if target_id not in terms:
-                raise _ontology_error(
-                    terms_path,
-                    f"term {term.term_id!r} crosslink_targets",
-                    f"unresolvable crosslink target {target_id!r}",
-                )
 
 
 def _validate_mapping_subjects(
@@ -549,24 +743,92 @@ def _validate_parent_acyclicity(terms: Mapping[str, IsolationSourceTerm], terms_
         completed.update(route)
 
 
-def _validate_crosslink_cardinality(
+def _ancestor_ids(terms: Mapping[str, IsolationSourceTerm], term_id: str) -> list[str]:
+    ancestor_ids = []
+    parent_id = terms[term_id].parent_id
+    while parent_id is not None:
+        ancestor_ids.append(parent_id)
+        parent_id = terms[parent_id].parent_id
+    return ancestor_ids
+
+
+def _load_relations(
+    path: Path, terms: Mapping[str, IsolationSourceTerm]
+) -> tuple[TermRelation, ...]:
+    relation_rows: dict[TermRelation, int] = {}
+    for row_number, row in _load_tsv_rows(path, ("subject_id", "relation", "object_id")):
+        for key in ("subject_id", "object_id"):
+            term_id = _required_tsv_value(row, key, path, row_number, "term identifier")
+            if term_id not in terms:
+                raise _ontology_error(path, f"row {row_number} {key}", f"unknown term {term_id!r}")
+        try:
+            relation_type = RelationType(row["relation"])
+        except ValueError as error:
+            raise _ontology_error(
+                path,
+                f"row {row_number} relation",
+                f"unknown relation type {row['relation']!r}",
+            ) from error
+        relation = TermRelation(row["subject_id"], relation_type, row["object_id"])
+        if relation in relation_rows:
+            raise _ontology_error(
+                path, f"row {row_number}", f"duplicate of row {relation_rows[relation]}"
+            )
+        _validate_relation_object(relation, terms, path, row_number)
+        relation_rows[relation] = row_number
+    return tuple(relation_rows)
+
+
+def _validate_relation_object(
+    relation: TermRelation,
     terms: Mapping[str, IsolationSourceTerm],
-    facets: Mapping[str, IsolationSourceFacet],
-    terms_path: Path,
+    path: Path,
+    row_number: int,
 ) -> None:
-    for term in terms.values():
-        assigned_ids_by_facet: dict[str, set[str]] = {term.facet: {term.term_id}}
-        for target_id in term.crosslink_target_ids:
-            target = terms[target_id]
-            assigned_ids_by_facet.setdefault(target.facet, set()).add(target_id)
-        for facet_key, assigned_ids in assigned_ids_by_facet.items():
-            if facets[facet_key].cardinality is FacetCardinality.SINGLE and len(assigned_ids) > 1:
-                identifiers = ", ".join(sorted(assigned_ids))
-                raise _ontology_error(
-                    terms_path,
-                    f"term {term.term_id!r} crosslink_targets",
-                    f"assigns multiple values to single-valued facet {facet_key!r}: {identifiers}",
+    location = f"row {row_number} object_id"
+    implies_source_type = relation.relation is RelationType.IMPLIES_SOURCE_TYPE
+    if implies_source_type != (terms[relation.object_id].facet == SOURCE_TYPE_FACET):
+        requirement = "must" if implies_source_type else "must not"
+        raise _ontology_error(
+            path,
+            location,
+            f"object {relation.object_id!r} of {relation.relation.value!r} {requirement} be a "
+            f"{SOURCE_TYPE_FACET!r} term",
+        )
+    if relation.object_id in {
+        relation.subject_id,
+        *_ancestor_ids(terms, relation.subject_id),
+    } or relation.subject_id in _ancestor_ids(terms, relation.object_id):
+        raise _ontology_error(
+            path,
+            location,
+            f"object {relation.object_id!r} is the subject {relation.subject_id!r} or one of "
+            "its ancestors or descendants",
+        )
+
+
+def _resolve_relation_objects(
+    terms: Mapping[str, IsolationSourceTerm], relations: tuple[TermRelation, ...]
+) -> dict[str, tuple[str, ...]]:
+    own_object_ids: dict[str, set[str]] = {term_id: set() for term_id in terms}
+    implied_source_type_ids: dict[str, set[str]] = {term_id: set() for term_id in terms}
+    for relation in relations:
+        own_object_ids[relation.subject_id].add(relation.object_id)
+        if relation.relation is RelationType.IMPLIES_SOURCE_TYPE:
+            implied_source_type_ids[relation.subject_id].add(relation.object_id)
+    return {
+        term_id: tuple(
+            sorted(
+                own_object_ids[term_id].union(
+                    *(
+                        implied_source_type_ids[ancestor_id]
+                        for ancestor_id in _ancestor_ids(terms, term_id)
+                    )
                 )
+            )
+        )
+        for term_id in terms
+    }
 
 
 def _load_mapping_set(
@@ -589,7 +851,7 @@ def _load_mapping_set(
         license=_required_text(document, "license", path),
         subject_source=_required_text(document, "subject_source", path),
         subject_source_version=_required_text(document, "subject_source_version", path),
-        comment=_required_text(document, "comment", path),
+        comment=str(document.get("comment") or "").strip(),
         curie_map=MappingProxyType(curie_map),
         mappings=mappings,
     )

@@ -73,6 +73,7 @@ class ScriptedClient:
             "facility": [],
             "sampled_object": [],
             "food_type": [],
+            "host_disease": [],
         }
         for term in terms:
             facet = FACET_BY_LABEL[term]
@@ -212,10 +213,10 @@ def test_dataset_build_limits_evidence_to_biosample_pairs(
     reasoning = _reasoning_rows(run.reasoning)
     assert len(client.calls) == 1
     assert rows["SAMPLE_ONLY"]["iso_body_product"] == "feces"
-    assert rows["SAMPLE_ONLY"]["iso_term_ids"] == (f"BACC:0000001||BACC:0000002||{FECES}")
-    assert rows["HOST_ONLY"]["iso_source_type"] == "host-associated||animal host"
+    assert rows["SAMPLE_ONLY"]["iso_term_ids"] == (f"BACC:0000001||{FECES}")
+    assert rows["HOST_ONLY"]["iso_source_type"] == "host-associated||human host"
     assert rows["SAMPLE_AND_PROJECT"]["iso_term_ids"] == (
-        f"BACC:0000001||BACC:0000002||BACC:0000004||{FECES}||{SOIL}"
+        f"BACC:0000001||BACC:0000004||{FECES}||{SOIL}"
     )
     assert "PROJECT_ONLY" not in rows
     assert "UNINFORMATIVE_PROJECT" not in rows
@@ -347,7 +348,7 @@ def test_host_recovery_uses_biosample_pairs_not_bioproject_linkage(
     )
 
     class BioSampleIsolationSourceStandardizer:
-        def standardize(self, record, *, overflow=None):
+        def standardize(self, record, *, overflow=None, host_pairs=()):
             supporting_pairs = (
                 (SupportingAttributeValuePair("food_source", "chicken meat"),)
                 if record["accession"] == "RECORD_EVIDENCE"
@@ -373,6 +374,10 @@ def test_host_recovery_uses_biosample_pairs_not_bioproject_linkage(
         @staticmethod
         def refine_source_type_from_host_lineage(outcome, **_lineage):
             return outcome
+
+        @staticmethod
+        def add_laboratory_from_strain(result, _organism, _strain):
+            return result
 
         def close(self) -> None:
             pass

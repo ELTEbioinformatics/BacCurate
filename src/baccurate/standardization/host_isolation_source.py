@@ -37,7 +37,6 @@ from baccurate.standardization.isolation_source import (
     IsolationSourceRejection,
     IsolationSourceStandardizer,
 )
-from baccurate.standardization.isolation_source_ontology import ontology_semantics_fingerprint
 
 # None disables the LLM path here.
 _LOAD_LLM_ADAPTER = object()
@@ -79,7 +78,7 @@ class HostIsolationSourceRouting:
     host_recovery: HostRecoveryRouting
     isolation_source: IsolationSourceRouting
     host_overflow_used: bool
-    crosslink_applied: bool
+    relation_applied: bool
 
 
 # --- Result contract ---
@@ -185,16 +184,12 @@ class HostIsolationSourceStandardizer:
             {"server": getattr(pipeline, "server", None)}
         )
         if ontology is None:
-            # A real IsolationSourceStandardizer always carries an ontology; test doubles need
-            # not. Fingerprint the empty graph so identity stays well defined.
-            self._ontology_fingerprint = ontology_semantics_fingerprint(None)
             prompt_contract = {
                 "isolation_configuration": isolation_source_config,
                 "request_parameters": ISOLATION_SOURCE_LLM_PARAMETERS,
             }
             self._prompt_configuration_fingerprint = canonical_json_sha256(prompt_contract)
         else:
-            self._ontology_fingerprint = ontology_semantics_fingerprint(ontology)
             self._prompt_configuration_fingerprint = (
                 isolation_source_policy.prompt_configuration_fingerprint
             )
@@ -206,10 +201,6 @@ class HostIsolationSourceStandardizer:
     @property
     def model_identifier(self) -> str:
         return self._model_identifier
-
-    @property
-    def ontology_fingerprint(self) -> str:
-        return self._ontology_fingerprint
 
     @property
     def prompt_configuration_fingerprint(self) -> str:
@@ -250,6 +241,7 @@ class HostIsolationSourceStandardizer:
             isolation_source = self._isolation_source.standardize(
                 extracted_record,
                 overflow=initial_host.overflow,
+                host_pairs=initial_host.supporting_pairs if initial_host.standardized else (),
             )
 
         # 2nd host pass
@@ -290,6 +282,11 @@ class HostIsolationSourceStandardizer:
                 lineage_root_taxid=lineage_root_taxid,
                 source_type_term_id=source_type_term_id,
             )
+        isolation_source = self._isolation_source.add_laboratory_from_strain(
+            isolation_source,
+            str(extracted_record.get("ncbi_organism", "") or ""),
+            str(extracted_record.get("strain", "") or ""),
+        )
 
         initial_routing = (
             HostInitialRouting.MATCHED
@@ -321,7 +318,7 @@ class HostIsolationSourceStandardizer:
                 host_recovery=recovery_routing,
                 isolation_source=isolation_source_routing,
                 host_overflow_used=initial_host.overflow is not None,
-                crosslink_applied=any(step.node == "crosslink" for step in reasoning),
+                relation_applied=any(step.node == "relation" for step in reasoning),
             ),
             timing=HostIsolationSourceTiming(elapsed_seconds=perf_counter() - started),
             fingerprints=HostIsolationSourceFingerprints(
@@ -358,7 +355,10 @@ class HostIsolationSourceStandardizer:
             return IsolationSourceRouting.CACHE
         if isolation_source.exact_matches:
             return IsolationSourceRouting.DETERMINISTIC
-        if any(step.node == "host_lineage_derivation" for step in isolation_source.reasoning):
+        if any(
+            step.node in ("host_lineage_derivation", "laboratory_strain")
+            for step in isolation_source.reasoning
+        ):
             return IsolationSourceRouting.DETERMINISTIC
         # No route left any trace, which only happens with no configured client.
         return IsolationSourceRouting.LLM_DISABLED

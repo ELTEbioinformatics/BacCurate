@@ -1,41 +1,39 @@
 """Protect the public isolation-source ontology loading contract."""
 
 import csv
+import re
 from pathlib import Path
 
 import pytest
 import yaml
 
 from baccurate.standardization.isolation_source_ontology import (
-    FacetCardinality,
     IsolationSourceOntology,
     IsolationSourceOntologyError,
+    ParentRelation,
+    RelationType,
+    Synonym,
+    SynonymType,
+    TermRelation,
 )
 
 ONTOLOGY_DIRECTORY = Path(__file__).parents[2] / "data" / "reference" / "ontology"
+FIXTURE_DIRECTORY = Path(__file__).parents[1] / "fixtures" / "standardization" / "ontology"
 
 FACETS_YAML = """\
 schema_version: 1
 vocabulary_version: "test"
-retired_term_ids: []
 
 facets:
   source_type:
-    cardinality: single
-    output_column: iso_source_type
-    render_order: 1
     standards_bindings:
       mixs: []
       pha4ge_geneepio: []
       external_ontology_namespaces:
         - ENVO
     meaning: The broad kind of isolation source.
-    classifier_guidance: Select one when another facet is populated.
 
   environmental_material:
-    cardinality: multiple
-    output_column: iso_environmental_material
-    render_order: 2
     standards_bindings:
       mixs:
         - env_medium
@@ -44,21 +42,35 @@ facets:
       external_ontology_namespaces:
         - ENVO
     meaning: The non-host material sampled.
-    classifier_guidance: Select only a material named by the metadata.
 """
 
 TERMS_TSV = "\n".join(
     (
-        "term_id\tlabel\tfacet\tparent_id\tsynonyms\tcrosslink_targets\tcuration_note\t"
-        "enables_host_recovery",
-        "BACC:0000001\tenvironmental\tsource_type\t\tenvironment\t\t\tfalse",
-        "BACC:0000002\tbuilt environment\tsource_type\tBACC:0000001\t\t\t\tfalse",
-        "BACC:0000003\tenvironmental material\tenvironmental_material\t\tmaterial\t\t\tfalse",
-        "BACC:0000004\tsoil\tenvironmental_material\tBACC:0000003\tdirt\tBACC:0000001\t"
-        "Use for sampled soil.\ttrue",
+        "term_id\tlabel\tfacet\tparent_id\tparent_relation\tdefinition\tscope_note",
+        "BACC:0000001\tenvironmental\tsource_type\t\t\tMaterial from the environment.\t",
+        "BACC:0000002\tbuilt environment\tsource_type\tBACC:0000001\tkind_of\t"
+        "Material from a built environment.\t",
+        "BACC:0000003\tenvironmental material\tenvironmental_material\t\t\t"
+        "Material that was sampled.\t",
+        "BACC:0000004\tsoil\tenvironmental_material\tBACC:0000003\tkind_of\tSoil material.\t"
+        "Use for sampled soil.",
         "",
     )
 )
+
+SYNONYMS_TSV = (
+    "term_id\tsynonym\tsynonym_type\n"
+    "BACC:0000001\tenvironment\texact\n"
+    "BACC:0000003\tmaterial\tbroad\n"
+    "BACC:0000004\tdirt\texact\n"
+)
+
+OBSOLETE_TERMS_TSV = (
+    "term_id\tlabel\treplaced_by\tnote\n"
+    "BACC:0000005\tnatural environment\tBACC:0000001\tObsolete since 2026-01-01.\n"
+)
+
+RELATIONS_TSV = "subject_id\trelation\tobject_id\nBACC:0000004\timplies_source_type\tBACC:0000001\n"
 
 MAPPINGS_TSV = "\n".join(
     (
@@ -83,12 +95,11 @@ mapping_set_title: Test isolation-source mappings
 mapping_set_description: Minimal mapping set for the public loader contract.
 mapping_date: "2026-01-01"
 license: https://opensource.org/license/mit/
-subject_source: baccurate:terms.tsv
+subject_source: baccurate:vocabulary
 subject_source_version: "test"
-comment: BACC identifiers are local to this test vocabulary.
 curie_map:
-  BACC: https://example.org/baccurate/terms#BACC_
-  baccurate: https://example.org/baccurate/
+  BACC: https://w3id.org/baccurate/BACC_
+  baccurate: https://w3id.org/baccurate/
   ENVO: http://purl.obolibrary.org/obo/ENVO_
   obo: http://purl.obolibrary.org/obo/
   semapv: https://w3id.org/semapv/vocab/
@@ -103,6 +114,9 @@ def ontology_directory(tmp_path: Path) -> Path:
     for filename, content in {
         "facets.yaml": FACETS_YAML,
         "terms.tsv": TERMS_TSV,
+        "synonyms.tsv": SYNONYMS_TSV,
+        "obsolete_terms.tsv": OBSOLETE_TERMS_TSV,
+        "relations.tsv": RELATIONS_TSV,
         "mappings.sssom.tsv": MAPPINGS_TSV,
         "mappings.sssom.yml": MAPPING_SET_YAML,
     }.items():
@@ -143,39 +157,40 @@ def _update_tsv_row(
     _write_tsv(path, fieldnames, rows)
 
 
-def test_authored_isolation_source_ontology_loads() -> None:
+def test_authored_identifiers_expand_to_w3id_iris() -> None:
     ontology = IsolationSourceOntology.load(ONTOLOGY_DIRECTORY)
+    curie_map = ontology.mapping_set.curie_map
 
-    assert ontology.retired_term_ids == ("BACC:0000005", "BACC:0000006")
-    assert set(ontology.retired_term_ids).isdisjoint(ontology.terms)
+    for term_id in (*ontology.terms, *ontology.obsolete_terms):
+        prefix, _, local_id = term_id.partition(":")
+        assert re.fullmatch(r"\d{7}", local_id), term_id
+        assert curie_map[prefix] + local_id == f"https://w3id.org/baccurate/BACC_{local_id}"
+
+
+def test_authored_mappings_bind_entity_terms_to_at_most_one_exact_class() -> None:
+    ontology = IsolationSourceOntology.load(ONTOLOGY_DIRECTORY)
+    mappings = ontology.mapping_set.mappings
+    exact_subjects = [m.subject_id for m in mappings if m.predicate_id == "skos:exactMatch"]
+
     assert {
-        ontology.resolved_mapping_terms[external_id].term_id
-        for external_id in ("ENVO:00002272", "ENVO:01000984", "ENVO:01000313", "ENVO:01000951")
-    } == {"BACC:0000004"}
+        m.subject_id for m in mappings if ontology.terms[m.subject_id].facet == "source_type"
+    } == set()
+    assert {s for s in exact_subjects if exact_subjects.count(s) > 1} == set()
 
 
-def test_authored_ontology_preserves_host_recovery_eligible_term_set() -> None:
+def test_each_authored_term_without_an_exact_match_has_a_definition() -> None:
     ontology = IsolationSourceOntology.load(ONTOLOGY_DIRECTORY)
 
-    assert {term.term_id for term in ontology.terms.values() if term.enables_host_recovery} == {
-        "BACC:0000001",  # host-associated
-        "BACC:0000002",  # animal host
-        "BACC:0000003",  # plant host
-        "BACC:0000094",  # plant food product
-        "BACC:0000095",  # animal food product
-        "BACC:0000096",  # dairy food product
-        "BACC:0000097",  # meat product
-        "BACC:0000098",  # seafood product
-        "BACC:0000105",  # human milk
-    }
+    for term_id, term in ontology.terms.items():
+        if term_id not in ontology.exact_match_ids:
+            assert term.definition, term_id
 
 
 def test_load_returns_complete_facet_term_and_mapping_shapes(ontology_directory: Path) -> None:
     ontology = IsolationSourceOntology.load(ontology_directory)
 
     assert set(ontology.facets) == {"source_type", "environmental_material"}
-    assert ontology.facets["source_type"].cardinality is FacetCardinality.SINGLE
-    assert ontology.facets["environmental_material"].output_column == ("iso_environmental_material")
+    assert ontology.facets["environmental_material"].meaning == "The non-host material sampled."
     assert set(ontology.terms) == {
         "BACC:0000001",
         "BACC:0000002",
@@ -187,19 +202,24 @@ def test_load_returns_complete_facet_term_and_mapping_shapes(ontology_directory:
         soil.label,
         soil.facet,
         soil.parent_id,
+        soil.parent_relation,
         soil.synonyms,
-        soil.crosslink_target_ids,
-        soil.curation_note,
-        soil.enables_host_recovery,
+        soil.definition,
+        soil.scope_note,
     ) == (
         "soil",
         "environmental_material",
         "BACC:0000003",
-        ("dirt",),
-        ("BACC:0000001",),
+        ParentRelation.KIND_OF,
+        (Synonym("dirt", SynonymType.EXACT),),
+        "Soil material.",
         "Use for sampled soil.",
-        True,
     )
+    assert ontology.match_keys["dirt"] == "BACC:0000004"
+    assert ontology.relations == (
+        TermRelation("BACC:0000004", RelationType.IMPLIES_SOURCE_TYPE, "BACC:0000001"),
+    )
+    assert ontology.relation_object_ids["BACC:0000004"] == ("BACC:0000001",)
     assert ontology.mapping_set.mapping_set_version == "test"
     assert len(ontology.mapping_set.mappings) == 4
 
@@ -274,12 +294,12 @@ def test_unresolvable_parent_names_the_term(ontology_directory: Path) -> None:
         IsolationSourceOntology.load(ontology_directory)
 
 
-def test_parent_relation_cannot_cross_facets(ontology_directory: Path) -> None:
+def test_parent_cannot_cross_facets(ontology_directory: Path) -> None:
     _update_tsv_row(
         ontology_directory / "terms.tsv",
         match_column="term_id",
         match_value="BACC:0000003",
-        changes={"parent_id": "BACC:0000001"},
+        changes={"parent_id": "BACC:0000001", "parent_relation": "kind_of"},
     )
 
     with pytest.raises(
@@ -292,20 +312,166 @@ def test_parent_relation_cannot_cross_facets(ontology_directory: Path) -> None:
         IsolationSourceOntology.load(ontology_directory)
 
 
-def test_unresolvable_crosslink_names_the_term(ontology_directory: Path) -> None:
+@pytest.mark.parametrize(
+    ("term_id", "parent_relation", "message"),
+    [
+        ("BACC:0000002", "", "must be 'kind_of' or 'part_of'"),
+        ("BACC:0000001", "kind_of", "must be empty when parent_id is empty"),
+        ("BACC:0000002", "broader", "must be 'kind_of' or 'part_of'"),
+    ],
+    ids=["missing", "without parent", "unknown"],
+)
+def test_parent_relation_is_set_exactly_for_a_parent(
+    ontology_directory: Path, term_id: str, parent_relation: str, message: str
+) -> None:
     _update_tsv_row(
         ontology_directory / "terms.tsv",
         match_column="term_id",
-        match_value="BACC:0000004",
-        changes={"crosslink_targets": "BACC:9999999"},
+        match_value=term_id,
+        changes={"parent_relation": parent_relation},
     )
+
+    with pytest.raises(IsolationSourceOntologyError, match=rf"row \d+ parent_relation: {message}"):
+        IsolationSourceOntology.load(ontology_directory)
+
+
+@pytest.mark.parametrize(
+    ("row", "message"),
+    [
+        (
+            "BACC:9999999\thas_part\tBACC:0000003",
+            r"row 3 subject_id: unknown term 'BACC:9999999'",
+        ),
+        (
+            "BACC:0000004\thas_part\tBACC:9999999",
+            r"row 3 object_id: unknown term 'BACC:9999999'",
+        ),
+        (
+            "BACC:0000004\trelated\tBACC:0000002",
+            r"row 3 relation: unknown relation type 'related'",
+        ),
+        (
+            "BACC:0000004\timplies_source_type\tBACC:0000001",
+            r"row 3: duplicate of row 2",
+        ),
+        (
+            "BACC:0000002\timplies_source_type\tBACC:0000003",
+            r"row 3 object_id: object 'BACC:0000003' of 'implies_source_type' must be a "
+            r"'source_type' term",
+        ),
+        (
+            "BACC:0000003\tlocated_in\tBACC:0000001",
+            r"row 3 object_id: object 'BACC:0000001' of 'located_in' must not be a "
+            r"'source_type' term",
+        ),
+        (
+            "BACC:0000004\tpart_of\tBACC:0000003",
+            r"row 3 object_id: object 'BACC:0000003' is the subject 'BACC:0000004' or one of "
+            r"its ancestors or descendants",
+        ),
+        (
+            "BACC:0000003\thas_part\tBACC:0000004",
+            r"row 3 object_id: object 'BACC:0000004' is the subject 'BACC:0000003' or one of "
+            r"its ancestors or descendants",
+        ),
+    ],
+    ids=[
+        "unknown subject",
+        "unknown object",
+        "unknown relation type",
+        "duplicate",
+        "implied object outside source_type",
+        "other object in source_type",
+        "object is an ancestor",
+        "object is a descendant",
+    ],
+)
+def test_invalid_relation_names_the_row(ontology_directory: Path, row: str, message: str) -> None:
+    with (ontology_directory / "relations.tsv").open("a", encoding="utf-8") as relations:
+        relations.write(f"{row}\n")
+
+    with pytest.raises(IsolationSourceOntologyError, match=message):
+        IsolationSourceOntology.load(ontology_directory)
+
+
+def test_only_implies_source_type_relations_apply_to_descendants() -> None:
+    ontology = IsolationSourceOntology.load(FIXTURE_DIRECTORY)
+    tested_inheritance = set()
+
+    for relation in ontology.relations:
+        assert relation.object_id in ontology.relation_object_ids[relation.subject_id]
+        for term_id in ontology.terms:
+            if relation.subject_id not in _ancestor_ids(ontology, term_id):
+                continue
+            inherited = relation.relation is RelationType.IMPLIES_SOURCE_TYPE
+            applied = relation.object_id in ontology.relation_object_ids[term_id]
+            assert applied == inherited, (relation, term_id)
+            tested_inheritance.add(inherited)
+
+    assert tested_inheritance == {True, False}
+
+
+def _ancestor_ids(ontology: IsolationSourceOntology, term_id: str) -> set[str]:
+    ancestor_ids = set()
+    parent_id = ontology.terms[term_id].parent_id
+    while parent_id is not None:
+        ancestor_ids.add(parent_id)
+        parent_id = ontology.terms[parent_id].parent_id
+    return ancestor_ids
+
+
+@pytest.mark.parametrize(
+    ("filename", "line", "message"),
+    [
+        (
+            "obsolete_terms.tsv",
+            "BACC:0000004\tsoil\tBACC:0000003\tObsolete.",
+            r"row 3 term_id: 'BACC:0000004' is an active term",
+        ),
+        (
+            "obsolete_terms.tsv",
+            "BACC:0000005\tnatural environment\tBACC:0000001\tObsolete.",
+            r"row 3 term_id: duplicate term identifier 'BACC:0000005'",
+        ),
+        (
+            "obsolete_terms.tsv",
+            "BACC:0000006\tmud\tBACC:0000004;BACC:0000005\tObsolete.",
+            r"row 3 replaced_by: replacement 'BACC:0000005' is not an active term",
+        ),
+    ],
+    ids=["active term", "duplicate", "obsolete replacement"],
+)
+def test_invalid_obsolete_term_is_rejected(
+    ontology_directory: Path, filename: str, line: str, message: str
+) -> None:
+    with (ontology_directory / filename).open("a", encoding="utf-8") as source:
+        source.write(f"{line}\n")
+
+    with pytest.raises(IsolationSourceOntologyError, match=message):
+        IsolationSourceOntology.load(ontology_directory)
+
+
+def test_obsolete_term_without_replacement_is_accepted(ontology_directory: Path) -> None:
+    with (ontology_directory / "obsolete_terms.tsv").open("a", encoding="utf-8") as source:
+        source.write("BACC:0000006\tmud\t\tObsolete.\n")
+
+    ontology = IsolationSourceOntology.load(ontology_directory)
+
+    assert ontology.obsolete_terms["BACC:0000006"].replaced_by == ()
+
+
+@pytest.mark.parametrize("key", ["mapping_set_version", "subject_source_version"])
+def test_mapping_set_version_must_equal_the_vocabulary_version(
+    ontology_directory: Path, key: str
+) -> None:
+    mapping_set_path = ontology_directory / "mappings.sssom.yml"
+    document = yaml.safe_load(mapping_set_path.read_text(encoding="utf-8"))
+    document[key] = "other"
+    mapping_set_path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
 
     with pytest.raises(
         IsolationSourceOntologyError,
-        match=(
-            r"term 'BACC:0000004' crosslink_targets: unresolvable crosslink target "
-            r"'BACC:9999999'"
-        ),
+        match=rf"{key}: 'other' differs from the vocabulary_version 'test'",
     ):
         IsolationSourceOntology.load(ontology_directory)
 
@@ -377,12 +543,12 @@ def test_required_term_and_mapping_fields_cannot_be_empty(
         IsolationSourceOntology.load(ontology_directory)
 
 
-def test_cycle_in_parent_relation_names_the_terms(ontology_directory: Path) -> None:
+def test_cycle_of_parents_names_the_terms(ontology_directory: Path) -> None:
     _update_tsv_row(
         ontology_directory / "terms.tsv",
         match_column="term_id",
         match_value="BACC:0000001",
-        changes={"parent_id": "BACC:0000002"},
+        changes={"parent_id": "BACC:0000002", "parent_relation": "kind_of"},
     )
 
     with pytest.raises(
@@ -395,23 +561,32 @@ def test_cycle_in_parent_relation_names_the_terms(ontology_directory: Path) -> N
         IsolationSourceOntology.load(ontology_directory)
 
 
-def test_term_cannot_crosslink_to_multiple_values_in_single_facet(
-    ontology_directory: Path,
-) -> None:
-    _update_tsv_row(
-        ontology_directory / "terms.tsv",
-        match_column="term_id",
-        match_value="BACC:0000004",
-        changes={"crosslink_targets": "BACC:0000001;BACC:0000002"},
-    )
+@pytest.mark.parametrize(
+    "field", ["cardinality", "output_column", "render_order", "classifier_guidance"]
+)
+def test_facet_rejects_a_pipeline_field(ontology_directory: Path, field: str) -> None:
+    facets_path = ontology_directory / "facets.yaml"
+    document = yaml.safe_load(facets_path.read_text(encoding="utf-8"))
+    document["facets"]["source_type"][field] = 1
+    facets_path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
 
     with pytest.raises(
         IsolationSourceOntologyError,
-        match=(
-            r"term 'BACC:0000004' crosslink_targets: assigns multiple values "
-            r"to single-valued facet 'source_type': BACC:0000001, BACC:0000002"
-        ),
+        match=rf"facets\.source_type\.{field}: unknown facet field",
     ):
+        IsolationSourceOntology.load(ontology_directory)
+
+
+def test_terms_reject_the_host_recovery_column(ontology_directory: Path) -> None:
+    terms_path = ontology_directory / "terms.tsv"
+    fieldnames, rows = _read_tsv(terms_path)
+    _write_tsv(
+        terms_path,
+        [*fieldnames, "enables_host_recovery"],
+        [{**row, "enables_host_recovery": "false"} for row in rows],
+    )
+
+    with pytest.raises(IsolationSourceOntologyError, match="header: must contain these columns"):
         IsolationSourceOntology.load(ontology_directory)
 
 
@@ -424,7 +599,13 @@ def test_semantic_fingerprints_ignore_reference_file_formatting(
         path = ontology_directory / filename
         document = yaml.safe_load(path.read_text(encoding="utf-8"))
         path.write_text(yaml.safe_dump(document, sort_keys=True), encoding="utf-8")
-    for filename in ("terms.tsv", "mappings.sssom.tsv"):
+    for filename in (
+        "terms.tsv",
+        "synonyms.tsv",
+        "obsolete_terms.tsv",
+        "relations.tsv",
+        "mappings.sssom.tsv",
+    ):
         path = ontology_directory / filename
         text = path.read_text(encoding="utf-8")
         path.write_bytes(text.replace("\n", "\r\n").encode("utf-8"))
@@ -435,13 +616,54 @@ def test_semantic_fingerprints_ignore_reference_file_formatting(
     assert original.mapping_set_fingerprint == reformatted.mapping_set_fingerprint
 
 
-def test_term_edit_changes_only_vocabulary_fingerprint(ontology_directory: Path) -> None:
+@pytest.mark.parametrize(
+    ("filename", "changes"),
+    [
+        ("terms.tsv", {"definition": "Soil that was sampled."}),
+        ("terms.tsv", {"scope_note": "Use only when soil was sampled."}),
+        ("terms.tsv", {"parent_relation": "part_of"}),
+        ("synonyms.tsv", {"synonym_type": "related"}),
+    ],
+)
+def test_term_edit_changes_only_vocabulary_fingerprint(
+    ontology_directory: Path, filename: str, changes: dict[str, str]
+) -> None:
     original = IsolationSourceOntology.load(ontology_directory)
     _update_tsv_row(
-        ontology_directory / "terms.tsv",
+        ontology_directory / filename,
         match_column="term_id",
         match_value="BACC:0000004",
-        changes={"curation_note": "Use only when soil was sampled."},
+        changes=changes,
+    )
+
+    changed_vocabulary = IsolationSourceOntology.load(ontology_directory)
+
+    assert original.vocabulary_fingerprint != changed_vocabulary.vocabulary_fingerprint
+    assert original.mapping_set_fingerprint == changed_vocabulary.mapping_set_fingerprint
+
+
+def test_obsolete_term_edit_changes_only_vocabulary_fingerprint(ontology_directory: Path) -> None:
+    original = IsolationSourceOntology.load(ontology_directory)
+    _update_tsv_row(
+        ontology_directory / "obsolete_terms.tsv",
+        match_column="term_id",
+        match_value="BACC:0000005",
+        changes={"replaced_by": "BACC:0000001;BACC:0000002"},
+    )
+
+    changed_vocabulary = IsolationSourceOntology.load(ontology_directory)
+
+    assert original.vocabulary_fingerprint != changed_vocabulary.vocabulary_fingerprint
+    assert original.mapping_set_fingerprint == changed_vocabulary.mapping_set_fingerprint
+
+
+def test_relation_edit_changes_only_vocabulary_fingerprint(ontology_directory: Path) -> None:
+    original = IsolationSourceOntology.load(ontology_directory)
+    _update_tsv_row(
+        ontology_directory / "relations.tsv",
+        match_column="subject_id",
+        match_value="BACC:0000004",
+        changes={"object_id": "BACC:0000002"},
     )
 
     changed_vocabulary = IsolationSourceOntology.load(ontology_directory)

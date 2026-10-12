@@ -1,25 +1,30 @@
-term_id	label	facet	parent_id	synonyms	crosslink_targets	curation_note	enables_host_recovery
-BACC:0000001	host-associated	source_type		human-associated;clinical sample;clinical material;clinical specimen;clinical isolate		Host evidence	true
-BACC:0000002	animal host	source_type	BACC:0000001	human;homo sapiens;animal;patient;cattle		Animal host evidence	true
-BACC:0000003	plant host	source_type	BACC:0000001	plant		Plant host evidence	true
-BACC:0000004	environmental	source_type		environment		Environmental evidence	false
-BACC:0000007	food or feed	source_type		food		Food source	false
-BACC:0000008	laboratory	source_type		lab;laboratory strain;lab strain;cell culture		Laboratory origin	false
-BACC:0000009	body fluid	body_product		bodily fluid		Body fluid	false
-BACC:0000010	blood	body_product	BACC:0000009	blood culture;venous blood		Blood material	false
-BACC:0000017	pus	body_product	BACC:0000009			Pus material	false
-BACC:0000025	feces	body_product		stool;faeces		Fecal material	false
-BACC:0000035	digestive tract	body_site		human gut;gut		Digestive tract	false
-BACC:0000039	intestine	body_site	BACC:0000035			Intestine	false
-BACC:0000041	rectum	body_site	BACC:0000039	rectal swab		Rectal site	false
-BACC:0000057	liver	body_site				Liver site	false
-BACC:0000060	skin	body_site		skin swab		Skin site	false
-BACC:0000061	wound	lesion		wound swab		Wound lesion	false
-BACC:0000063	abscess	lesion			BACC:0000017	Abscess lesion	false
-BACC:0000064	soil	environmental_material				Soil material	false
-BACC:0000065	rhizosphere soil	environmental_material	BACC:0000064	rhizosphere	BACC:0000003	Root-associated soil	false
-BACC:0000079	healthcare facility	facility				Healthcare facility	false
-BACC:0000087	inanimate object	sampled_object				Sampled object	false
-BACC:0000088	sink	sampled_object	BACC:0000087			Sink	false
-BACC:0000095	animal food product	food_type				Animal food	true
-BACC:0000097	meat product	food_type	BACC:0000095	chicken meat;meat		Meat product	true
+term_id	label	facet	parent_id	parent_relation	definition	scope_note
+BACC:0000001	host-associated	source_type			Host evidence.	
+BACC:0000002	animal host	source_type	BACC:0000001	kind_of	Animal host evidence.	
+BACC:0000122	human host	source_type	BACC:0000001	kind_of	Human host evidence.	
+BACC:0000003	plant host	source_type	BACC:0000001	kind_of	Plant host evidence.	
+BACC:0000004	environmental	source_type			Environmental evidence.	
+BACC:0000007	food or feed	source_type			Food source.	
+BACC:0000008	laboratory strain	source_type			Laboratory origin.	
+BACC:0000009	body fluid	body_product			Body fluid.	
+BACC:0000010	blood	body_product	BACC:0000009	kind_of	Blood material.	
+BACC:0000017	pus	body_product	BACC:0000009	kind_of	Pus material.	
+BACC:0000025	feces	body_product			Fecal material.	
+BACC:0000035	digestive tract	body_site			Digestive tract.	
+BACC:0000039	intestine	body_site	BACC:0000035	part_of	Intestine.	
+BACC:0000041	rectum	body_site	BACC:0000039	part_of		Use for a rectal swab.
+BACC:0000057	liver	body_site			Liver site.	
+BACC:0000060	skin	body_site			Skin site.	
+BACC:0000061	wound	lesion			Wound lesion.	
+BACC:0000063	abscess	lesion			Abscess lesion.	
+BACC:0000064	soil	environmental_material			Soil material.	
+BACC:0000065	rhizosphere soil	environmental_material	BACC:0000064	kind_of	Root-associated soil.	
+BACC:0000079	healthcare facility	facility			Healthcare facility.	
+BACC:0000087	inanimate object	sampled_object			Sampled object.	
+BACC:0000088	sink	sampled_object	BACC:0000087	kind_of	Sink.	
+BACC:0000095	animal food product	food_type			Animal food.	
+BACC:0000097	meat product	food_type	BACC:0000095	kind_of	Meat product.	
+BACC:0000128	disease	host_disease			Disease.	
+BACC:0000129	infection	host_disease	BACC:0000128	kind_of	Infection.	
+BACC:0000134	urinary tract infection	host_disease	BACC:0000129	kind_of	Urinary tract infection.	
+BACC:0000149	cystic fibrosis	host_disease	BACC:0000128	kind_of	Cystic fibrosis.	

@@ -1,0 +1,214 @@
+term_id	synonym	synonym_type
+BACC:0000001	clinical material	narrow
+BACC:0000001	clinical sample	narrow
+BACC:0000001	clinical specimen	narrow
+BACC:0000004	environment	exact
+BACC:0000007	food	narrow
+BACC:0000008	lab strain	exact
+BACC:0000009	bodily fluid	exact
+BACC:0000010	bloodstream	related
+BACC:0000010	human blood	narrow
+BACC:0000010	venous blood	narrow
+BACC:0000011	milk	exact
+BACC:0000013	csf	exact
+BACC:0000014	clean catch urine	narrow
+BACC:0000014	human urine	narrow
+BACC:0000014	midstream urine	narrow
+BACC:0000014	urine clean catch	narrow
+BACC:0000014	urine, clean catch	narrow
+BACC:0000014	urine, midstream	narrow
+BACC:0000014	void urine	narrow
+BACC:0000014	voided urine	narrow
+BACC:0000015	ascites	related
+BACC:0000018	airway secretion	exact
+BACC:0000018	respiratory secretions	exact
+BACC:0000018	tracheal secretion	narrow
+BACC:0000020	endotracheal aspirate	exact
+BACC:0000021	bal	related
+BACC:0000021	bal fluid	exact
+BACC:0000021	balf	exact
+BACC:0000021	bronchoalveolar lavage	related
+BACC:0000022	digestive tract contents	exact
+BACC:0000022	gut content	exact
+BACC:0000022	gut contents	exact
+BACC:0000025	cattle faeces	narrow
+BACC:0000025	cattle feces	narrow
+BACC:0000025	chicken feces	narrow
+BACC:0000025	dairy calf feces	narrow
+BACC:0000025	faecal material	exact
+BACC:0000025	faeces	exact
+BACC:0000025	fecal material	exact
+BACC:0000025	human faeces	narrow
+BACC:0000025	human feces	narrow
+BACC:0000025	human stool	narrow
+BACC:0000025	mouse feces	narrow
+BACC:0000025	mouse stool	narrow
+BACC:0000025	stool	exact
+BACC:0000025	stools	exact
+BACC:0000026	respiratory tract	narrow
+BACC:0000028	upper respiratory system	exact
+BACC:0000029	nares	narrow
+BACC:0000029	nose	broad
+BACC:0000030	throat	broad
+BACC:0000031	lower respiratory system	exact
+BACC:0000035	gastrointestinal tract	exact
+BACC:0000035	gut	broad
+BACC:0000035	human gut	narrow
+BACC:0000040	cecum	exact
+BACC:0000043	urogenital tract	exact
+BACC:0000047	genital tract	exact
+BACC:0000057	iecur	exact
+BACC:0000057	jecur	exact
+BACC:0000065	rhizosphere	related
+BACC:0000066	river water	narrow
+BACC:0000066	surface water	narrow
+BACC:0000067	freshwater	exact
+BACC:0000068	ground water	exact
+BACC:0000069	seawater	exact
+BACC:0000072	cattle manure	narrow
+BACC:0000072	chicken manure	narrow
+BACC:0000072	dairy cattle manure	narrow
+BACC:0000072	farmyard manure	narrow
+BACC:0000074	waste water	exact
+BACC:0000075	hospital sewage	narrow
+BACC:0000085	slaughter house	exact
+BACC:0000085	slaughterhouse	exact
+BACC:0000086	sewage treatment plant	exact
+BACC:0000086	waste water treatment plant	exact
+BACC:0000086	wwtp	exact
+BACC:0000091	clinical device	exact
+BACC:0000092	urinary catheter	narrow
+BACC:0000092	vascular catheter	narrow
+BACC:0000093	environmental surface	narrow
+BACC:0000096	dairy product	exact
+BACC:0000097	beef	narrow
+BACC:0000097	broiler meat	narrow
+BACC:0000097	chicken breast	narrow
+BACC:0000097	chicken meat	narrow
+BACC:0000097	chicken thighs	narrow
+BACC:0000097	comminuted beef	narrow
+BACC:0000097	ground beef	narrow
+BACC:0000097	ground turkey	narrow
+BACC:0000097	meat	exact
+BACC:0000097	pork	narrow
+BACC:0000097	pork chop	narrow
+BACC:0000097	product raw intact beef	narrow
+BACC:0000100	feed	exact
+BACC:0000103	soft tissues	exact
+BACC:0000104	urinary tract	exact
+BACC:0000105	breast milk	exact
+BACC:0000105	human breast milk	exact
+BACC:0000105	maternal milk	exact
+BACC:0000106	extremities	exact
+BACC:0000106	extremity	exact
+BACC:0000106	limbs	exact
+BACC:0000107	ankle	narrow
+BACC:0000107	buttock	narrow
+BACC:0000107	buttocks	narrow
+BACC:0000107	feet	narrow
+BACC:0000107	foot	narrow
+BACC:0000107	gluteal region	narrow
+BACC:0000107	heel	narrow
+BACC:0000107	hind limb	exact
+BACC:0000107	hindlimb	exact
+BACC:0000107	hip	narrow
+BACC:0000107	knee	narrow
+BACC:0000107	knees	narrow
+BACC:0000107	left popliteal fossa	narrow
+BACC:0000107	leg	narrow
+BACC:0000107	legs	narrow
+BACC:0000107	lower extremity	exact
+BACC:0000107	lower limbs	exact
+BACC:0000107	popliteal fossa	narrow
+BACC:0000107	right popliteal fossa	narrow
+BACC:0000107	thigh	narrow
+BACC:0000107	toe	narrow
+BACC:0000107	toes	narrow
+BACC:0000108	arm	narrow
+BACC:0000108	arms	narrow
+BACC:0000108	elbow	narrow
+BACC:0000108	finger	narrow
+BACC:0000108	fingers	narrow
+BACC:0000108	fore limb	exact
+BACC:0000108	forearm	narrow
+BACC:0000108	foreleg	exact
+BACC:0000108	forelimb	exact
+BACC:0000108	hand	narrow
+BACC:0000108	hands	narrow
+BACC:0000108	shoulder	narrow
+BACC:0000108	upper extremity	exact
+BACC:0000108	upper limbs	exact
+BACC:0000108	wrist	narrow
+BACC:0000109	belly	exact
+BACC:0000109	flank	narrow
+BACC:0000110	groin	exact
+BACC:0000111	armpit	exact
+BACC:0000111	axillae	exact
+BACC:0000111	underarm	exact
+BACC:0000113	gastrointestinal system	exact
+BACC:0000114	cholecyst	exact
+BACC:0000114	gall bladder	exact
+BACC:0000117	skin or soft tissue	exact
+BACC:0000117	skin soft tissue	exact
+BACC:0000118	muscle	broad
+BACC:0000118	muscular tissue	exact
+BACC:0000118	skeletal muscle	narrow
+BACC:0000119	drain fluid	exact
+BACC:0000119	drainage	related
+BACC:0000119	drained fluid	exact
+BACC:0000120	cysts	exact
+BACC:0000122	human-associated	narrow
+BACC:0000124	ward	narrow
+BACC:0000127	teat	narrow
+BACC:0000127	udder	broad
+BACC:0000129	infectious disease	exact
+BACC:0000129	bacterial infection	narrow
+BACC:0000130	bacteraemia	exact
+BACC:0000130	bloodstream infection	exact
+BACC:0000130	BSI	exact
+BACC:0000131	septicemia	related
+BACC:0000134	UTI	exact
+BACC:0000134	cystitis	narrow
+BACC:0000134	pyelonephritis	narrow
+BACC:0000135	gastroenteritis	narrow
+BACC:0000135	enteritis	narrow
+BACC:0000135	dysentery	narrow
+BACC:0000135	shigellosis	narrow
+BACC:0000135	diarrhea	related
+BACC:0000136	peritonitis	narrow
+BACC:0000136	cholangitis	narrow
+BACC:0000137	SSTI	exact
+BACC:0000137	skin infection	narrow
+BACC:0000137	cellulitis	narrow
+BACC:0000137	impetigo	narrow
+BACC:0000138	SSI	exact
+BACC:0000139	prosthetic joint infection	narrow
+BACC:0000139	catheter-related infection	narrow
+BACC:0000140	osteoarticular infection	exact
+BACC:0000140	osteomyelitis	narrow
+BACC:0000140	septic arthritis	narrow
+BACC:0000141	brain abscess	narrow
+BACC:0000143	infective endocarditis	exact
+BACC:0000144	keratitis	narrow
+BACC:0000144	conjunctivitis	narrow
+BACC:0000144	endophthalmitis	narrow
+BACC:0000145	otitis	exact
+BACC:0000145	otitis externa	narrow
+BACC:0000145	otitis media	narrow
+BACC:0000146	endometritis	narrow
+BACC:0000146	metritis	narrow
+BACC:0000146	pyometra	narrow
+BACC:0000146	vaginitis	narrow
+BACC:0000147	intramammary infection	exact
+BACC:0000149	CF	exact
+BACC:0000149	mucoviscidosis	exact
+BACC:0000151	COPD	exact
+BACC:0000152	atopic eczema	exact
+BACC:0000153	colonisation	exact
+BACC:0000153	carriage	exact
+BACC:0000154	face	narrow
+BACC:0000154	scalp	narrow
+BACC:0000156	chest	exact
+BACC:0000157	lumbar region	narrow
+BACC:0000157	sacral region	narrow
+BACC:0000157	sacrum	narrow

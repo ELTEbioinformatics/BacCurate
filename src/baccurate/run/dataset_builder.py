@@ -54,6 +54,7 @@ from baccurate.standardization.host_isolation_source import (
 )
 from baccurate.standardization.host_lineage import HostLineage, HostLineageEnricher
 from baccurate.standardization.isolation_source import (
+    FacetConfiguration,
     IsolationSourceDiagnostic,
     IsolationSourceEvidenceLevel,
     IsolationSourceOntologyGapDiagnostic,
@@ -62,7 +63,6 @@ from baccurate.standardization.isolation_source import (
     IsolationSourceRejection,
     IsolationSourceStandardizer,
 )
-from baccurate.standardization.isolation_source_ontology import IsolationSourceFacet
 from baccurate.standardization.location import (
     LocationDiagnostic,
     LocationOutcome,
@@ -199,11 +199,13 @@ class _FinalRowAssembler:
         self,
         targets: Sequence[StandardizationTarget],
         taxon_registry: TaxonRegistry,
-        isolation_source_facets: Sequence[IsolationSourceFacet] = (),
+        isolation_source_facets: Sequence[FacetConfiguration] = (),
+        exact_match_ids: Mapping[str, str] | None = None,
     ):
         self._taxon_registry = taxon_registry
         self._selected_targets = tuple(targets)
         self._isolation_source_facets = tuple(isolation_source_facets)
+        self._exact_match_ids = exact_match_ids or {}
         selected = set(targets)
         self.columns = self.base_columns
         for target in DATASET_COLUMN_ORDER:
@@ -214,6 +216,7 @@ class _FinalRowAssembler:
                         "iso_val_orig",
                         *(facet.output_column for facet in self._isolation_source_facets),
                         "iso_term_ids",
+                        "iso_external_ids",
                     )
                 else:
                     self.columns += target_specifications.TARGET_SPECS[target].output_columns
@@ -312,7 +315,7 @@ class _FinalRowAssembler:
             )
         if StandardizationTarget.ISOLATION_SOURCE in self._selected_targets:
             if final_row.isolation_source is None:
-                values += ("",) * (len(self._isolation_source_facets) + 3)
+                values += ("",) * (len(self._isolation_source_facets) + 4)
             else:
                 labels_by_facet: dict[str, list[str]] = {
                     facet.key: [] for facet in self._isolation_source_facets
@@ -329,6 +332,12 @@ class _FinalRowAssembler:
                         for facet in self._isolation_source_facets
                     ),
                     "||".join(term.term_id for term in final_row.isolation_source.selected_terms),
+                    "||".join(
+                        self._exact_match_ids[term.term_id]
+                        for term in final_row.isolation_source.selected_terms
+                        if term.term_id in self._exact_match_ids
+                    )
+                    or "NA",
                 )
         if StandardizationTarget.HOST in self._selected_targets:
             if final_row.host is None or final_row.host.standardized is None:
@@ -403,12 +412,7 @@ class DatasetBuilder:
             path for path in (destination, reasoning_destination) if path is not None
         )
         isolation_source_facets = (
-            tuple(
-                sorted(
-                    request.isolation_source_prompt_policy.ontology.facets.values(),
-                    key=lambda facet: facet.render_order,
-                )
-            )
+            request.isolation_source_prompt_policy.facets
             if StandardizationTarget.ISOLATION_SOURCE in targets
             and request.isolation_source_prompt_policy is not None
             else ()
@@ -453,6 +457,9 @@ class DatasetBuilder:
                 targets,
                 request.taxon_registry,
                 isolation_source_facets,
+                request.isolation_source_prompt_policy.ontology.exact_match_ids
+                if request.isolation_source_prompt_policy is not None
+                else None,
             )
             if StandardizationTarget.DATE in targets:
                 date_standardizers = {

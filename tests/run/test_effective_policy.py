@@ -18,6 +18,10 @@ from baccurate.taxon_registry.registry import load_taxon_registry
 
 ROOT = Path(__file__).parents[2]
 CONFIG_DIR = ROOT / "config"
+ISOLATION_SOURCE_CONFIG = yaml.safe_load(
+    (CONFIG_DIR / "isolation_source.yaml").read_text(encoding="utf-8")
+)
+FACETS = ISOLATION_SOURCE_CONFIG["facets"]
 TAXON_REGISTRY_PATH = CONFIG_DIR / "taxa.yaml"
 STANDARDIZATION_TARGETS = ("host", "date", "loc", "iso")
 
@@ -459,6 +463,9 @@ def _write_isolation_source_prompt_policy(
         "user_prompt": "{metadata}",
         "ontology_directory": DEFAULT_ISOLATION_SOURCE_ONTOLOGY_DIRECTORY.as_posix(),
         "cache_db_path": (tmp_path / "isolation-cache.db").as_posix(),
+        "facets": FACETS,
+        "host_recovery_term_ids": ISOLATION_SOURCE_CONFIG["host_recovery_term_ids"],
+        "direct_match_values": ISOLATION_SOURCE_CONFIG["direct_match_values"],
     }
     policy.update(overrides or {})
     path = tmp_path / "isolation_source.yaml"
@@ -518,6 +525,22 @@ def test_unselected_isolation_source_prompt_policy_is_not_loaded(tmp_path: Path)
         ({"ontology_tsv_path": "ontology.tsv"}, "top level.ontology_tsv_path"),
         ({"cache_db_path": ""}, "cache_db_path"),
         ({"cache_db_path": None}, "cache_db_path"),
+        ({"facets": {**FACETS, "undeclared": FACETS["source_type"]}}, "facets.undeclared"),
+        (
+            {"facets": {key: value for key, value in FACETS.items() if key != "source_type"}},
+            "facets.source_type",
+        ),
+        (
+            {
+                "facets": {
+                    **FACETS,
+                    "source_type": {**FACETS["source_type"], "cardinality": "multiple"},
+                }
+            },
+            "facets.source_type",
+        ),
+        ({"host_recovery_term_ids": ["BACC:9999999"]}, "host_recovery_term_ids"),
+        ({"direct_match_values": ["blood culture"]}, "direct_match_values"),
     ],
 )
 def test_isolation_source_prompt_policy_rejects_invalid_values_with_source_and_key(
@@ -547,6 +570,9 @@ def test_isolation_source_prompt_policy_rejects_invalid_values_with_source_and_k
         "prompt_version",
         "system_prompt",
         "user_prompt",
+        "facets",
+        "host_recovery_term_ids",
+        "direct_match_values",
     ],
 )
 def test_isolation_source_prompt_policy_rejects_missing_required_values(
@@ -633,7 +659,14 @@ def test_isolation_source_prompt_policy_rejects_a_non_directory_ontology_path(
 
 @pytest.mark.parametrize(
     "missing_filename",
-    ["facets.yaml", "terms.tsv", "mappings.sssom.tsv", "mappings.sssom.yml"],
+    [
+        "facets.yaml",
+        "terms.tsv",
+        "obsolete_terms.tsv",
+        "relations.tsv",
+        "mappings.sssom.tsv",
+        "mappings.sssom.yml",
+    ],
 )
 def test_isolation_source_prompt_policy_names_a_missing_ontology_file(
     tmp_path: Path,

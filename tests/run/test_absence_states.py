@@ -91,7 +91,9 @@ ISOLATION_SOURCE_COLUMNS = (
     "iso_facility",
     "iso_sampled_object",
     "iso_food_type",
+    "iso_host_disease",
     "iso_term_ids",
+    "iso_external_ids",
 )
 HOST_COLUMNS = (
     "host_attr_orig",
@@ -444,7 +446,7 @@ def _build_isolation_source_dataset(
     )
 
 
-def test_isolation_source_outcome_projects_eleven_columns_in_facet_order(
+def test_isolation_source_outcome_projects_thirteen_columns_in_facet_order(
     tmp_path: Path,
 ) -> None:
     host_policy, taxonomy_path = _minimal_host_components(tmp_path)
@@ -489,24 +491,27 @@ def test_isolation_source_outcome_projects_eleven_columns_in_facet_order(
         "iso_facility",
         "iso_sampled_object",
         "iso_food_type",
+        "iso_host_disease",
         "iso_term_ids",
+        "iso_external_ids",
     )
-    assert tuple(built.records[0][column] for column in ISOLATION_SOURCE_COLUMNS) == (
+    assert tuple(built.records[0][column] for column in ISOLATION_SOURCE_COLUMNS[:-1]) == (
         "material||site||lesion",
         "pus||liver||abscess",
-        "host-associated||animal host",
+        "host-associated",
         "body fluid||pus",
-        "liver",
+        "digestive system||liver",
         "abscess",
         "NA",
         "NA",
         "NA",
         "NA",
-        ("BACC:0000001||BACC:0000002||BACC:0000009||BACC:0000017||BACC:0000057||BACC:0000063"),
+        "NA",
+        ("BACC:0000001||BACC:0000009||BACC:0000017||BACC:0000113||BACC:0000057||BACC:0000063"),
     )
     facet_labels = tuple(
         label
-        for column in ISOLATION_SOURCE_COLUMNS[2:-1]
+        for column in ISOLATION_SOURCE_COLUMNS[2:-2]
         for label in built.records[0][column].split("||")
         if label != "NA"
     )
@@ -516,6 +521,12 @@ def test_isolation_source_outcome_projects_eleven_columns_in_facet_order(
     assert tuple(term_id_by_label[label] for label in facet_labels) == tuple(
         built.records[0]["iso_term_ids"].split("||")
     )
+    exact_match_ids = isolation_source_policy.ontology.exact_match_ids
+    assert built.records[0]["iso_external_ids"].split("||") == [
+        exact_match_ids[term_id]
+        for term_id in built.records[0]["iso_term_ids"].split("||")
+        if term_id in exact_match_ids
+    ]
 
 
 def test_equivalent_vocabulary_order_produces_byte_stable_dataset(tmp_path: Path) -> None:
@@ -552,7 +563,7 @@ def test_equivalent_vocabulary_order_produces_byte_stable_dataset(tmp_path: Path
                 build_root,
                 [
                     _dated_record(
-                        "DETERMINISTIC_ENRICHMENT",
+                        "DETERMINISTIC_TERM_DERIVATION",
                         iso_attr_orig="specimen||isolation_source||anatomical_site",
                         iso_val_orig="blood||stool||rectal swab",
                     )
@@ -599,6 +610,7 @@ def test_failed_isolation_source_classification_skips_record_and_continues(
             "facility": [],
             "sampled_object": [],
             "food_type": [],
+            "host_disease": [],
         }
         if len(calls) == 1:
             for _ in range(3):
@@ -623,6 +635,7 @@ def test_failed_isolation_source_classification_skips_record_and_continues(
                 "facility": [],
                 "sampled_object": [],
                 "food_type": [],
+                "host_disease": [],
             }
         )
 
@@ -974,7 +987,7 @@ def test_unfilled_isolation_source_facets_serialize_as_na_not_empty(
 
     assert built.records[0]["iso_source_type"] == "environmental"
     assert (
-        tuple(built.records[0][column] for column in ISOLATION_SOURCE_COLUMNS[3:-1]) == ("NA",) * 7
+        tuple(built.records[0][column] for column in ISOLATION_SOURCE_COLUMNS[3:-2]) == ("NA",) * 8
     )
     assert built.records[0]["iso_term_ids"] == "BACC:0000004"
 
@@ -994,9 +1007,10 @@ def test_classified_source_with_no_applicable_facet_serializes_as_na(
     )
 
     assert (
-        tuple(built.records[0][column] for column in ISOLATION_SOURCE_COLUMNS[2:-1]) == ("NA",) * 8
+        tuple(built.records[0][column] for column in ISOLATION_SOURCE_COLUMNS[2:-2]) == ("NA",) * 9
     )
     assert built.records[0]["iso_term_ids"] == ""
+    assert built.records[0]["iso_external_ids"] == "NA"
     assert built.statistics.isolation_source is not None
     assert built.statistics.isolation_source.aggregate.diagnostics == {
         IsolationSourceDiagnostic.UNSPECIFIED: 1,

@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 
 from baccurate.run.location_review_worklist import LocationReviewWorklistSummary
 from baccurate.run.outputs import RunOutputs
@@ -34,19 +35,16 @@ ROOT = Path(__file__).parents[2]
 
 
 def _write_prompt_configs(tmp_path: Path) -> IsolationSourcePromptPolicy:
-    isolation_source = tmp_path / "isolation.yaml"
-    isolation_source.write_text(
-        "schema_version: 3\n"
-        f'ontology_directory: "{(ROOT / "tests" / "fixtures" / "standardization" / "ontology").as_posix()}"\n'
-        "prompt_version: isolation-v3\n"
-        "system_prompt: |-\n"
-        "  Classify using:\n"
-        "  {ontology_tree}\n"
-        "user_prompt: |-\n"
-        "  Sample:\n"
-        "  {metadata}\n",
-        encoding="utf-8",
+    fixture_root = ROOT / "tests" / "fixtures" / "standardization"
+    config = yaml.safe_load((fixture_root / "isolation_source.yaml").read_text(encoding="utf-8"))
+    config.update(
+        ontology_directory=(fixture_root / "ontology").as_posix(),
+        prompt_version="isolation-v3",
+        system_prompt="Classify using:\n{ontology_tree}",
+        user_prompt="Sample:\n{metadata}",
     )
+    isolation_source = tmp_path / "isolation.yaml"
+    isolation_source.write_text(yaml.safe_dump(config), encoding="utf-8")
     return IsolationSourcePromptPolicy.load(isolation_source)
 
 

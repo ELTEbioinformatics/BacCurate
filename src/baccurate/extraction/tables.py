@@ -16,6 +16,7 @@ COLUMNS = [
     *SEQUENCE_ACCESSION_COLUMNS,
     "taxon_key",
     "ncbi_organism",
+    "strain",
     "sylph_species",
     "biosample_last_update",
     "date_category",
@@ -44,11 +45,14 @@ def extracted_metadata_row(
     date_categories: list[str] = []
     location_match_flags: list[str] = []
     biosample_last_update = ""
+    strain = ""
     found = False
 
     for decision in decisions:
         if decision.xml_element == "biosample_root" and decision.attribute == "last_update":
             biosample_last_update = decision.value
+        if decision.attribute == "strain" and not strain:
+            strain = decision.value
         for match in decision.matches:
             found = True
             attributes, values = raw_pairs[match.target]
@@ -70,6 +74,7 @@ def extracted_metadata_row(
         *assignment.sequence_accessions,
         assignment.taxon_key,
         ncbi_organism,
+        strain,
         assignment.sylph_species,
         biosample_last_update,
         "||".join(date_categories),

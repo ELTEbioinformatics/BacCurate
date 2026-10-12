@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "baccurate"
-version = "1.0.0rc2"
+version = "1.0.0rc1"
 description = "Python metadata harmonizer for BioSample ESKAPEE data"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -30,6 +30,7 @@ dependencies = [
     "pytest>=9.1.1",
     "ruff>=0.16.1",
     "duckdb>=1.5.5",
+    "rdflib~=7.6",
 ]
 
 

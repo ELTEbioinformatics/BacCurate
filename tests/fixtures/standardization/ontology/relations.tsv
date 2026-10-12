@@ -1,0 +1,5 @@
+subject_id	relation	object_id
+BACC:0000035	has_part	BACC:0000025
+BACC:0000063	has_part	BACC:0000017
+BACC:0000064	implies_source_type	BACC:0000004
+BACC:0000065	implies_source_type	BACC:0000003
