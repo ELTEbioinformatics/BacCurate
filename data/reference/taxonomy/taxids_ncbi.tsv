@@ -20561,7 +20561,7 @@ taxid	rank	scientific_name	synonym	genbank_common_name	common_name	comments
 3818	species	Arachis hypogaea	Arachis hypogaea subsp. fastigiata var. aequatoriana;Arachis hypogaea var. aequatoriana	peanut	goober;ground-nut;huasquillo;zaruma	
 3827	species	Cicer arietinum		chickpea	garbanzo	
 3847	species	Glycine max	Phaseolus max	soybean	soybeans	
-3847 	species	Glycine max				
+3847	species	Glycine max				
 3879	species	Medicago sativa		alfalfa	lucerne	
 3885	species	Phaseolus vulgaris		common bean	French bean;kidney bean;string bean	
 4039	species	Daucus carota		carrot	carrots;Queen Anne's lace	
@@ -20575,20 +20575,20 @@ taxid	rank	scientific_name	synonym	genbank_common_name	common_name	comments
 4505	species	Coix lacryma-jobi	Coix lachryma-jobi;Coix lacryma	Job's tears		
 4511	species	Eleusine coracana	Cynosurus coracanus	finger millet	coracan;Indian finger millet;ragi	
 4530	species	Oryza sativa		Asian cultivated rice	red rice;rice	
-4530 	species	Oryza sativa				
-4543 	species	Cenchrus americanus				
+4530	species	Oryza sativa				
+4543	species	Cenchrus americanus				
 4543	species	Cenchrus americanus	Pennisetum americanum;Pennisetum glaucum;Pennisetum typhoides;Pennisetum typhoideum;Setaria glauca	pearl millet	bulrush millet;cattail millet	
 4543	species	Cenchrus americanus	Pennisetum americanum;Pennisetum glaucum;Pennisetum typhoides;Pennisetum typhoideum;Setaria glauca	pearl millet	bulrush millet;cattail millet	
-4547 	species	Saccharum officinarum				
+4547	species	Saccharum officinarum				
 4558	species	Sorghum bicolor	Andropogon sorghum;Holcus bicolor;Sorghum bicolor subsp. bicolor;Sorghum nervosum;Sorghum saccharatum;Sorghum vulgare	sorghum	broomcorn;milo	
-4565 	species	Triticum aestivum				
-4577 	species	Zea mays				
+4565	species	Triticum aestivum				
+4577	species	Zea mays				
 4679	species	Allium cepa		onion		
-4682 	species	Allium sativum				
+4682	species	Allium sativum				
 5322	species	Pleurotus ostreatus	Agaricus ostreatus	oyster mushroom	shimeji	
-5431	species	Agaricus bisporus				
+5341	species	Agaricus bisporus				
 5940	species	Euplotes aediculatus				
-5965 	species	Heterometopus palaeformis				
+5965	species	Heterometopus palaeformis				
 6047	species	Geodia cydonium	Alcyonium cydonium			
 6052	species	Ephydatia muelleri	Spongilla muelleri		Mueller's freshwater sponge	
 6055	species	Spongilla lacustris	Spongia lacustris			
@@ -23487,7 +23487,7 @@ taxid	rank	scientific_name	synonym	genbank_common_name	common_name	comments
 35669	species	Larus argentatus		herring gull	Silbermoewe	
 35670	species	Naja naja	Coluber naja;Naja naja naja	Indian cobra		
 35671	species	Gloydius ussuriensis	Agkistrodon blomhoffi ussuriensis;Agkistrodon caliginosus;Agkistrodon ussuriensis;Ancistrodon blomhoffi ussuriensis;Gloydius blomhoffii ussuriensis	Ussuri mamushi		
-35717 	species	Epichloe festucae				
+35717	species	Epichloe festucae				
 35730	species	Trematomus newnesi	Pseudotrematomus newnesi	dusky notothen		
 35732	species	Rattus tanezumi	Mus tanezumi;Rattus brunneusculus	Oriental house rat	Tanezumi rat	
 35736	species	Allactodipus bobrinskii		Bobrinski's jerboa		
@@ -24008,7 +24008,7 @@ taxid	rank	scientific_name	synonym	genbank_common_name	common_name	comments
 38838	species	Drosophila testacea				
 38839	species	Drosophila neotestacea				
 38840	species	Drosophila putrida				
-38873 	species	Fraxinus excelsior				
+38873	species	Fraxinus excelsior				
 38882	species	Anolis alutaceus	Anolis alutaceous			
 38883	species	Anolis argillaceus				
 38884	species	Anolis barbouri	Chamaelinorops barbouri			
@@ -26610,7 +26610,7 @@ taxid	rank	scientific_name	synonym	genbank_common_name	common_name	comments
 55984	species	Orthotomicus mannsfeldi	Ips mannsfeldi	European pine engraver		
 55985	species	Ips sexdentatus	Dermestes sexdentatus			
 55986	species	Ips typographus	Dermestes typographus			
-56060 	species	Butea monosperma				
+56060	species	Butea monosperma				
 56067	species	Anhinga anhinga	Plotus anhinga	American anhinga		
 56068	species	Sula dactylatra		masked booby	white booby	
 56069	species	Phalacrocorax auritus	Carbo auritus;Nannopterum auritum	double-crested cormorant		
@@ -48111,7 +48111,7 @@ taxid	rank	scientific_name	synonym	genbank_common_name	common_name	comments
 199486	species	Hyale nilssoni				
 199488	species	Hyalella simplex				
 199490	species	Ophiosacculus mehelyi	Distomum mehelyi			
-199516 	species	Gutierrezia sarothrae				
+199516	species	Gutierrezia sarothrae				
 199554	species	Eusyllis blomstrandi				
 199556	species	Exogone naidina				
 199560	species	Haplosyllis spongicola	Syllis spongicola			
@@ -48396,7 +48396,7 @@ taxid	rank	scientific_name	synonym	genbank_common_name	common_name	comments
 201508	species	Tasimia palpata				
 201534	species	Amalotermes phaeocephalus				
 201535	species	Amitermes evuncifer				
-201536 	species	Ancistrotermes cavithorax				
+201536	species	Ancistrotermes cavithorax				
 201537	species	Ancistrotermes crucifer	Termes crucifer			
 201539	species	Astalotermes quietus	Anoplotermes quietus			
 201573	species	Foraminitermes valens	Ceratotermes valens			
@@ -96970,7 +96970,7 @@ taxid	rank	scientific_name	synonym	genbank_common_name	common_name	comments
 586902	species	Heriades carinata	Heriades carinatus			
 586903	species	Hoplitis producta				
 586904	species	Hoplitis spoliata				
-586906 	species	Megachile centuncularis				
+586906	species	Megachile centuncularis				
 586907	species	Megachile frigida				
 586908	species	Megachile gemula				
 586909	species	Megachile inermis				
@@ -181573,7 +181573,7 @@ taxid	rank	scientific_name	synonym	genbank_common_name	common_name	comments
 1594596	species	Oulema verae				
 1594726	species	Tocantinsia piresi	Glanidium piresi			
 1594786	species	Clarias magur	Macropteronotus magur			
-1594786 	species	Cirrhinus mrigala				
+1594786	species	Cirrhinus mrigala				
 1595887	species	Cryptonanus guahybae	Gracilinanus guahybae;Gracilinanus microtarsus guahybae;Marmosa microtarsus guahybae	Guahiba gracile opossum		
 1595888	species	Leucophenga atriventris				
 1595889	species	Leucophenga bellula	Drosophila bellula			
@@ -327669,7 +327669,7 @@ taxid	rank	scientific_name	synonym	genbank_common_name	common_name	comments
 9090	genus	Coturnix				
 9095	genus	Crossoptilon				
 9100	genus	Agriocharis				
-9102 	genus	Meleagris				
+9102	genus	Meleagris				
 9104	genus	Arborophila				
 9114	genus	Grus	Tetrapteryx			
 9120	genus	Fulica		coots	coot	
@@ -414507,7 +414507,7 @@ taxid	rank	scientific_name	synonym	genbank_common_name	common_name	comments
 84394	order	Ploima	Ploimida			
 85671	order	Lumbriculida				
 85807	order	Agelasida				
-85823 	order	Blattodea				
+85823	order	Blattodea				
 86011	order	Leucosolenida				
 86058	order	Coronatae		crown jellyfishes		
 88344	order	Palpigradi		microwhip scorpions		
@@ -415282,7 +415282,7 @@ taxid	rank	scientific_name	synonym	genbank_common_name	common_name	comments
 33090	kingdom	Viridiplantae	Chlorobionta;Chloroplastida	green plants	plants	
 33208	kingdom	Metazoa	Animalia	animals	metazoans;multicellular animals	
 3208	no rank	Bryophyta	Musci	mosses		
-6545 	no rank	Pteriomorphia				
+6545	no rank	Pteriomorphia				
 9263	no rank	Metatheria	Marsupialia	marsupials		Phalangeriformes:paraphyletic suborder
 70910	no rank	Acridomorpha		grasshoppers		
 212035	no rank	Acanthamoeba polyphaga mimivirus				
