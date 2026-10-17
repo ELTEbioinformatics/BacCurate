@@ -743,10 +743,7 @@ class DatasetBuilder:
                         host_taxon_stats.diagnostics.update(
                             host_isolation_source_result.diagnostics.host
                         )
-                        if (
-                            host_isolation_source_result.routing.host_initial
-                            is HostInitialRouting.MATCHED
-                        ):
+                        if host_outcome.standardized is not None:
                             host_taxon_stats.standardized += 1
                             host_taxon_stats.needs_review += int(host_outcome.needs_review)
                         elif (
@@ -756,14 +753,10 @@ class DatasetBuilder:
                             host_taxon_stats.overflow += 1
                         else:
                             host_taxon_stats.rejected += 1
-                        if (
+                        host_taxon_stats.host_recovery_passes += int(
                             host_isolation_source_result.routing.host_recovery
                             is not HostRecoveryRouting.NOT_ELIGIBLE
-                        ):
-                            host_taxon_stats.host_recovery_passes += 1
-                            if host_outcome.standardized is not None:
-                                host_taxon_stats.standardized += 1
-                                host_taxon_stats.needs_review += int(host_outcome.needs_review)
+                        )
                     if host_lineage is not None and host_outcome.standardized is not None:
                         lineage_outcome = host_lineage.enrich(host_outcome.standardized.taxid)
 

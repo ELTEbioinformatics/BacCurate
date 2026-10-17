@@ -430,3 +430,8 @@ def test_host_recovery_uses_biosample_pairs_not_bioproject_linkage(
     assert "PROJECT_ONLY" not in rows
     assert statistics.host.aggregate.host_recovery_passes == 1
     assert statistics.isolation_source.aggregate.host_recovery_passes == 1
+    for host_statistics in (statistics.host.aggregate, *statistics.host.by_taxon.values()):
+        assert (
+            host_statistics.standardized + host_statistics.rejected + host_statistics.overflow
+            == host_statistics.processed
+        )
