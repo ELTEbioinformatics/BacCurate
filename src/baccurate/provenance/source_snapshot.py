@@ -30,10 +30,10 @@ class SourceSnapshotManifest(BaseModel):
 
     snapshot_id: str = Field(min_length=1)
     provider: str = Field(min_length=1)
-    retrieved_on: date
-    file: SourceFile
-    snapshot_as_of: date | None = None
     source_url: str | None = None
+    retrieved_on: date
+    snapshot_as_of: date | None = None
+    file: SourceFile
 
     @property
     def metadata_reference_date(self) -> date:
@@ -43,6 +43,16 @@ class SourceSnapshotManifest(BaseModel):
     def load(cls, path: Path | str) -> "SourceSnapshotManifest":
         """Load and validate a source snapshot manifest from YAML."""
         return cls.model_validate(yaml.safe_load(Path(path).read_text(encoding="utf-8")))
+
+    def write(self, path: Path | str) -> Path:
+        """Write this manifest as YAML in field declaration order."""
+        destination = Path(path)
+        destination.write_text(
+            yaml.safe_dump(self.model_dump(), sort_keys=False),
+            encoding="utf-8",
+            newline="\n",
+        )
+        return destination
 
 
 @dataclass(frozen=True, slots=True)

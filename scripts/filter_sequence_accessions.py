@@ -20,8 +20,6 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-import yaml
-
 # Allow package imports when a maintainer runs this file as a script.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from baccurate.paths import (
@@ -215,18 +213,14 @@ def _write_manifest(
     source_path: Path,
     source_sha256: str,
 ) -> None:
-    manifest = SourceSnapshotManifest(
+    SourceSnapshotManifest(
         snapshot_id=f"{report.snapshot_id_prefix}-{retrieved_on.isoformat()}",
         provider=report.provider,
+        source_url=report.source_url,
         retrieved_on=retrieved_on,
         snapshot_as_of=None,
-        source_url=report.source_url,
         file=SourceFile(name=source_path.name, sha256=source_sha256),
-    )
-    path.write_text(
-        yaml.safe_dump(manifest.model_dump(mode="json"), sort_keys=False),
-        encoding="utf-8",
-    )
+    ).write(path)
 
 
 def _temporary_path(directory: Path, name: str) -> Path:

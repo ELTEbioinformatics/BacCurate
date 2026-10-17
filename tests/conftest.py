@@ -356,12 +356,7 @@ def _write_source_manifest(
         retrieved_on=snapshot_date,
         file={"name": source.name, "sha256": sha256_file(source)},
     )
-    destination.write_text(
-        yaml.safe_dump(manifest.model_dump(mode="json"), sort_keys=False),
-        encoding="utf-8",
-    )
-    SourceSnapshotManifest.load(destination)
-    return destination
+    return manifest.write(destination)
 
 
 def _write_compressed_snapshot(destination: Path, contents: bytes) -> None:
