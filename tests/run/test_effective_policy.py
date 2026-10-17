@@ -1,6 +1,5 @@
 """Public contract tests for selective effective-policy loading."""
 
-import json
 import shutil
 from pathlib import Path
 
@@ -595,34 +594,6 @@ def test_isolation_source_prompt_policy_rejects_missing_required_values(
 
     assert str(policy_path) in str(error.value)
     assert missing_key in str(error.value)
-
-
-def test_isolation_source_prompt_policy_preserves_configured_path_spelling(
-    tmp_path: Path,
-) -> None:
-    policy_path = _write_isolation_source_prompt_policy(tmp_path)
-    source_mapping = yaml.safe_load(policy_path.read_text(encoding="utf-8"))
-    source_mapping["ontology_directory"] = source_mapping["ontology_directory"].replace("/", "\\")
-    source_mapping["cache_db_path"] = source_mapping["cache_db_path"].replace("/", "\\")
-    policy_path.write_text(yaml.safe_dump(source_mapping, sort_keys=False), encoding="utf-8")
-
-    policy = IsolationSourcePromptPolicy.load(policy_path)
-
-    assert policy.as_legacy_mapping()["ontology_directory"] == source_mapping["ontology_directory"]
-    assert policy.as_legacy_mapping()["cache_db_path"] == source_mapping["cache_db_path"]
-
-
-def test_isolation_source_prompt_policy_serializes_the_ontology_directory(
-    tmp_path: Path,
-) -> None:
-    policy = IsolationSourcePromptPolicy.load(_write_isolation_source_prompt_policy(tmp_path))
-
-    serialized = json.loads(policy.serialize())
-
-    assert serialized["ontology_directory"] == (
-        DEFAULT_ISOLATION_SOURCE_ONTOLOGY_DIRECTORY.as_posix()
-    )
-    assert "ontology_tsv_path" not in serialized
 
 
 def test_isolation_source_prompt_version_is_independent_of_schema_version(

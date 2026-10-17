@@ -72,15 +72,6 @@ def test_production_taxon_registry_is_preserved() -> None:
     }
 
 
-def test_taxon_key_table_uses_the_supplied_registry() -> None:
-    registry = _example_registry()
-    assert registry.taxon_key_table() == (
-        "taxon_key\ttaxids\trank\tcontainer\n"
-        "zeta\t30\tspecies\texamples\n"
-        "alpha\t10 11\tgenus\texamples"
-    )
-
-
 def test_species_label_mappings_use_the_supplied_registry() -> None:
     genus_map, species_map = build_taxon_key_maps(_example_registry())
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 import unicodedata
 from collections.abc import Mapping, Sequence
@@ -193,33 +192,6 @@ class SelectionPolicy:
             location_value_match,
         )
 
-    def serialize(self) -> str:
-        """Return deterministic, schema-versioned JSON for the effective policy."""
-        location_value_match = (
-            {
-                "prefixes": list(self._location_value_match.prefixes),
-                "separators": list(self._location_value_match.separators),
-            }
-            if self._location_value_match is not None
-            else None
-        )
-        return json.dumps(
-            {
-                "schema_version": self.schema_version,
-                "universal_missing": _serialize_value_rejection(self._universal_missing),
-                "location_value_match": location_value_match,
-                "targets": [
-                    _serialize_target(target, self._targets[target])
-                    for target in EXTRACTION_TARGET_ORDER
-                    if target in self._targets
-                ],
-            },
-            ensure_ascii=False,
-            allow_nan=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-
     def evaluate(self, *, attribute: str, value: str) -> SelectionDecision:
         normalized_attribute = _normalize(attribute)
         normalized_value = _normalize_rejection_value(value)
@@ -293,40 +265,6 @@ def _load_config(path: Path) -> Mapping[str, object]:
     except PolicyConfigurationError as error:
         raise SelectionPolicyError(str(error)) from error
     return cast(Mapping[str, object], config)
-
-
-def _serialize_target(target: str, rules: _TargetRules) -> dict[str, object]:
-    return {
-        "target": target,
-        "selected_attributes": [
-            {"attribute": attribute, "decision": decision}
-            for attribute, decision in rules.selected.items()
-        ],
-        "ignored_attributes": sorted(rules.ignored),
-        "attribute_discovery": [
-            {
-                "family": discovery.family,
-                "tokens": sorted(discovery.tokens),
-                "phrases": list(discovery.phrases),
-                "patterns": [pattern.pattern for pattern in discovery.patterns],
-            }
-            for discovery in rules.discoveries
-        ],
-        "value_rejections": [
-            _serialize_value_rejection(rejection) for rejection in rules.value_rejections
-        ],
-    }
-
-
-def _serialize_value_rejection(rule: _ValueRejectionRule) -> dict[str, object]:
-    return {
-        "family": rule.family,
-        "exact": sorted(rule.exact),
-        "whole_value_prefixes": list(rule.whole_value_prefixes),
-        "explanation_prefixes": list(rule.explanation_prefixes),
-        "explanation_suffixes": sorted(rule.explanation_suffixes),
-        "fuzzy_references": sorted(rule.fuzzy_references),
-    }
 
 
 def _compile_target(path: Path, target: str, raw_config: object) -> _TargetRules:

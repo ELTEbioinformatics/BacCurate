@@ -28,7 +28,6 @@ from baccurate.standardization.host import (
 from baccurate.standardization.host_lineage import HostLineageEnricher
 from baccurate.standardization.isolation_source import (
     HOST_SOURCE_TYPE_BY_LINEAGE_ROOT,
-    ISOLATION_SOURCE_LLM_PARAMETERS,
     IsolationSourceDiagnostic,
     IsolationSourceEvidenceLevel,
     IsolationSourceOutcome,
@@ -171,28 +170,14 @@ class HostIsolationSourceStandardizer:
         could instead record a configuration that the components are not using.
         """
         pipeline = getattr(self._isolation_source, "pipeline", None)
-        ontology = getattr(self._isolation_source, "ontology", None)
-        isolation_source_policy = getattr(self._isolation_source, "policy", None)
-        isolation_source_config = (
-            isolation_source_policy.as_legacy_mapping()
-            if isolation_source_policy is not None
-            else {}
-        )
         self._model_identifier = getattr(pipeline, "model", "")
         self._llm_cache_reads_enabled = getattr(pipeline, "read_cache", True)
         self._model_endpoint_fingerprint = canonical_json_sha256(
             {"server": getattr(pipeline, "server", None)}
         )
-        if ontology is None:
-            prompt_contract = {
-                "isolation_configuration": isolation_source_config,
-                "request_parameters": ISOLATION_SOURCE_LLM_PARAMETERS,
-            }
-            self._prompt_configuration_fingerprint = canonical_json_sha256(prompt_contract)
-        else:
-            self._prompt_configuration_fingerprint = (
-                isolation_source_policy.prompt_configuration_fingerprint
-            )
+        self._prompt_configuration_fingerprint = (
+            self._isolation_source.policy.prompt_configuration_fingerprint
+        )
 
     @property
     def llm_cache_reads_enabled(self) -> bool:

@@ -1,7 +1,5 @@
 """Versioned target-taxon registry policy."""
 
-import json
-import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -94,50 +92,6 @@ class TaxonRegistry:
         """Return a taxon's scientific name, or an empty string if unknown."""
         taxon = self.included_taxa.get(taxon_key)
         return taxon.scientific_name if taxon else ""
-
-    def taxid_pairs(self) -> tuple[tuple[str, int], ...]:
-        """Enumerate taxon keys paired with each of their ordered NCBI taxids."""
-        return tuple(
-            (taxon.key, taxid) for taxon in self.included_taxa.values() for taxid in taxon.taxids
-        )
-
-    def taxon_key_table(self) -> str:
-        """Serialize the flattened taxon-key table used by preparation tooling."""
-        lines = ["taxon_key\ttaxids\trank\tcontainer"]
-        for taxon in self.included_taxa.values():
-            taxids = " ".join(str(taxid) for taxid in taxon.taxids)
-            lines.append(f"{taxon.key}\t{taxids}\t{taxon.rank}\t{taxon.container or ''}")
-        return "\n".join(lines)
-
-    def serialize(self) -> str:
-        """Return deterministic, schema-versioned JSON preserving policy order."""
-        return json.dumps(
-            {
-                "schema_version": self.schema_version,
-                "included_taxa": [
-                    {
-                        "key": taxon.key,
-                        "scientific_name": taxon.scientific_name,
-                        "ncbi_taxid": taxon.ncbi_taxid,
-                        "rank": taxon.rank,
-                        "container": taxon.container,
-                        "also_taxids": list(taxon.also_taxids),
-                    }
-                    for taxon in self.included_taxa.values()
-                ],
-                "containers": [
-                    {
-                        "key": container_key,
-                        "taxon_keys": list(taxon_keys),
-                    }
-                    for container_key, taxon_keys in self.containers.items()
-                ],
-            },
-            ensure_ascii=False,
-            allow_nan=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
 
 
 def _error(path: Path, policy_key: str, message: str) -> TaxonRegistryError:
@@ -318,18 +272,3 @@ def load_taxon_registry(path: Path = TAXA_YAML) -> TaxonRegistry:
         included_taxa=included_taxa,
         containers=containers,
     )
-
-
-if __name__ == "__main__":
-    import argparse
-
-    ap = argparse.ArgumentParser(description="Emit the taxon registry as a flat taxon-key table.")
-    ap.add_argument(
-        "--taxon-keys",
-        action="store_true",
-        help="emit taxon_key/taxids/rank/container TSV",
-    )
-    ap.parse_args()
-    registry = load_taxon_registry()
-    sys.stdout.reconfigure(newline="\n")
-    sys.stdout.write(registry.taxon_key_table() + "\n")

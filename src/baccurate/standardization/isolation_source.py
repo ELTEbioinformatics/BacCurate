@@ -204,8 +204,6 @@ class IsolationSourcePromptPolicy:
     direct_match_values: Mapping[str, tuple[str, ...]]
     non_source_values: frozenset[str]
     cache_db_path: Path
-    configured_ontology_directory: str | None
-    configured_cache_db_path: str | None
     laboratory_strain_patterns: tuple[tuple[str, re.Pattern[str]], ...] = ()
     disease_body_terms: Mapping[str, str] = MappingProxyType({})
 
@@ -214,36 +212,6 @@ class IsolationSourcePromptPolicy:
         """Strictly load isolation-source prompt policy from one YAML file."""
         policy_path = Path(path)
         return _parse_isolation_source_prompt_policy(load_policy_mapping(policy_path), policy_path)
-
-    def serialize(self) -> str:
-        """Return deterministic canonical JSON without changing legacy identities."""
-        return json.dumps(
-            {
-                "schema_version": self.schema_version,
-                "prompt_version": self.prompt_version,
-                "system_prompt": self.prompts.sample_system_template,
-                "user_prompt": self.prompts.sample_user_template,
-                "ontology_directory": self.ontology_directory.as_posix(),
-                "cache_db_path": self.cache_db_path.as_posix(),
-            },
-            ensure_ascii=False,
-            allow_nan=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-
-    def as_legacy_mapping(self) -> dict[str, object]:
-        """Return the established mapping shape used by configuration fingerprints."""
-        configuration: dict[str, object] = {
-            "prompt_version": self.prompt_version,
-            "system_prompt": self.prompts.sample_system_template,
-            "user_prompt": self.prompts.sample_user_template,
-        }
-        if self.configured_ontology_directory is not None:
-            configuration["ontology_directory"] = self.configured_ontology_directory
-        if self.configured_cache_db_path is not None:
-            configuration["cache_db_path"] = self.configured_cache_db_path
-        return configuration
 
     @property
     def effective_prompt_configuration(self) -> dict[str, object]:
@@ -334,14 +302,14 @@ def _isolation_source_resource_selection(
     key: str,
     default: Path,
     policy_path: Path,
-) -> tuple[str | None, str]:
-    """Return configured spelling and effective path text for one resource."""
+) -> str:
+    """Return the effective path text for one resource."""
     if key not in config:
-        return None, str(default)
+        return str(default)
     value = config[key]
     if not isinstance(value, str) or not value.strip():
         raise _isolation_source_policy_error(policy_path, key, "must be a non-empty string")
-    return value, value
+    return value
 
 
 def _parse_facet_configurations(
@@ -591,7 +559,7 @@ def _parse_isolation_source_prompt_policy(
         uses_format=True,
     )
 
-    configured_ontology_value, ontology_value = _isolation_source_resource_selection(
+    ontology_value = _isolation_source_resource_selection(
         config,
         "ontology_directory",
         DEFAULT_ISOLATION_SOURCE_ONTOLOGY_DIRECTORY,
@@ -619,7 +587,7 @@ def _parse_isolation_source_prompt_policy(
     direct_match_values = _parse_direct_match_values(config, ontology, policy_path)
     non_source_values = _parse_non_source_values(config, ontology, direct_match_values, policy_path)
 
-    configured_cache_value, cache_value = _isolation_source_resource_selection(
+    cache_value = _isolation_source_resource_selection(
         config,
         "cache_db_path",
         DEFAULT_ISOLATION_SOURCE_CACHE_DB,
@@ -665,8 +633,6 @@ def _parse_isolation_source_prompt_policy(
         direct_match_values=direct_match_values,
         non_source_values=non_source_values,
         cache_db_path=cache_path,
-        configured_ontology_directory=configured_ontology_value,
-        configured_cache_db_path=configured_cache_value,
         laboratory_strain_patterns=_parse_laboratory_strain_patterns(config, policy_path),
         disease_body_terms=_parse_disease_body_terms(config, ontology, policy_path),
     )

@@ -7,7 +7,6 @@ See docs/host.md for the documentation.
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 import string
@@ -153,72 +152,6 @@ class HostPolicy:
             raise
         except ValueError as error:
             raise PolicyConfigurationError(f"{source}: {error}") from error
-
-    def serialize(self) -> str:
-        """Return deterministic canonical JSON while preserving rejection order."""
-        return json.dumps(
-            {
-                "schema_version": self.schema_version,
-                "normalization": {
-                    "ignored_substrings": list(self.ignored_substrings),
-                },
-                "routing": {
-                    "isolation_source_keywords": list(self.isolation_source_keywords),
-                },
-                "curated_taxa": [
-                    {
-                        "taxid": taxon.taxid,
-                        "scientific_name": taxon.scientific_name,
-                        "match_terms": {
-                            "exact": list(taxon.exact_terms),
-                            "subset": list(taxon.subset_terms),
-                            "force": list(taxon.force_terms),
-                        },
-                    }
-                    for taxon in self.curated_taxa
-                ],
-                "value_rejections": {
-                    "exact": [
-                        (
-                            {"taxon_key": entry.taxon_key}
-                            if isinstance(entry, TaxonHostRejection)
-                            else entry
-                        )
-                        for entry in self.value_rejection_entries
-                    ],
-                },
-            },
-            ensure_ascii=False,
-            allow_nan=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-
-    def legacy_configuration(self) -> dict[str, object]:
-        """Reconstruct the pre-v3 effective mapping used by existing fingerprints."""
-        return {
-            "schema_version": 2,
-            "normalization": {"ignored_substrings": list(self.ignored_substrings)},
-            "routing": {
-                "isolation_source_keywords": list(self.isolation_source_keywords),
-            },
-            "curated_taxa": {
-                str(taxon.taxid): {
-                    "scientific_name": taxon.scientific_name,
-                    "match_terms": {
-                        mode: list(terms)
-                        for mode, terms in (
-                            ("exact", taxon.exact_terms),
-                            ("subset", taxon.subset_terms),
-                            ("force", taxon.force_terms),
-                        )
-                        if terms
-                    },
-                }
-                for taxon in self.curated_taxa
-            },
-            "value_rejections": {"exact": list(self.value_rejections)},
-        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -546,7 +479,6 @@ class HostStandardizer:
     ) -> None:
         self.logger = result_logger or logger
         self.policy = policy
-        self.config = policy.legacy_configuration()
         self._build_lookups(Path(ncbi_table_path))
         self._compile_filters()
 

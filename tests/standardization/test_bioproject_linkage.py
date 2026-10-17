@@ -348,6 +348,8 @@ def test_host_recovery_uses_biosample_pairs_not_bioproject_linkage(
     )
 
     class BioSampleIsolationSourceStandardizer:
+        policy = fixture_isolation_source_prompt_policy
+
         def standardize(self, record, *, overflow=None, host_pairs=()):
             supporting_pairs = (
                 (SupportingAttributeValuePair("food_source", "chicken meat"),)

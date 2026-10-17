@@ -158,7 +158,7 @@ def test_distinct_ancestor_and_descendant_taxa_remain_valid(
 
     registry = load_taxon_registry(path)
 
-    assert registry.taxid_pairs() == (("enterobacter", 547), ("ecloacae", 550))
+    assert registry.taxon_keys == ("enterobacter", "ecloacae")
 
 
 def test_container_may_contain_a_taxon_key_that_matches_a_policy_field(
@@ -182,50 +182,6 @@ def test_container_may_contain_a_taxon_key_that_matches_a_policy_field(
 
     assert registry.containers == {"examples": ("rank",)}
     assert registry.taxon_keys == ("rank",)
-
-
-def test_registry_canonical_serialization_preserves_policy_order(
-    tmp_path: Path,
-) -> None:
-    path = _write_policy(
-        tmp_path / "taxa.yaml",
-        {
-            "schema_version": 1,
-            "alpha": {
-                "scientific_name": "Alpha",
-                "ncbi_taxid": 10,
-                "rank": "genus",
-                "also_taxids": [12, 11],
-            },
-            "pair": {
-                "beta": {
-                    "scientific_name": "Beta",
-                    "ncbi_taxid": 20,
-                    "rank": "species",
-                },
-                "gamma": {
-                    "scientific_name": "Gamma",
-                    "ncbi_taxid": 30,
-                    "rank": "species",
-                },
-            },
-        },
-    )
-
-    registry = load_taxon_registry(path)
-
-    assert registry.serialize() == (
-        '{"containers":[{"key":"pair","taxon_keys":["beta","gamma"]}],'
-        '"included_taxa":['
-        '{"also_taxids":[12,11],"container":null,"key":"alpha","ncbi_taxid":10,'
-        '"rank":"genus","scientific_name":"Alpha"},'
-        '{"also_taxids":[],"container":"pair","key":"beta","ncbi_taxid":20,'
-        '"rank":"species","scientific_name":"Beta"},'
-        '{"also_taxids":[],"container":"pair","key":"gamma","ncbi_taxid":30,'
-        '"rank":"species","scientific_name":"Gamma"}],'
-        '"schema_version":1}'
-    )
-    assert registry.serialize() == load_taxon_registry(path).serialize()
 
 
 def test_registry_collections_are_immutable(tmp_path: Path) -> None:
