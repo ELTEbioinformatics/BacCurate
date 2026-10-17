@@ -626,16 +626,9 @@ def _parse_isolation_source_prompt_policy(
         policy_path,
     )
     cache_path = Path(cache_value)
-    cache_parent = cache_path.parent
-    if not cache_parent.is_dir():
-        raise _isolation_source_policy_error(
-            policy_path,
-            "cache_db_path",
-            f"parent directory does not exist: {cache_parent}",
-        )
-    writable_cache_target = cache_path if cache_path.exists() else cache_parent
-    if (cache_path.exists() and not cache_path.is_file()) or not os.access(
-        writable_cache_target, os.W_OK
+    writable_cache_target = cache_path if cache_path.exists() else cache_path.parent
+    if (cache_path.exists() and not cache_path.is_file()) or (
+        writable_cache_target.exists() and not os.access(writable_cache_target, os.W_OK)
     ):
         raise _isolation_source_policy_error(
             policy_path,
