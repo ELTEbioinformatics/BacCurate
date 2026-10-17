@@ -34,7 +34,6 @@ class SourceSnapshotManifest(BaseModel):
     file: SourceFile
     snapshot_as_of: date | None = None
     source_url: str | None = None
-    notes: str | None = None
 
     @property
     def metadata_reference_date(self) -> date:

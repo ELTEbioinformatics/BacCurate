@@ -24,6 +24,11 @@ import yaml
 
 # Allow package imports when a maintainer runs this file as a script.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from baccurate.paths import (
+    DEFAULT_GENBANK_ASSEMBLY_SNAPSHOT_MANIFEST,
+    DEFAULT_REFSEQ_ASSEMBLY_SNAPSHOT_MANIFEST,
+    DEFAULT_SRA_SNAPSHOT_MANIFEST,
+)
 from baccurate.provenance.source_snapshot import (
     SourceFile,
     SourceSnapshotManifest,
@@ -217,7 +222,6 @@ def _write_manifest(
         snapshot_as_of=None,
         source_url=report.source_url,
         file=SourceFile(name=source_path.name, sha256=source_sha256),
-        notes=f"Wrote: {report.output_name}.",
     )
     path.write_text(
         yaml.safe_dump(manifest.model_dump(mode="json"), sort_keys=False),
@@ -289,7 +293,7 @@ SOURCE_REPORTS = {
         label="SRA",
         output_name="sra_runs.tsv.gz",
         sequence_accession_column="sra_run_accessions",
-        manifest_path=Path("config/sra_accessions_snapshot.yaml"),
+        manifest_path=DEFAULT_SRA_SNAPSHOT_MANIFEST,
         snapshot_id_prefix="ncbi-sra-accessions",
         provider="NCBI SRA",
         source_url="https://ftp.ncbi.nlm.nih.gov/sra/reports/Metadata/SRA_Accessions.tab",
@@ -299,7 +303,7 @@ SOURCE_REPORTS = {
         label="GenBank",
         output_name="genbank_assemblies.tsv.gz",
         sequence_accession_column="genbank_assembly_accessions",
-        manifest_path=Path("config/assembly_summary_genbank_snapshot.yaml"),
+        manifest_path=DEFAULT_GENBANK_ASSEMBLY_SNAPSHOT_MANIFEST,
         snapshot_id_prefix="ncbi-assembly-summary-genbank",
         provider="NCBI Assembly",
         source_url="https://ftp.ncbi.nlm.nih.gov/genomes/ASSEMBLY_REPORTS/assembly_summary_genbank.txt",
@@ -309,7 +313,7 @@ SOURCE_REPORTS = {
         label="RefSeq",
         output_name="refseq_assemblies.tsv.gz",
         sequence_accession_column="refseq_assembly_accessions",
-        manifest_path=Path("config/assembly_summary_refseq_snapshot.yaml"),
+        manifest_path=DEFAULT_REFSEQ_ASSEMBLY_SNAPSHOT_MANIFEST,
         snapshot_id_prefix="ncbi-assembly-summary-refseq",
         provider="NCBI Assembly",
         source_url="https://ftp.ncbi.nlm.nih.gov/genomes/ASSEMBLY_REPORTS/assembly_summary_refseq.txt",

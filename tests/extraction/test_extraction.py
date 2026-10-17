@@ -59,8 +59,8 @@ def _configure_internal_paths(
 def test_default_paired_source_locations_are_internal_compressed_paths() -> None:
     assert DEFAULT_BIOSAMPLE_XML_INPUT.name == "biosamples.xml.gz"
     assert DEFAULT_BIOPROJECT_XML_INPUT.name == "bioproject.xml.gz"
-    assert DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST.name == "biosample_snapshot.yaml"
-    assert DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST.name == "bioproject_snapshot.yaml"
+    assert DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST.name == "biosample.yaml"
+    assert DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST.name == "bioproject.yaml"
 
 
 def test_extraction_uses_internal_paired_sources_without_raw_arguments(

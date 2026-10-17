@@ -188,8 +188,8 @@ def paired_source_snapshots(tmp_path: Path) -> PairedSourceSnapshots:
     sources = PairedSourceSnapshots(
         biosample=tmp_path / "biosamples.xml.gz",
         bioproject=tmp_path / "bioproject.xml.gz",
-        biosample_manifest=tmp_path / "biosample_snapshot.yaml",
-        bioproject_manifest=tmp_path / "bioproject_snapshot.yaml",
+        biosample_manifest=tmp_path / "biosample.yaml",
+        bioproject_manifest=tmp_path / "bioproject.yaml",
     )
     sources.replace_contents(
         biosample_xml=b"<BioSampleSet />",
@@ -226,12 +226,12 @@ def extracted_metadata_bundle_factory(
         bioproject_source = bundle_dir / "bioproject.xml.gz"
         bioproject_source.write_bytes(b"fixture BioProject source\n")
         biosample_manifest = _write_source_manifest(
-            bundle_dir / "biosample_snapshot.yaml",
+            bundle_dir / "biosample.yaml",
             snapshot_id="fixture-biosample-2026-01-01",
             source=biosample_source,
         )
         bioproject_manifest = _write_source_manifest(
-            bundle_dir / "bioproject_snapshot.yaml",
+            bundle_dir / "bioproject.yaml",
             snapshot_id="fixture-bioproject-2026-01-01",
             source=bioproject_source,
         )

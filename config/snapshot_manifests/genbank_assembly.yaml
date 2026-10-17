@@ -1,0 +1,8 @@
+snapshot_id: ncbi-assembly-summary-genbank-2026-08-09
+provider: NCBI Assembly
+retrieved_on: "2026-08-09"
+file:
+  name: assembly_summary_genbank.txt
+  sha256: c7e3e0b86bf3683aea8fb3c952963c666f7f6c80b7ce23da0a276741e7855f3c
+snapshot_as_of: null
+source_url: https://ftp.ncbi.nlm.nih.gov/genomes/ASSEMBLY_REPORTS/assembly_summary_genbank.txt
