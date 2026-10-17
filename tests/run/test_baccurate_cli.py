@@ -13,9 +13,9 @@ import baccurate.run.invocation as invocation_module
 import baccurate.run.main as main_module
 from baccurate.adapters.policy_yaml import PolicyConfigurationError
 from baccurate.extraction import COLUMNS, SelectionPolicyError
-from baccurate.provenance.source_snapshot import (
+from baccurate.provenance.snapshot_manifest import (
     DerivedBundleProvenance,
-    SourceSnapshotManifest,
+    SnapshotManifest,
     provenance_path_for,
     sha256_file,
 )
@@ -474,10 +474,10 @@ def _prepare_empty_extracted_bundle(
     extracted_metadata = tmp_path / "custom_metadata.tsv"
     rows = ["\t".join(record.get(column, "") for column in COLUMNS) for record in records or []]
     extracted_metadata.write_text("\n".join(("\t".join(COLUMNS), *rows)) + "\n", encoding="utf-8")
-    biosample_manifest_path = invocation_module.DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST
-    bioproject_manifest_path = invocation_module.DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST
-    biosample_manifest = SourceSnapshotManifest.load(biosample_manifest_path)
-    bioproject_manifest = SourceSnapshotManifest.load(bioproject_manifest_path)
+    biosample_manifest_path = invocation_module.DEFAULT_BIOSAMPLE_MANIFEST_PATH
+    bioproject_manifest_path = invocation_module.DEFAULT_BIOPROJECT_MANIFEST_PATH
+    biosample_manifest = SnapshotManifest.load(biosample_manifest_path)
+    bioproject_manifest = SnapshotManifest.load(bioproject_manifest_path)
     DerivedBundleProvenance(
         biosample_snapshot_id=biosample_manifest.snapshot_id,
         biosample_manifest_sha256=sha256_file(biosample_manifest_path),

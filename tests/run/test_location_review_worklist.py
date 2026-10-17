@@ -184,8 +184,8 @@ def _build(
     statistics = DatasetBuilder().build(
         DatasetBuildRequest(
             extracted_metadata=bundle.extracted_metadata,
-            biosample_snapshot_manifest=bundle.biosample_snapshot_manifest,
-            bioproject_snapshot_manifest=bundle.bioproject_snapshot_manifest,
+            biosample_manifest_path=bundle.biosample_manifest_path,
+            bioproject_manifest_path=bundle.bioproject_manifest_path,
             requested_taxa=("ecoli",),
             requested_targets=targets,
             final_destination=destination,

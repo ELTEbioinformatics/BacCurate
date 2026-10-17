@@ -1,6 +1,6 @@
 snapshot_id: ncbi-sra-accessions-2026-08-09
 provider: NCBI SRA
-source_url: https://ftp.ncbi.nlm.nih.gov/sra/reports/Metadata/SRA_Accessions.tab
+url: https://ftp.ncbi.nlm.nih.gov/sra/reports/Metadata/SRA_Accessions.tab
 retrieved_on: 2026-08-09
 snapshot_as_of: null
 file:

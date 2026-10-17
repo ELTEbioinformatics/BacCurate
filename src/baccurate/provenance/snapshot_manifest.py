@@ -1,4 +1,4 @@
-"""Validate acquired source snapshots and publish extracted metadata bundles."""
+"""Validate snapshots against their manifests and publish extracted metadata bundles."""
 
 import hashlib
 import os
@@ -10,12 +10,12 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class SourceSnapshotError(ValueError):
-    """An acquired source snapshot manifest or bundle provenance record is invalid."""
+class SnapshotError(ValueError):
+    """A snapshot, snapshot manifest or bundle provenance record is invalid."""
 
 
-class SourceFile(BaseModel):
-    """One raw file belonging to a source snapshot."""
+class SnapshotFile(BaseModel):
+    """The file name and SHA-256 of one snapshot."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -23,25 +23,25 @@ class SourceFile(BaseModel):
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
-class SourceSnapshotManifest(BaseModel):
-    """Description of one raw input used for extraction."""
+class SnapshotManifest(BaseModel):
+    """The identity, retrieval date and file of one snapshot."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     snapshot_id: str = Field(min_length=1)
     provider: str = Field(min_length=1)
-    source_url: str | None = None
+    url: str | None = None
     retrieved_on: date
     snapshot_as_of: date | None = None
-    file: SourceFile
+    file: SnapshotFile
 
     @property
     def metadata_reference_date(self) -> date:
         return self.snapshot_as_of or self.retrieved_on
 
     @classmethod
-    def load(cls, path: Path | str) -> "SourceSnapshotManifest":
-        """Load and validate a source snapshot manifest from YAML."""
+    def load(cls, path: Path | str) -> "SnapshotManifest":
+        """Load and validate a snapshot manifest from YAML."""
         return cls.model_validate(yaml.safe_load(Path(path).read_text(encoding="utf-8")))
 
     def write(self, path: Path | str) -> Path:
@@ -56,39 +56,39 @@ class SourceSnapshotManifest(BaseModel):
 
 
 @dataclass(frozen=True, slots=True)
-class PairedSourceContract:
-    """Validated BioSample and BioProject source snapshot identities."""
+class SnapshotPair:
+    """Validated BioSample and BioProject snapshot manifests."""
 
-    biosample: SourceSnapshotManifest
-    bioproject: SourceSnapshotManifest
+    biosample: SnapshotManifest
+    bioproject: SnapshotManifest
 
     @property
     def metadata_reference_date(self) -> date:
         return self.biosample.metadata_reference_date
 
 
-def validate_paired_source_contract(
+def validate_snapshot_pair(
     *,
-    biosample_path: Path | str,
-    bioproject_path: Path | str,
+    biosample_snapshot_path: Path | str,
+    bioproject_snapshot_path: Path | str,
     biosample_manifest_path: Path | str,
     bioproject_manifest_path: Path | str,
-) -> PairedSourceContract:
-    """Load and validate the two independently versioned extraction snapshots."""
-    biosample_manifest = SourceSnapshotManifest.load(biosample_manifest_path)
-    if sha256_file(biosample_path) != biosample_manifest.file.sha256:
-        raise SourceSnapshotError("BioSample source checksum mismatch")
-    bioproject_manifest = SourceSnapshotManifest.load(bioproject_manifest_path)
-    if sha256_file(bioproject_path) != bioproject_manifest.file.sha256:
-        raise SourceSnapshotError("BioProject source checksum mismatch")
-    return PairedSourceContract(
+) -> SnapshotPair:
+    """Load both manifests and check each snapshot against its manifest."""
+    biosample_manifest = SnapshotManifest.load(biosample_manifest_path)
+    if sha256_file(biosample_snapshot_path) != biosample_manifest.file.sha256:
+        raise SnapshotError("BioSample snapshot checksum mismatch")
+    bioproject_manifest = SnapshotManifest.load(bioproject_manifest_path)
+    if sha256_file(bioproject_snapshot_path) != bioproject_manifest.file.sha256:
+        raise SnapshotError("BioProject snapshot checksum mismatch")
+    return SnapshotPair(
         biosample=biosample_manifest,
         bioproject=bioproject_manifest,
     )
 
 
 class DerivedBundleProvenance(BaseModel):
-    """Hash binding for a paired-source extracted metadata bundle."""
+    """Hash binding between a snapshot pair and an extracted metadata bundle."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -102,16 +102,16 @@ class DerivedBundleProvenance(BaseModel):
     def create(
         cls,
         *,
-        source_contract: PairedSourceContract,
+        snapshot_pair: SnapshotPair,
         biosample_manifest_path: Path | str,
         bioproject_manifest_path: Path | str,
         extracted_metadata_path: Path | str,
     ) -> "DerivedBundleProvenance":
-        """Bind validated raw manifests to completed temporary artifacts."""
+        """Bind validated snapshot manifests to completed temporary artifacts."""
         return cls(
-            biosample_snapshot_id=source_contract.biosample.snapshot_id,
+            biosample_snapshot_id=snapshot_pair.biosample.snapshot_id,
             biosample_manifest_sha256=sha256_file(biosample_manifest_path),
-            bioproject_snapshot_id=source_contract.bioproject.snapshot_id,
+            bioproject_snapshot_id=snapshot_pair.bioproject.snapshot_id,
             bioproject_manifest_sha256=sha256_file(bioproject_manifest_path),
             extracted_metadata_sha256=sha256_file(extracted_metadata_path),
         )
@@ -148,7 +148,7 @@ def load_derived_bundle_provenance(
         yaml.safe_load(provenance_path.read_text(encoding="utf-8"))
     )
     if sha256_file(extracted_metadata_path) != bundle.extracted_metadata_sha256:
-        raise SourceSnapshotError("Derived extracted TSV checksum mismatch")
+        raise SnapshotError("Derived extracted TSV checksum mismatch")
     return bundle
 
 
@@ -173,23 +173,23 @@ def validate_extracted_metadata_bundle(
     extracted_metadata_path: Path | str,
     biosample_manifest_path: Path | str,
     bioproject_manifest_path: Path | str,
-) -> PairedSourceContract:
-    """Validate an extracted metadata bundle and return both acquired snapshot identities."""
-    biosample_manifest = SourceSnapshotManifest.load(biosample_manifest_path)
-    bioproject_manifest = SourceSnapshotManifest.load(bioproject_manifest_path)
+) -> SnapshotPair:
+    """Validate an extracted metadata bundle and return its snapshot pair."""
+    biosample_manifest = SnapshotManifest.load(biosample_manifest_path)
+    bioproject_manifest = SnapshotManifest.load(bioproject_manifest_path)
     bundle = load_derived_bundle_provenance(extracted_metadata_path)
 
     if (
         bundle.biosample_snapshot_id != biosample_manifest.snapshot_id
         or bundle.biosample_manifest_sha256 != sha256_file(biosample_manifest_path)
     ):
-        raise SourceSnapshotError("Derived BioSample source manifest mismatch")
+        raise SnapshotError("Derived BioSample snapshot manifest mismatch")
     if (
         bundle.bioproject_snapshot_id != bioproject_manifest.snapshot_id
         or bundle.bioproject_manifest_sha256 != sha256_file(bioproject_manifest_path)
     ):
-        raise SourceSnapshotError("Derived BioProject source manifest mismatch")
-    return PairedSourceContract(
+        raise SnapshotError("Derived BioProject snapshot manifest mismatch")
+    return SnapshotPair(
         biosample=biosample_manifest,
         bioproject=bioproject_manifest,
     )

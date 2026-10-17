@@ -21,11 +21,11 @@ from baccurate.extraction.manual_review import ReviewWorklists
 from baccurate.extraction.selection import SelectionPolicy
 from baccurate.extraction.tables import COLUMNS, INTERMEDIATE_COLUMNS, extracted_metadata_row
 from baccurate.extraction.xml import SelectionCounters, process_biosample_xml
-from baccurate.provenance.source_snapshot import (
+from baccurate.provenance.snapshot_manifest import (
     DerivedBundleProvenance,
     _publish_bundle,
     provenance_path_for,
-    validate_paired_source_contract,
+    validate_snapshot_pair,
 )
 from baccurate.standardization_target.policy_slot import POLICY_FILENAMES, PolicySlot
 from baccurate.taxon_registry.registry import TaxonRegistry, load_taxon_registry
@@ -68,11 +68,11 @@ def run_extraction(
     )
 
     biosample_paths = (paths.DEFAULT_BIOSAMPLE_XML_INPUT,)
-    source_contract = validate_paired_source_contract(
-        biosample_path=paths.DEFAULT_BIOSAMPLE_XML_INPUT,
-        bioproject_path=paths.DEFAULT_BIOPROJECT_XML_INPUT,
-        biosample_manifest_path=paths.DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
-        bioproject_manifest_path=paths.DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
+    snapshot_pair = validate_snapshot_pair(
+        biosample_snapshot_path=paths.DEFAULT_BIOSAMPLE_XML_INPUT,
+        bioproject_snapshot_path=paths.DEFAULT_BIOPROJECT_XML_INPUT,
+        biosample_manifest_path=paths.DEFAULT_BIOSAMPLE_MANIFEST_PATH,
+        bioproject_manifest_path=paths.DEFAULT_BIOPROJECT_MANIFEST_PATH,
     )
 
     counters = SelectionCounters()
@@ -135,9 +135,9 @@ def run_extraction(
         _write_resolved_rows(spool_path, temporary_output_path, accession_by_bioproject_id)
 
         provenance = DerivedBundleProvenance.create(
-            source_contract=source_contract,
-            biosample_manifest_path=paths.DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
-            bioproject_manifest_path=paths.DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
+            snapshot_pair=snapshot_pair,
+            biosample_manifest_path=paths.DEFAULT_BIOSAMPLE_MANIFEST_PATH,
+            bioproject_manifest_path=paths.DEFAULT_BIOPROJECT_MANIFEST_PATH,
             extracted_metadata_path=temporary_output_path,
         )
         provenance.write(temporary_provenance_path)
@@ -172,9 +172,9 @@ def run_extraction(
         unreviewed_count=review_worklists.unreviewed_count,
         uncertain_count=review_worklists.uncertain_count,
         review_worklist_paths=review_worklist_paths,
-        biosample_snapshot_id=source_contract.biosample.snapshot_id,
-        bioproject_snapshot_id=source_contract.bioproject.snapshot_id,
-        metadata_reference_date=source_contract.metadata_reference_date,
+        biosample_snapshot_id=snapshot_pair.biosample.snapshot_id,
+        bioproject_snapshot_id=snapshot_pair.bioproject.snapshot_id,
+        metadata_reference_date=snapshot_pair.metadata_reference_date,
         bundle_provenance_path=bundle_provenance_path,
         inclusion_route_counts={
             route: inclusion_route_counts[route]

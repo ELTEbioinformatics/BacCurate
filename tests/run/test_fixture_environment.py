@@ -20,8 +20,8 @@ def test_fixture_dataset_builder_standardizes_host_without_production_taxonomy(
     statistics = fixture_dataset_builder.build(
         DatasetBuildRequest(
             extracted_metadata=extracted_metadata_bundle.extracted_metadata,
-            biosample_snapshot_manifest=extracted_metadata_bundle.biosample_snapshot_manifest,
-            bioproject_snapshot_manifest=extracted_metadata_bundle.bioproject_snapshot_manifest,
+            biosample_manifest_path=extracted_metadata_bundle.biosample_manifest_path,
+            bioproject_manifest_path=extracted_metadata_bundle.bioproject_manifest_path,
             requested_taxa=("ecoli",),
             requested_targets=(StandardizationTarget.HOST,),
             final_destination=destination,

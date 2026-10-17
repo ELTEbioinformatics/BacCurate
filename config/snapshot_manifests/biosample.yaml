@@ -1,6 +1,6 @@
 snapshot_id: ncbi-biosample-2026-07-09
 provider: NCBI BioSample
-source_url: https://ftp.ncbi.nlm.nih.gov/biosample/
+url: https://ftp.ncbi.nlm.nih.gov/biosample/
 retrieved_on: 2026-07-09
 snapshot_as_of: null
 file:

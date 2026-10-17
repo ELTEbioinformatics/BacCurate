@@ -22,9 +22,9 @@ from baccurate.extraction import (
     SelectionEvent,
     SelectionPolicy,
 )
-from baccurate.provenance.source_snapshot import (
+from baccurate.provenance.snapshot_manifest import (
     DerivedBundleProvenance,
-    SourceSnapshotManifest,
+    SnapshotManifest,
     provenance_path_for,
     sha256_file,
 )
@@ -140,13 +140,13 @@ def selection_policy() -> SelectionPolicy:
     return SelectionPolicy.load(SELECTION_POLICY_PATH)
 
 
-def _write_source_manifest(
+def _write_manifest(
     path: Path,
     *,
     snapshot_id: str,
     sha256_fill_character: str,
-) -> SourceSnapshotManifest:
-    manifest = SourceSnapshotManifest(
+) -> SnapshotManifest:
+    manifest = SnapshotManifest(
         snapshot_id=snapshot_id,
         provider="absence-characterization",
         retrieved_on=date(2026, 1, 1),
@@ -180,12 +180,12 @@ def _write_extracted_bundle(
 
     biosample_manifest_path = tmp_path / "biosample-snapshot.yaml"
     bioproject_manifest_path = tmp_path / "bioproject-snapshot.yaml"
-    biosample_manifest = _write_source_manifest(
+    biosample_manifest = _write_manifest(
         biosample_manifest_path,
         snapshot_id="biosample-absence-characterization",
         sha256_fill_character="0",
     )
-    bioproject_manifest = _write_source_manifest(
+    bioproject_manifest = _write_manifest(
         bioproject_manifest_path,
         snapshot_id="bioproject-absence-characterization",
         sha256_fill_character="1",
@@ -212,7 +212,7 @@ def _build_dataset(
     host_standardizer_factory: Callable[..., HostStandardizer] | None = None,
     isolation_source_standardizer_factory: Callable[..., IsolationSourceStandardizer] | None = None,
 ) -> _BuiltDataset:
-    extracted_path, biosample_manifest, bioproject_manifest = _write_extracted_bundle(
+    extracted_path, biosample_manifest_path, bioproject_manifest_path = _write_extracted_bundle(
         tmp_path,
         rows,
     )
@@ -228,8 +228,8 @@ def _build_dataset(
     ).build(
         DatasetBuildRequest(
             extracted_metadata=extracted_path,
-            biosample_snapshot_manifest=biosample_manifest,
-            bioproject_snapshot_manifest=bioproject_manifest,
+            biosample_manifest_path=biosample_manifest_path,
+            bioproject_manifest_path=bioproject_manifest_path,
             requested_taxa=("ecoli",),
             requested_targets=targets,
             final_destination=destination,

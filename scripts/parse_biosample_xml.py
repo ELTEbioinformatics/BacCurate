@@ -223,18 +223,20 @@ def stream(
     return counts
 
 
-def write_manifest(
+def write_summary(
     out_dir: Path, counts: dict[str, int], taxids_of: dict[str, str], dump: Path
 ) -> None:
-    manifest = out_dir / "manifest.tsv"
+    summary_path = out_dir / "summary.tsv"
     run = date.today().isoformat()
-    src = dump.name
-    with manifest.open("w", encoding="utf-8", newline="\n") as f:
-        f.write("taxon_key\trun_date\ttaxids\tsource\trows\tstatus\tsha256\n")
+    snapshot_file = dump.name
+    with summary_path.open("w", encoding="utf-8", newline="\n") as f:
+        f.write("taxon_key\trun_date\ttaxids\tsnapshot_file\trows\tstatus\tsha256\n")
         for taxon_key, n in counts.items():
             digest = sha256(out_dir / f"{taxon_key}.tsv")
-            f.write(f"{taxon_key}\t{run}\t{taxids_of[taxon_key]}\t{src}\t{n}\tok\t{digest}\n")
-    log.info("wrote manifest -> %s", manifest)
+            f.write(
+                f"{taxon_key}\t{run}\t{taxids_of[taxon_key]}\t{snapshot_file}\t{n}\tok\t{digest}\n"
+            )
+    log.info("wrote summary -> %s", summary_path)
 
 
 def main() -> int:
@@ -288,7 +290,7 @@ def main() -> int:
         atb_scope = load_atb_scope(args.atb, taxon_registry)
 
     counts = stream(args.dump, closure, atb_scope, taxon_keys, args.id_lists_dir, subset_path)
-    write_manifest(args.id_lists_dir, counts, taxids_of, args.dump)
+    write_summary(args.id_lists_dir, counts, taxids_of, args.dump)
 
     log.info("per-taxon-key rows: %s", {m: counts[m] for m in taxon_keys})
     return 0

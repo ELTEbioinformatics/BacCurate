@@ -15,13 +15,13 @@ import pytest
 import yaml
 
 from baccurate.extraction import COLUMNS
-from baccurate.provenance.source_snapshot import (
+from baccurate.provenance.snapshot_manifest import (
     DerivedBundleProvenance,
-    SourceSnapshotManifest,
+    SnapshotManifest,
     provenance_path_for,
     sha256_file,
     validate_extracted_metadata_bundle,
-    validate_paired_source_contract,
+    validate_snapshot_pair,
 )
 from baccurate.run.dataset_builder import DatasetBuilder
 from baccurate.standardization.host import HostPolicy, HostStandardizer
@@ -79,8 +79,8 @@ class ExtractedMetadataBundle:
     """Paths making up one validated, provenance-bound extracted metadata bundle."""
 
     extracted_metadata: Path
-    biosample_snapshot_manifest: Path
-    bioproject_snapshot_manifest: Path
+    biosample_manifest_path: Path
+    bioproject_manifest_path: Path
     provenance: Path
 
 
@@ -95,29 +95,29 @@ class ExtractedMetadataBundleFactory(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
-class PairedSourceSnapshots:
-    """A valid paired BioSample and BioProject acquired source snapshot."""
+class PairedSnapshots:
+    """Valid BioSample and BioProject snapshots with their manifests."""
 
-    biosample: Path
-    bioproject: Path
-    biosample_manifest: Path
-    bioproject_manifest: Path
+    biosample_snapshot_path: Path
+    bioproject_snapshot_path: Path
+    biosample_manifest_path: Path
+    bioproject_manifest_path: Path
 
     def replace_contents(self, *, biosample_xml: bytes, bioproject_xml: bytes) -> None:
-        """Replace both source snapshots while keeping their manifests valid."""
-        _write_compressed_snapshot(self.biosample, biosample_xml)
-        _write_compressed_snapshot(self.bioproject, bioproject_xml)
-        _write_source_manifest(
-            self.biosample_manifest,
+        """Replace both snapshots and rewrite their manifests to match."""
+        _write_compressed_snapshot(self.biosample_snapshot_path, biosample_xml)
+        _write_compressed_snapshot(self.bioproject_snapshot_path, bioproject_xml)
+        _write_manifest(
+            self.biosample_manifest_path,
             snapshot_id="biosample-test",
-            source=self.biosample,
-            snapshot_date=date(2026, 7, 19),
+            snapshot_path=self.biosample_snapshot_path,
+            retrieved_on=date(2026, 7, 19),
         )
-        _write_source_manifest(
-            self.bioproject_manifest,
+        _write_manifest(
+            self.bioproject_manifest_path,
             snapshot_id="bioproject-test",
-            source=self.bioproject,
-            snapshot_date=date(2026, 7, 19),
+            snapshot_path=self.bioproject_snapshot_path,
+            retrieved_on=date(2026, 7, 19),
         )
 
 
@@ -183,19 +183,19 @@ def fixture_isolation_source_prompt_policy(
 
 
 @pytest.fixture
-def paired_source_snapshots(tmp_path: Path) -> PairedSourceSnapshots:
-    """Return the default valid paired acquired source snapshots."""
-    sources = PairedSourceSnapshots(
-        biosample=tmp_path / "biosamples.xml.gz",
-        bioproject=tmp_path / "bioproject.xml.gz",
-        biosample_manifest=tmp_path / "biosample.yaml",
-        bioproject_manifest=tmp_path / "bioproject.yaml",
+def paired_snapshots(tmp_path: Path) -> PairedSnapshots:
+    """Return the default valid snapshot pair on disk."""
+    snapshots = PairedSnapshots(
+        biosample_snapshot_path=tmp_path / "biosamples.xml.gz",
+        bioproject_snapshot_path=tmp_path / "bioproject.xml.gz",
+        biosample_manifest_path=tmp_path / "biosample.yaml",
+        bioproject_manifest_path=tmp_path / "bioproject.yaml",
     )
-    sources.replace_contents(
+    snapshots.replace_contents(
         biosample_xml=b"<BioSampleSet />",
         bioproject_xml=b"<PackageSet />",
     )
-    return sources
+    return snapshots
 
 
 @pytest.fixture
@@ -204,7 +204,7 @@ def extracted_metadata_bundle_factory(
     standardization_fixture_resources: StandardizationFixtureResources,
     fixture_isolation_source_prompt_policy: IsolationSourcePromptPolicy,
 ) -> ExtractedMetadataBundleFactory:
-    """Build deterministic extracted metadata bundles with valid source and artifact provenance."""
+    """Build deterministic extracted metadata bundles with valid snapshot and artifact provenance."""
 
     def build(
         name: str = "bundle",
@@ -221,41 +221,41 @@ def extracted_metadata_bundle_factory(
             )
         else:
             _write_extracted_metadata(extracted_metadata, extracted_rows)
-        biosample_source = bundle_dir / "biosample.xml.gz"
-        biosample_source.write_bytes(b"fixture BioSample source\n")
-        bioproject_source = bundle_dir / "bioproject.xml.gz"
-        bioproject_source.write_bytes(b"fixture BioProject source\n")
-        biosample_manifest = _write_source_manifest(
+        biosample_snapshot_path = bundle_dir / "biosample.xml.gz"
+        biosample_snapshot_path.write_bytes(b"fixture BioSample source\n")
+        bioproject_snapshot_path = bundle_dir / "bioproject.xml.gz"
+        bioproject_snapshot_path.write_bytes(b"fixture BioProject source\n")
+        biosample_manifest_path = _write_manifest(
             bundle_dir / "biosample.yaml",
             snapshot_id="fixture-biosample-2026-01-01",
-            source=biosample_source,
+            snapshot_path=biosample_snapshot_path,
         )
-        bioproject_manifest = _write_source_manifest(
+        bioproject_manifest_path = _write_manifest(
             bundle_dir / "bioproject.yaml",
             snapshot_id="fixture-bioproject-2026-01-01",
-            source=bioproject_source,
+            snapshot_path=bioproject_snapshot_path,
         )
-        source_contract = validate_paired_source_contract(
-            biosample_path=biosample_source,
-            bioproject_path=bioproject_source,
-            biosample_manifest_path=biosample_manifest,
-            bioproject_manifest_path=bioproject_manifest,
+        snapshot_pair = validate_snapshot_pair(
+            biosample_snapshot_path=biosample_snapshot_path,
+            bioproject_snapshot_path=bioproject_snapshot_path,
+            biosample_manifest_path=biosample_manifest_path,
+            bioproject_manifest_path=bioproject_manifest_path,
         )
         provenance = DerivedBundleProvenance.create(
-            source_contract=source_contract,
-            biosample_manifest_path=biosample_manifest,
-            bioproject_manifest_path=bioproject_manifest,
+            snapshot_pair=snapshot_pair,
+            biosample_manifest_path=biosample_manifest_path,
+            bioproject_manifest_path=bioproject_manifest_path,
             extracted_metadata_path=extracted_metadata,
         ).write(provenance_path_for(extracted_metadata))
         validate_extracted_metadata_bundle(
             extracted_metadata,
-            biosample_manifest,
-            bioproject_manifest,
+            biosample_manifest_path,
+            bioproject_manifest_path,
         )
         return ExtractedMetadataBundle(
             extracted_metadata=extracted_metadata,
-            biosample_snapshot_manifest=biosample_manifest,
-            bioproject_snapshot_manifest=bioproject_manifest,
+            biosample_manifest_path=biosample_manifest_path,
+            bioproject_manifest_path=bioproject_manifest_path,
             provenance=provenance,
         )
 
@@ -343,18 +343,18 @@ def _write_extracted_metadata(
         writer.writerows(rows)
 
 
-def _write_source_manifest(
+def _write_manifest(
     destination: Path,
     *,
     snapshot_id: str,
-    source: Path,
-    snapshot_date: date = date(2026, 1, 1),
+    snapshot_path: Path,
+    retrieved_on: date = date(2026, 1, 1),
 ) -> Path:
-    manifest = SourceSnapshotManifest(
+    manifest = SnapshotManifest(
         snapshot_id=snapshot_id,
         provider="BacCurate test fixture",
-        retrieved_on=snapshot_date,
-        file={"name": source.name, "sha256": sha256_file(source)},
+        retrieved_on=retrieved_on,
+        file={"name": snapshot_path.name, "sha256": sha256_file(snapshot_path)},
     )
     return manifest.write(destination)
 

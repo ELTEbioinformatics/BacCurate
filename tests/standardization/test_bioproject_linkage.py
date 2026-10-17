@@ -122,8 +122,8 @@ def _build_isolation_source_run(
     ).build(
         DatasetBuildRequest(
             extracted_metadata=bundle.extracted_metadata,
-            biosample_snapshot_manifest=bundle.biosample_snapshot_manifest,
-            bioproject_snapshot_manifest=bundle.bioproject_snapshot_manifest,
+            biosample_manifest_path=bundle.biosample_manifest_path,
+            bioproject_manifest_path=bundle.bioproject_manifest_path,
             requested_taxa=("ecoli",),
             requested_targets=targets,
             final_destination=dataset,
@@ -409,8 +409,8 @@ def test_host_recovery_uses_biosample_pairs_not_bioproject_linkage(
     ).build(
         DatasetBuildRequest(
             extracted_metadata=bundle.extracted_metadata,
-            biosample_snapshot_manifest=bundle.biosample_snapshot_manifest,
-            bioproject_snapshot_manifest=bundle.bioproject_snapshot_manifest,
+            biosample_manifest_path=bundle.biosample_manifest_path,
+            bioproject_manifest_path=bundle.bioproject_manifest_path,
             requested_taxa=("ecoli",),
             requested_targets=(StandardizationTarget.HOST, StandardizationTarget.ISOLATION_SOURCE),
             final_destination=dataset,

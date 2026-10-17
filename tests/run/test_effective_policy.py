@@ -40,15 +40,15 @@ def test_effective_policy_loads_selected_policies_and_ignores_unselected_policy(
         reference_root / "geo_loc_list.txt",
     )
     selected_sources = {"host.yaml", "isolation_source.yaml"}
-    for source_name in (
+    for config_name in (
         "selection.yaml",
         "host.yaml",
         "location.yaml",
         "isolation_source.yaml",
     ):
-        destination = configuration_root / source_name
-        if source_name in selected_sources:
-            shutil.copyfile(CONFIG_DIR / source_name, destination)
+        destination = configuration_root / config_name
+        if config_name in selected_sources:
+            shutil.copyfile(CONFIG_DIR / config_name, destination)
         else:
             destination.write_text("malformed: [\n", encoding="utf-8")
 

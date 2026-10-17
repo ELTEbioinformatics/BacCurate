@@ -1,6 +1,6 @@
 snapshot_id: ncbi-bioproject-2026-07-19
 provider: NCBI BioProject
-source_url: https://ftp.ncbi.nlm.nih.gov/bioproject/
+url: https://ftp.ncbi.nlm.nih.gov/bioproject/
 retrieved_on: 2026-07-19
 snapshot_as_of: null
 file:

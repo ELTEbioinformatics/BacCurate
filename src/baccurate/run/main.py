@@ -42,8 +42,8 @@ def main(
     normalized_options = invocation.normalized_options
     llm_settings = invocation.llm_settings
     model_identifiers = invocation.model_identifiers
-    DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST = invocation.biosample_snapshot_manifest
-    DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST = invocation.bioproject_snapshot_manifest
+    DEFAULT_BIOSAMPLE_MANIFEST_PATH = invocation.biosample_manifest_path
+    DEFAULT_BIOPROJECT_MANIFEST_PATH = invocation.bioproject_manifest_path
 
     outputs.initialize()
     if outputs.prompt_snapshot is not None:
@@ -87,8 +87,8 @@ def main(
                     biosample_input_path=biosample_input_path,
                     bioproject_input_path=DEFAULT_BIOPROJECT_XML_INPUT,
                     extracted_metadata_path=extracted_metadata_path,
-                    biosample_manifest_path=DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
-                    bioproject_manifest_path=DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
+                    biosample_manifest_path=DEFAULT_BIOSAMPLE_MANIFEST_PATH,
+                    bioproject_manifest_path=DEFAULT_BIOPROJECT_MANIFEST_PATH,
                 )
                 extraction_started = monotonic()
                 logger.info(
@@ -115,8 +115,8 @@ def main(
             else:
                 run_report.record_reused_extraction(
                     extracted_metadata_path=extracted_metadata_path,
-                    biosample_manifest_path=DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
-                    bioproject_manifest_path=DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
+                    biosample_manifest_path=DEFAULT_BIOSAMPLE_MANIFEST_PATH,
+                    bioproject_manifest_path=DEFAULT_BIOPROJECT_MANIFEST_PATH,
                 )
                 run_report.transition(RunPhase.DATASET_STREAMING)
                 logger.info("Using extracted metadata from: %s", extracted_metadata_path)
@@ -124,8 +124,8 @@ def main(
             logger.info("Streaming started")
             request = DatasetBuildRequest(
                 extracted_metadata=extracted_metadata_path,
-                biosample_snapshot_manifest=DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
-                bioproject_snapshot_manifest=DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
+                biosample_manifest_path=DEFAULT_BIOSAMPLE_MANIFEST_PATH,
+                bioproject_manifest_path=DEFAULT_BIOPROJECT_MANIFEST_PATH,
                 requested_taxa=tuple(names),
                 requested_targets=active_targets,
                 final_destination=outputs.dataset,

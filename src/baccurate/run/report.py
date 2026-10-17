@@ -17,15 +17,15 @@ from typing import Literal
 from baccurate.adapters.llm.diagnostics import LLMObservability
 from baccurate.extraction import ExtractionReport
 from baccurate.paths import (
-    DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
+    DEFAULT_BIOPROJECT_MANIFEST_PATH,
     DEFAULT_BIOPROJECT_XML_INPUT,
-    DEFAULT_GENBANK_ASSEMBLY_SNAPSHOT_MANIFEST,
-    DEFAULT_REFSEQ_ASSEMBLY_SNAPSHOT_MANIFEST,
-    DEFAULT_SRA_SNAPSHOT_MANIFEST,
+    DEFAULT_GENBANK_ASSEMBLY_MANIFEST_PATH,
+    DEFAULT_REFSEQ_ASSEMBLY_MANIFEST_PATH,
+    DEFAULT_SRA_MANIFEST_PATH,
     REPO_ROOT,
 )
-from baccurate.provenance.source_snapshot import (
-    SourceSnapshotManifest,
+from baccurate.provenance.snapshot_manifest import (
+    SnapshotManifest,
     provenance_path_for,
     sha256_file,
     validate_extracted_metadata_bundle,
@@ -35,11 +35,11 @@ from baccurate.run.statistics import DatasetBuildProgress, DatasetBuildStatistic
 from baccurate.standardization.isolation_source import IsolationSourceProvenance
 from baccurate.standardization_target.specifications import TARGET_SPECS, StandardizationTarget
 
-# Snapshot manifests for the three sequence-accession data sources (SRA, GenBank, RefSeq).
-SEQUENCE_ACCESSION_SNAPSHOT_MANIFESTS: Mapping[str, Path] = {
-    "sra": DEFAULT_SRA_SNAPSHOT_MANIFEST,
-    "genbank_assembly": DEFAULT_GENBANK_ASSEMBLY_SNAPSHOT_MANIFEST,
-    "refseq_assembly": DEFAULT_REFSEQ_ASSEMBLY_SNAPSHOT_MANIFEST,
+# Snapshot manifests of the three bulk reports (SRA, GenBank, RefSeq).
+SEQUENCE_ACCESSION_MANIFEST_PATHS: Mapping[str, Path] = {
+    "sra": DEFAULT_SRA_MANIFEST_PATH,
+    "genbank_assembly": DEFAULT_GENBANK_ASSEMBLY_MANIFEST_PATH,
+    "refseq_assembly": DEFAULT_REFSEQ_ASSEMBLY_MANIFEST_PATH,
 }
 
 
@@ -210,11 +210,11 @@ class RunReport:
         extracted_metadata_path: Path,
         biosample_manifest_path: Path,
         bioproject_input_path: Path = DEFAULT_BIOPROJECT_XML_INPUT,
-        bioproject_manifest_path: Path = DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
+        bioproject_manifest_path: Path = DEFAULT_BIOPROJECT_MANIFEST_PATH,
     ) -> None:
         """Record what is known before extraction starts."""
-        biosample_manifest = SourceSnapshotManifest.load(biosample_manifest_path)
-        bioproject_manifest = SourceSnapshotManifest.load(bioproject_manifest_path)
+        biosample_manifest = SnapshotManifest.load(biosample_manifest_path)
+        bioproject_manifest = SnapshotManifest.load(bioproject_manifest_path)
         self._record_provenance(biosample_manifest, bioproject_manifest)
         self._document["extraction"] = _extraction_document(
             mode="performed",
@@ -230,7 +230,7 @@ class RunReport:
         *,
         extracted_metadata_path: Path,
         biosample_manifest_path: Path,
-        bioproject_manifest_path: Path = DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
+        bioproject_manifest_path: Path = DEFAULT_BIOPROJECT_MANIFEST_PATH,
     ) -> None:
         """Record what can be verified about a reused extracted TSV."""
         with extracted_metadata_path.open(newline="", encoding="utf-8") as stream:
@@ -238,13 +238,13 @@ class RunReport:
             next(reader, None)
             extracted_record_count = sum(1 for row in reader if row)
 
-        source_contract = validate_extracted_metadata_bundle(
+        snapshot_pair = validate_extracted_metadata_bundle(
             extracted_metadata_path,
             biosample_manifest_path,
             bioproject_manifest_path,
         )
-        biosample_manifest = source_contract.biosample
-        bioproject_manifest = source_contract.bioproject
+        biosample_manifest = snapshot_pair.biosample
+        bioproject_manifest = snapshot_pair.bioproject
         manifests = (biosample_manifest, bioproject_manifest)
         self._record_provenance(biosample_manifest, bioproject_manifest)
         acquired_snapshot_files = tuple(manifest.file.name for manifest in manifests)
@@ -260,8 +260,8 @@ class RunReport:
 
     def _record_provenance(
         self,
-        biosample_manifest: SourceSnapshotManifest,
-        bioproject_manifest: SourceSnapshotManifest,
+        biosample_manifest: SnapshotManifest,
+        bioproject_manifest: SnapshotManifest,
     ) -> None:
         self._update_provenance(
             _provenance_document(
@@ -456,8 +456,8 @@ def _extraction_document(
 def _sequence_accession_provenance() -> dict[str, object]:
     """Build provenance entries for the SRA, GenBank, and RefSeq sequence-accession snapshots."""
     provenance: dict[str, object] = {}
-    for name, path in SEQUENCE_ACCESSION_SNAPSHOT_MANIFESTS.items():
-        manifest = SourceSnapshotManifest.load(path)
+    for name, path in SEQUENCE_ACCESSION_MANIFEST_PATHS.items():
+        manifest = SnapshotManifest.load(path)
         provenance[name] = {
             "snapshot_id": manifest.snapshot_id,
             "metadata_reference_date": manifest.metadata_reference_date.isoformat(),

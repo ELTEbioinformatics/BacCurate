@@ -1,6 +1,6 @@
 snapshot_id: ncbi-assembly-summary-genbank-2026-08-09
 provider: NCBI Assembly
-source_url: https://ftp.ncbi.nlm.nih.gov/genomes/ASSEMBLY_REPORTS/assembly_summary_genbank.txt
+url: https://ftp.ncbi.nlm.nih.gov/genomes/ASSEMBLY_REPORTS/assembly_summary_genbank.txt
 retrieved_on: 2026-08-09
 snapshot_as_of: null
 file:

@@ -20,14 +20,14 @@ import pandas as pd
 # make the package importable when run as a plain script
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from baccurate.paths import (
-    DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
-    DEFAULT_GENBANK_ASSEMBLY_SNAPSHOT_MANIFEST,
+    DEFAULT_BIOSAMPLE_MANIFEST_PATH,
+    DEFAULT_GENBANK_ASSEMBLY_MANIFEST_PATH,
     DEFAULT_INDEX_TSV,
-    DEFAULT_REFSEQ_ASSEMBLY_SNAPSHOT_MANIFEST,
-    DEFAULT_SRA_SNAPSHOT_MANIFEST,
+    DEFAULT_REFSEQ_ASSEMBLY_MANIFEST_PATH,
+    DEFAULT_SRA_MANIFEST_PATH,
     RAW_DIR,
 )
-from baccurate.provenance.source_snapshot import SourceSnapshotManifest, sha256_file
+from baccurate.provenance.snapshot_manifest import SnapshotManifest, sha256_file
 from baccurate.taxon_registry.species_label_matching import NA
 
 log = logging.getLogger("build_biosample_index")
@@ -53,26 +53,26 @@ COLUMNS = [
 ]
 
 
-def load_prepared_taxon_keys(manifest_path: Path) -> list[str]:
-    """Return the taxon keys of the prepared id_lists, in manifest order."""
-    manifest = pd.read_csv(manifest_path, sep="\t", dtype=str, keep_default_na=False)
-    if "taxon_key" not in manifest.columns:
-        raise ValueError(f"{manifest_path}: expected a taxon_key column")
-    if "status" in manifest.columns:
-        incomplete = manifest.loc[manifest["status"] != "ok", "taxon_key"].tolist()
+def load_prepared_taxon_keys(summary_path: Path) -> list[str]:
+    """Return the taxon keys of the prepared id_lists, in summary order."""
+    summary = pd.read_csv(summary_path, sep="\t", dtype=str, keep_default_na=False)
+    if "taxon_key" not in summary.columns:
+        raise ValueError(f"{summary_path}: expected a taxon_key column")
+    if "status" in summary.columns:
+        incomplete = summary.loc[summary["status"] != "ok", "taxon_key"].tolist()
         if incomplete:
             log.warning(
-                "Manifest flags incomplete taxon-key fetch(es). re-fetch: %s",
+                "Summary flags incomplete taxon-key fetch(es). re-fetch: %s",
                 ", ".join(incomplete),
             )
-    return manifest["taxon_key"].tolist()
+    return summary["taxon_key"].tolist()
 
 
 def load_taxonomy_branch(
     id_lists_dir: Path,
     taxon_keys: list[str],
 ) -> pd.DataFrame:
-    """Load the prepared taxon-key TSVs. Resolve overlaps in manifest order.
+    """Load the prepared taxon-key TSVs. Resolve overlaps in summary order.
 
     The function skips missing files.
     """
@@ -96,8 +96,7 @@ def load_taxonomy_branch(
     if not conflicts.empty:
         n = conflicts["accession"].nunique()
         log.warning(
-            "%d accession(s) matched more than one taxon-key query. "
-            "Keeping first by manifest order",
+            "%d accession(s) matched more than one taxon-key query. Keeping first by summary order",
             n,
         )
     tax = tax.drop_duplicates("accession", keep="first")
@@ -150,28 +149,28 @@ def main() -> int:
     )
     ap.add_argument("--output", type=Path, default=DEFAULT_INDEX_TSV, help="output index path")
     ap.add_argument(
-        "--biosample-manifest",
+        "--biosample-manifest-path",
         type=Path,
-        default=DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
-        help="BioSample source snapshot manifest",
+        default=DEFAULT_BIOSAMPLE_MANIFEST_PATH,
+        help="BioSample snapshot manifest",
     )
     ap.add_argument(
-        "--sra-manifest",
+        "--sra-manifest-path",
         type=Path,
-        default=DEFAULT_SRA_SNAPSHOT_MANIFEST,
-        help="SRA source snapshot manifest",
+        default=DEFAULT_SRA_MANIFEST_PATH,
+        help="SRA snapshot manifest",
     )
     ap.add_argument(
-        "--genbank-manifest",
+        "--genbank-manifest-path",
         type=Path,
-        default=DEFAULT_GENBANK_ASSEMBLY_SNAPSHOT_MANIFEST,
-        help="GenBank Assembly source snapshot manifest",
+        default=DEFAULT_GENBANK_ASSEMBLY_MANIFEST_PATH,
+        help="GenBank Assembly snapshot manifest",
     )
     ap.add_argument(
-        "--refseq-manifest",
+        "--refseq-manifest-path",
         type=Path,
-        default=DEFAULT_REFSEQ_ASSEMBLY_SNAPSHOT_MANIFEST,
-        help="RefSeq Assembly source snapshot manifest",
+        default=DEFAULT_REFSEQ_ASSEMBLY_MANIFEST_PATH,
+        help="RefSeq Assembly snapshot manifest",
     )
     args = ap.parse_args()
 
@@ -186,17 +185,17 @@ def main() -> int:
     log.info("  sha256: %s", sha256_file(ATB_METADATA))
 
     manifests = {
-        "BioSample": SourceSnapshotManifest.load(args.biosample_manifest),
-        "SRA": SourceSnapshotManifest.load(args.sra_manifest),
-        "GenBank Assembly": SourceSnapshotManifest.load(args.genbank_manifest),
-        "RefSeq Assembly": SourceSnapshotManifest.load(args.refseq_manifest),
+        "BioSample": SnapshotManifest.load(args.biosample_manifest_path),
+        "SRA": SnapshotManifest.load(args.sra_manifest_path),
+        "GenBank Assembly": SnapshotManifest.load(args.genbank_manifest_path),
+        "RefSeq Assembly": SnapshotManifest.load(args.refseq_manifest_path),
     }
-    for label, snapshot_manifest in manifests.items():
+    for label, manifest in manifests.items():
         log.info(
             "%s manifest: snapshot_id=%s | metadata_reference_date=%s",
             label,
-            snapshot_manifest.snapshot_id,
-            snapshot_manifest.metadata_reference_date,
+            manifest.snapshot_id,
+            manifest.metadata_reference_date,
         )
     biosample_reference_date = manifests["BioSample"].metadata_reference_date
     for label in ("SRA", "GenBank Assembly", "RefSeq Assembly"):
@@ -216,7 +215,7 @@ def main() -> int:
         for filename, column in SEQUENCE_ACCESSION_INTERMEDIATES
     }
 
-    taxon_keys = load_prepared_taxon_keys(args.id_lists_dir / "manifest.tsv")
+    taxon_keys = load_prepared_taxon_keys(args.id_lists_dir / "summary.tsv")
 
     # taxonomy branch
     tax = load_taxonomy_branch(args.id_lists_dir, taxon_keys)

@@ -14,7 +14,7 @@ from baccurate.adapters.llm.client import LLMSettings, load_llm_settings
 from baccurate.adapters.progress import make_progress_bar
 from baccurate.extraction import SEQUENCE_ACCESSION_COLUMNS
 from baccurate.paths import DEFAULT_NAMES_DMP, DEFAULT_NODES_DMP
-from baccurate.provenance.source_snapshot import validate_extracted_metadata_bundle
+from baccurate.provenance.snapshot_manifest import validate_extracted_metadata_bundle
 from baccurate.run.location_review_worklist import (
     LOCATION_REVIEW_WORKLIST_FILENAME,
     LocationReviewWorklist,
@@ -93,8 +93,8 @@ class DatasetBuildRequest:
     """Inputs, selection, destination, and runtime settings for one build."""
 
     extracted_metadata: Path
-    biosample_snapshot_manifest: Path
-    bioproject_snapshot_manifest: Path
+    biosample_manifest_path: Path
+    bioproject_manifest_path: Path
     requested_taxa: tuple[str, ...]
     requested_targets: tuple[StandardizationTarget, ...]
     final_destination: Path
@@ -445,10 +445,10 @@ class DatasetBuilder:
                 ).columns
             )
 
-            source_contract = validate_extracted_metadata_bundle(
+            snapshot_pair = validate_extracted_metadata_bundle(
                 request.extracted_metadata,
-                request.biosample_snapshot_manifest,
-                request.bioproject_snapshot_manifest,
+                request.biosample_manifest_path,
+                request.bioproject_manifest_path,
             )
             extracted_row_counts = self._count_selected_extracted_rows(
                 request.extracted_metadata, taxa
@@ -463,7 +463,7 @@ class DatasetBuilder:
             )
             if StandardizationTarget.DATE in targets:
                 date_standardizers = {
-                    taxon: RecordDateStandardizer(source_contract.metadata_reference_date)
+                    taxon: RecordDateStandardizer(snapshot_pair.metadata_reference_date)
                     for taxon in taxa
                 }
             else:

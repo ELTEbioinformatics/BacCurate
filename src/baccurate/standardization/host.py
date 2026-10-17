@@ -809,7 +809,7 @@ class HostStandardizer:
                 search_words.add(stripped)
 
         # --- Multi-word terms ---
-        # Use raw input word count, not the deduped set, so a 2-word
+        # Use the word count of the input, not the deduped set, so a 2-word
         # input like "Gallus gallus" cannot match a 3-word term like
         # "Gallus gallus gallus" even though their distinct words match.
         input_word_count = len(normalized.split())

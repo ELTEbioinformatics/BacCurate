@@ -13,8 +13,8 @@ from baccurate.adapters.llm.client import LLMSettings, load_llm_settings
 from baccurate.extraction import SelectionPolicy, resolve_taxon_assignment
 from baccurate.paths import (
     CONFIG_DIR,
-    DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
-    DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
+    DEFAULT_BIOPROJECT_MANIFEST_PATH,
+    DEFAULT_BIOSAMPLE_MANIFEST_PATH,
     DEFAULT_BIOSAMPLE_XML_INPUT,
     DEFAULT_EXTRACTED_TSV,
     DEFAULT_INDEX_TSV,
@@ -66,8 +66,8 @@ class RunInvocation:
     normalized_options: dict[str, object]
     llm_settings: LLMSettings
     model_identifiers: dict[str, str | None]
-    biosample_snapshot_manifest: Path
-    bioproject_snapshot_manifest: Path
+    biosample_manifest_path: Path
+    bioproject_manifest_path: Path
 
 
 def _discover_taxa(
@@ -242,8 +242,8 @@ def resolve_invocation(
     disable_progress = args.quiet
     configuration_paths = [
         TAXA_YAML,
-        DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
-        DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
+        DEFAULT_BIOSAMPLE_MANIFEST_PATH,
+        DEFAULT_BIOPROJECT_MANIFEST_PATH,
     ]
     # The taxon registry is resolved before argument parsing; remaining policy
     # filenames are resolved after target and extraction selection.
@@ -292,6 +292,6 @@ def resolve_invocation(
         normalized_options=normalized_options,
         llm_settings=llm_settings,
         model_identifiers=model_identifiers,
-        biosample_snapshot_manifest=DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
-        bioproject_snapshot_manifest=DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
+        biosample_manifest_path=DEFAULT_BIOSAMPLE_MANIFEST_PATH,
+        bioproject_manifest_path=DEFAULT_BIOPROJECT_MANIFEST_PATH,
     )

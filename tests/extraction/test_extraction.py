@@ -15,12 +15,12 @@ from baccurate.extraction import (
     SelectionPolicy,
 )
 from baccurate.paths import (
-    DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST,
+    DEFAULT_BIOPROJECT_MANIFEST_PATH,
     DEFAULT_BIOPROJECT_XML_INPUT,
-    DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST,
+    DEFAULT_BIOSAMPLE_MANIFEST_PATH,
     DEFAULT_BIOSAMPLE_XML_INPUT,
 )
-from baccurate.provenance.source_snapshot import (
+from baccurate.provenance.snapshot_manifest import (
     provenance_path_for,
     validate_extracted_metadata_bundle,
 )
@@ -30,11 +30,11 @@ ROOT = Path(__file__).parents[2]
 extraction_facade = extraction
 
 
-class _PairedSourceSnapshotPaths(Protocol):
-    biosample: Path
-    bioproject: Path
-    biosample_manifest: Path
-    bioproject_manifest: Path
+class _PairedSnapshotPaths(Protocol):
+    biosample_snapshot_path: Path
+    bioproject_snapshot_path: Path
+    biosample_manifest_path: Path
+    bioproject_manifest_path: Path
 
 
 def run_extraction(**kwargs: Any) -> ExtractionReport:
@@ -48,30 +48,32 @@ def run_extraction(**kwargs: Any) -> ExtractionReport:
 
 def _configure_internal_paths(
     monkeypatch: pytest.MonkeyPatch,
-    sources: _PairedSourceSnapshotPaths,
+    snapshots: _PairedSnapshotPaths,
 ) -> None:
-    monkeypatch.setattr(paths, "DEFAULT_BIOSAMPLE_XML_INPUT", sources.biosample)
-    monkeypatch.setattr(paths, "DEFAULT_BIOPROJECT_XML_INPUT", sources.bioproject)
-    monkeypatch.setattr(paths, "DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST", sources.biosample_manifest)
-    monkeypatch.setattr(paths, "DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST", sources.bioproject_manifest)
+    monkeypatch.setattr(paths, "DEFAULT_BIOSAMPLE_XML_INPUT", snapshots.biosample_snapshot_path)
+    monkeypatch.setattr(paths, "DEFAULT_BIOPROJECT_XML_INPUT", snapshots.bioproject_snapshot_path)
+    monkeypatch.setattr(paths, "DEFAULT_BIOSAMPLE_MANIFEST_PATH", snapshots.biosample_manifest_path)
+    monkeypatch.setattr(
+        paths, "DEFAULT_BIOPROJECT_MANIFEST_PATH", snapshots.bioproject_manifest_path
+    )
 
 
-def test_default_paired_source_locations_are_internal_compressed_paths() -> None:
+def test_default_snapshot_locations_are_internal_compressed_paths() -> None:
     assert DEFAULT_BIOSAMPLE_XML_INPUT.name == "biosamples.xml.gz"
     assert DEFAULT_BIOPROJECT_XML_INPUT.name == "bioproject.xml.gz"
-    assert DEFAULT_BIOSAMPLE_SNAPSHOT_MANIFEST.name == "biosample.yaml"
-    assert DEFAULT_BIOPROJECT_SNAPSHOT_MANIFEST.name == "bioproject.yaml"
+    assert DEFAULT_BIOSAMPLE_MANIFEST_PATH.name == "biosample.yaml"
+    assert DEFAULT_BIOPROJECT_MANIFEST_PATH.name == "bioproject.yaml"
 
 
-def test_extraction_uses_internal_paired_sources_without_raw_arguments(
+def test_extraction_uses_internal_snapshots_without_raw_arguments(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    paired_source_snapshots,
+    paired_snapshots,
 ) -> None:
-    sources = paired_source_snapshots
+    snapshots = paired_snapshots
     index = tmp_path / "biosample_index.tsv"
     index.write_text("accession\ttaxon_biosample\n", encoding="utf-8")
-    _configure_internal_paths(monkeypatch, sources)
+    _configure_internal_paths(monkeypatch, snapshots)
 
     report = run_extraction(
         output_path=tmp_path / "extracted.tsv",
@@ -79,7 +81,10 @@ def test_extraction_uses_internal_paired_sources_without_raw_arguments(
         disable_progress=True,
     )
 
-    assert report.prepared_input_paths == (sources.biosample, sources.bioproject)
+    assert report.prepared_input_paths == (
+        snapshots.biosample_snapshot_path,
+        snapshots.bioproject_snapshot_path,
+    )
     assert report.biosample_snapshot_id == "biosample-test"
     assert report.bioproject_snapshot_id == "bioproject-test"
 
@@ -87,10 +92,10 @@ def test_extraction_uses_internal_paired_sources_without_raw_arguments(
 def test_extraction_cli_accepts_simplified_supported_invocation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    paired_source_snapshots,
+    paired_snapshots,
 ) -> None:
-    sources = paired_source_snapshots
-    _configure_internal_paths(monkeypatch, sources)
+    snapshots = paired_snapshots
+    _configure_internal_paths(monkeypatch, snapshots)
     index = tmp_path / "biosample_index.tsv"
     index.write_text("accession\ttaxon_biosample\n", encoding="utf-8")
     output = tmp_path / "extracted.tsv"
@@ -100,14 +105,14 @@ def test_extraction_cli_accepts_simplified_supported_invocation(
     assert output.exists()
 
 
-def test_extraction_validates_paired_source_before_other_work(
+def test_extraction_validates_snapshot_pair_before_other_work(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    paired_source_snapshots,
+    paired_snapshots,
 ) -> None:
-    sources = paired_source_snapshots
-    sources.bioproject.unlink()
-    _configure_internal_paths(monkeypatch, sources)
+    snapshots = paired_snapshots
+    snapshots.bioproject_snapshot_path.unlink()
+    _configure_internal_paths(monkeypatch, snapshots)
     output = tmp_path / "extracted.tsv"
 
     with pytest.raises(FileNotFoundError):
@@ -123,10 +128,10 @@ def test_extraction_validates_paired_source_before_other_work(
 def test_extraction_report_carries_both_validated_source_identities(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    paired_source_snapshots,
+    paired_snapshots,
 ) -> None:
-    sources = paired_source_snapshots
-    _configure_internal_paths(monkeypatch, sources)
+    snapshots = paired_snapshots
+    _configure_internal_paths(monkeypatch, snapshots)
     index = tmp_path / "biosample_index.tsv"
     index.write_text("accession\ttaxon_biosample\n", encoding="utf-8")
 
@@ -139,16 +144,19 @@ def test_extraction_report_carries_both_validated_source_identities(
     assert report.biosample_snapshot_id == "biosample-test"
     assert report.bioproject_snapshot_id == "bioproject-test"
     assert report.metadata_reference_date == date(2026, 7, 19)
-    assert report.prepared_input_paths == (sources.biosample, sources.bioproject)
+    assert report.prepared_input_paths == (
+        snapshots.biosample_snapshot_path,
+        snapshots.bioproject_snapshot_path,
+    )
 
 
 def test_extraction_reports_inclusion_routes_for_records_present_in_snapshot(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    paired_source_snapshots,
+    paired_snapshots,
 ) -> None:
-    sources = paired_source_snapshots
-    sources.replace_contents(
+    snapshots = paired_snapshots
+    snapshots.replace_contents(
         biosample_xml=b"""\
 <BioSampleSet>
   <BioSample accession="taxonomy">
@@ -170,7 +178,7 @@ def test_extraction_reports_inclusion_routes_for_records_present_in_snapshot(
 """,
         bioproject_xml=b"<PackageSet />",
     )
-    _configure_internal_paths(monkeypatch, sources)
+    _configure_internal_paths(monkeypatch, snapshots)
     index = tmp_path / "biosample_index.tsv"
     index.write_text(
         "accession\ttaxon_biosample\torganism_value\tsylph_species\n"
@@ -208,9 +216,9 @@ def test_extraction_reports_inclusion_routes_for_records_present_in_snapshot(
 def test_extraction_report_preserves_production_selection_review_counters(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    paired_source_snapshots,
+    paired_snapshots,
 ) -> None:
-    sources = paired_source_snapshots
+    snapshots = paired_snapshots
     biosample_xml = b"""\
 <BioSampleSet>
   <BioSample accession="SAMN1"><Attributes>
@@ -236,11 +244,11 @@ def test_extraction_report_preserves_production_selection_review_counters(
   </Attributes></BioSample>
 </BioSampleSet>
 """
-    sources.replace_contents(
+    snapshots.replace_contents(
         biosample_xml=biosample_xml,
         bioproject_xml=b"<PackageSet />",
     )
-    _configure_internal_paths(monkeypatch, sources)
+    _configure_internal_paths(monkeypatch, snapshots)
     index = tmp_path / "biosample_index.tsv"
     index.write_text("accession\ttaxon_biosample\n", encoding="utf-8")
 
@@ -297,9 +305,9 @@ def test_universal_missing_marker_does_not_match_nearby_syntax(value: str) -> No
 def test_extraction_publishes_provenance_bound_metadata_bundle(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    paired_source_snapshots,
+    paired_snapshots,
 ) -> None:
-    sources = paired_source_snapshots
+    snapshots = paired_snapshots
     biosample_xml = b"""\
 <BioSampleSet>
   <BioSample accession="SAMN00000001" last_update="2025-06-30T12:34:56.000">
@@ -335,11 +343,11 @@ def test_extraction_publishes_provenance_bound_metadata_bundle(
   </Package>
 </PackageSet>
 """
-    sources.replace_contents(
+    snapshots.replace_contents(
         biosample_xml=biosample_xml,
         bioproject_xml=bioproject_xml,
     )
-    _configure_internal_paths(monkeypatch, sources)
+    _configure_internal_paths(monkeypatch, snapshots)
     index = tmp_path / "biosample_index.tsv"
     index.write_text(
         "accession\ttaxon_biosample\tsra_run_accessions\t"
@@ -372,21 +380,21 @@ def test_extraction_publishes_provenance_bound_metadata_bundle(
     assert "title" not in rows[0]
     assert "description" not in rows[0]
 
-    source_contract = validate_extracted_metadata_bundle(
+    snapshot_pair = validate_extracted_metadata_bundle(
         extracted,
-        sources.biosample_manifest,
-        sources.bioproject_manifest,
+        snapshots.biosample_manifest_path,
+        snapshots.bioproject_manifest_path,
     )
-    assert source_contract.biosample.snapshot_id == "biosample-test"
-    assert source_contract.bioproject.snapshot_id == "bioproject-test"
+    assert snapshot_pair.biosample.snapshot_id == "biosample-test"
+    assert snapshot_pair.bioproject.snapshot_id == "bioproject-test"
 
 
 def test_extraction_preserves_linked_project_sets_and_unresolved_evidence(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    paired_source_snapshots,
+    paired_snapshots,
 ) -> None:
-    sources = paired_source_snapshots
+    snapshots = paired_snapshots
     samples = "".join(
         f"""
   <BioSample accession="{accession}">
@@ -412,7 +420,7 @@ def test_extraction_preserves_linked_project_sets_and_unresolved_evidence(
   <BioSample accession="SAMN00000005">
     <Links><Link target="bioproject">1</Link><Link target="bioproject">99</Link></Links>
   </BioSample>"""
-    sources.replace_contents(
+    snapshots.replace_contents(
         biosample_xml=f"<BioSampleSet>{samples}</BioSampleSet>".encode(),
         bioproject_xml=b"""\
 <PackageSet>
@@ -427,7 +435,7 @@ def test_extraction_preserves_linked_project_sets_and_unresolved_evidence(
 </PackageSet>
 """,
     )
-    _configure_internal_paths(monkeypatch, sources)
+    _configure_internal_paths(monkeypatch, snapshots)
     index = tmp_path / "biosample_index.tsv"
     index.write_text(
         "accession\ttaxon_biosample\n"
@@ -465,10 +473,10 @@ def test_extraction_preserves_linked_project_sets_and_unresolved_evidence(
 def test_equivalent_link_and_project_order_produces_byte_stable_data_artifacts(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    paired_source_snapshots,
+    paired_snapshots,
 ) -> None:
-    sources = paired_source_snapshots
-    _configure_internal_paths(monkeypatch, sources)
+    snapshots = paired_snapshots
+    _configure_internal_paths(monkeypatch, snapshots)
     index = tmp_path / "biosample_index.tsv"
     index.write_text(
         "accession\ttaxon_biosample\nSAMN00000001\tecoli\n",
@@ -507,7 +515,7 @@ def test_equivalent_link_and_project_order_produces_byte_stable_data_artifacts(
             project_one + project_two,
         ),
     ):
-        sources.replace_contents(
+        snapshots.replace_contents(
             biosample_xml=sample_template.format(links=links).encode(),
             bioproject_xml=f"<PackageSet>{projects}</PackageSet>".encode(),
         )
@@ -521,10 +529,10 @@ def test_equivalent_link_and_project_order_produces_byte_stable_data_artifacts(
 def test_interrupted_bundle_publication_cannot_leave_valid_provenance(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    paired_source_snapshots,
+    paired_snapshots,
 ) -> None:
-    sources = paired_source_snapshots
-    _configure_internal_paths(monkeypatch, sources)
+    snapshots = paired_snapshots
+    _configure_internal_paths(monkeypatch, snapshots)
     index = tmp_path / "biosample_index.tsv"
     index.write_text("accession\ttaxon_biosample\n", encoding="utf-8")
     extracted = tmp_path / "interrupted.tsv"
@@ -537,7 +545,7 @@ def test_interrupted_bundle_publication_cannot_leave_valid_provenance(
         real_replace(source, destination)
 
     monkeypatch.setattr(
-        "baccurate.provenance.source_snapshot.os.replace", interrupt_provenance_publication
+        "baccurate.provenance.snapshot_manifest.os.replace", interrupt_provenance_publication
     )
 
     with pytest.raises(OSError, match="simulated publication interruption"):
@@ -553,10 +561,10 @@ def test_interrupted_bundle_publication_cannot_leave_valid_provenance(
 def test_extraction_flags_how_each_location_pair_matched(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    paired_source_snapshots,
+    paired_snapshots,
 ) -> None:
-    sources = paired_source_snapshots
-    sources.replace_contents(
+    snapshots = paired_snapshots
+    snapshots.replace_contents(
         biosample_xml=b"""\
 <BioSampleSet>
   <BioSample accession="matched"><Attributes>
@@ -567,7 +575,7 @@ def test_extraction_flags_how_each_location_pair_matched(
 """,
         bioproject_xml=b"<PackageSet />",
     )
-    _configure_internal_paths(monkeypatch, sources)
+    _configure_internal_paths(monkeypatch, snapshots)
     index = tmp_path / "biosample_index.tsv"
     index.write_text(
         "accession\ttaxon_biosample\nmatched\tecoli\n",

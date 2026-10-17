@@ -23,13 +23,13 @@ from pathlib import Path
 # Allow package imports when a maintainer runs this file as a script.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from baccurate.paths import (
-    DEFAULT_GENBANK_ASSEMBLY_SNAPSHOT_MANIFEST,
-    DEFAULT_REFSEQ_ASSEMBLY_SNAPSHOT_MANIFEST,
-    DEFAULT_SRA_SNAPSHOT_MANIFEST,
+    DEFAULT_GENBANK_ASSEMBLY_MANIFEST_PATH,
+    DEFAULT_REFSEQ_ASSEMBLY_MANIFEST_PATH,
+    DEFAULT_SRA_MANIFEST_PATH,
 )
-from baccurate.provenance.source_snapshot import (
-    SourceFile,
-    SourceSnapshotManifest,
+from baccurate.provenance.snapshot_manifest import (
+    SnapshotFile,
+    SnapshotManifest,
     sha256_file,
 )
 
@@ -57,8 +57,8 @@ ASSEMBLY_REQUIRED_COLUMNS = {"assembly_accession", "version_status", "biosample"
 
 
 @dataclass(frozen=True, slots=True)
-class _SourceReport:
-    """Configuration for filtering and writing one retained NCBI report."""
+class _BulkReport:
+    """Configuration for filtering and writing one NCBI bulk report."""
 
     label: str
     output_name: str
@@ -66,17 +66,17 @@ class _SourceReport:
     manifest_path: Path
     snapshot_id_prefix: str
     provider: str
-    source_url: str
+    url: str
     filter_report: Callable[[Path, set[str]], tuple[dict[str, set[str]], Counter[str], int, str]]
 
 
 # --- Input loading ---
 
 
-def _hashed_lines(path: Path, source_digest) -> Iterator[str]:
+def _hashed_lines(path: Path, snapshot_digest) -> Iterator[str]:
     with path.open("rb") as stream:
         for line in stream:
-            source_digest.update(line)
+            snapshot_digest.update(line)
             yield line.decode("utf-8")
 
 
@@ -99,17 +99,17 @@ def _load_atb_biosample_accessions(metadata_path: Path) -> set[str]:
         return {row["accession"] for row in reader}
 
 
-# --- Source filtering ---
+# --- Bulk report filtering ---
 
 
 def _filter_sra(
-    source_path: Path,
+    snapshot_path: Path,
     biosample_accessions: set[str],
 ) -> tuple[dict[str, set[str]], Counter[str], int, str]:
     # NCBI free-text fields can exceed Python's 128 KiB default.
     csv.field_size_limit(2**31 - 1)
-    source_digest = hashlib.sha256()
-    reader = csv.DictReader(_hashed_lines(source_path, source_digest), delimiter="\t")
+    snapshot_digest = hashlib.sha256()
+    reader = csv.DictReader(_hashed_lines(snapshot_path, snapshot_digest), delimiter="\t")
 
     inclusion_checks = (
         ("Type != RUN", lambda row: row["Type"] == "RUN"),
@@ -124,7 +124,7 @@ def _filter_sra(
         ),
     )
     exclusions: Counter[str] = Counter(dict.fromkeys((reason for reason, _ in inclusion_checks), 0))
-    accepted_source_rows = 0
+    accepted_rows = 0
     sequence_accessions_by_biosample: dict[str, set[str]] = defaultdict(set)
     for row in reader:
         for exclusion_reason, is_included in inclusion_checks:
@@ -133,21 +133,21 @@ def _filter_sra(
                 break
         else:
             sequence_accessions_by_biosample[row["BioSample"]].add(row["Accession"])
-            accepted_source_rows += 1
+            accepted_rows += 1
     return (
         sequence_accessions_by_biosample,
         exclusions,
-        accepted_source_rows,
-        source_digest.hexdigest(),
+        accepted_rows,
+        snapshot_digest.hexdigest(),
     )
 
 
 def _filter_assembly(
-    source_path: Path,
+    snapshot_path: Path,
     biosample_accessions: set[str],
 ) -> tuple[dict[str, set[str]], Counter[str], int, str]:
-    source_digest = hashlib.sha256()
-    lines = _hashed_lines(source_path, source_digest)
+    snapshot_digest = hashlib.sha256()
+    lines = _hashed_lines(snapshot_path, snapshot_digest)
     for line in lines:
         header = line.removeprefix("#").lstrip()
         if header.startswith("assembly_accession\t"):
@@ -163,7 +163,7 @@ def _filter_assembly(
         ),
     )
     exclusions: Counter[str] = Counter(dict.fromkeys((reason for reason, _ in inclusion_checks), 0))
-    accepted_source_rows = 0
+    accepted_rows = 0
     sequence_accessions_by_biosample: dict[str, set[str]] = defaultdict(set)
     for row in csv.DictReader(lines, fieldnames=fieldnames, delimiter="\t"):
         for exclusion_reason, is_included in inclusion_checks:
@@ -172,12 +172,12 @@ def _filter_assembly(
                 break
         else:
             sequence_accessions_by_biosample[row["biosample"]].add(row["assembly_accession"])
-            accepted_source_rows += 1
+            accepted_rows += 1
     return (
         sequence_accessions_by_biosample,
         exclusions,
-        accepted_source_rows,
-        source_digest.hexdigest(),
+        accepted_rows,
+        snapshot_digest.hexdigest(),
     )
 
 
@@ -207,19 +207,19 @@ def _write_intermediate(
 
 def _write_manifest(
     path: Path,
-    report: _SourceReport,
+    report: _BulkReport,
     *,
     retrieved_on: date,
-    source_path: Path,
-    source_sha256: str,
+    snapshot_path: Path,
+    snapshot_sha256: str,
 ) -> None:
-    SourceSnapshotManifest(
+    SnapshotManifest(
         snapshot_id=f"{report.snapshot_id_prefix}-{retrieved_on.isoformat()}",
         provider=report.provider,
-        source_url=report.source_url,
+        url=report.url,
         retrieved_on=retrieved_on,
         snapshot_as_of=None,
-        file=SourceFile(name=source_path.name, sha256=source_sha256),
+        file=SnapshotFile(name=snapshot_path.name, sha256=snapshot_sha256),
     ).write(path)
 
 
@@ -230,10 +230,10 @@ def _temporary_path(directory: Path, name: str) -> Path:
         return Path(handle.name)
 
 
-def _write_source_outputs(
+def _write_outputs(
     *,
-    report: _SourceReport,
-    source_path: Path,
+    report: _BulkReport,
+    snapshot_path: Path,
     output_dir: Path,
     retrieved_on: date,
     biosample_accessions: set[str],
@@ -241,11 +241,13 @@ def _write_source_outputs(
     output_path = output_dir / report.output_name
     report.manifest_path.parent.mkdir(parents=True, exist_ok=True)
     temporary_output = _temporary_path(output_dir, report.output_name)
-    temporary_manifest = _temporary_path(report.manifest_path.parent, report.manifest_path.name)
+    temporary_manifest_path = _temporary_path(
+        report.manifest_path.parent, report.manifest_path.name
+    )
     try:
-        sequence_accessions_by_biosample, exclusions, accepted_source_rows, source_sha256 = (
+        sequence_accessions_by_biosample, exclusions, accepted_rows, snapshot_sha256 = (
             report.filter_report(
-                source_path,
+                snapshot_path,
                 biosample_accessions,
             )
         )
@@ -256,19 +258,19 @@ def _write_source_outputs(
         )
         output_sha256 = sha256_file(temporary_output)
         _write_manifest(
-            temporary_manifest,
+            temporary_manifest_path,
             report,
             retrieved_on=retrieved_on,
-            source_path=source_path,
-            source_sha256=source_sha256,
+            snapshot_path=snapshot_path,
+            snapshot_sha256=snapshot_sha256,
         )
-        log.info("%s source: %s | sha256: %s", report.label, source_path, source_sha256)
+        log.info("%s snapshot: %s | sha256: %s", report.label, snapshot_path, snapshot_sha256)
         log.info(
             "%s exclusions: %s",
             report.label,
             " | ".join(f"{key}: {value}" for key, value in exclusions.items()),
         )
-        log.info("%s accepted source rows: %d", report.label, accepted_source_rows)
+        log.info("%s accepted rows: %d", report.label, accepted_rows)
         log.info(
             "%s emitted BioSample accessions: %d",
             report.label,
@@ -276,41 +278,41 @@ def _write_source_outputs(
         )
         log.info("%s intermediate: %s | sha256: %s", report.label, output_path, output_sha256)
         os.replace(temporary_output, output_path)
-        os.replace(temporary_manifest, report.manifest_path)
+        os.replace(temporary_manifest_path, report.manifest_path)
     finally:
         temporary_output.unlink(missing_ok=True)
-        temporary_manifest.unlink(missing_ok=True)
+        temporary_manifest_path.unlink(missing_ok=True)
 
 
-SOURCE_REPORTS = {
-    "sra": _SourceReport(
+BULK_REPORTS = {
+    "sra": _BulkReport(
         label="SRA",
         output_name="sra_runs.tsv.gz",
         sequence_accession_column="sra_run_accessions",
-        manifest_path=DEFAULT_SRA_SNAPSHOT_MANIFEST,
+        manifest_path=DEFAULT_SRA_MANIFEST_PATH,
         snapshot_id_prefix="ncbi-sra-accessions",
         provider="NCBI SRA",
-        source_url="https://ftp.ncbi.nlm.nih.gov/sra/reports/Metadata/SRA_Accessions.tab",
+        url="https://ftp.ncbi.nlm.nih.gov/sra/reports/Metadata/SRA_Accessions.tab",
         filter_report=_filter_sra,
     ),
-    "genbank": _SourceReport(
+    "genbank": _BulkReport(
         label="GenBank",
         output_name="genbank_assemblies.tsv.gz",
         sequence_accession_column="genbank_assembly_accessions",
-        manifest_path=DEFAULT_GENBANK_ASSEMBLY_SNAPSHOT_MANIFEST,
+        manifest_path=DEFAULT_GENBANK_ASSEMBLY_MANIFEST_PATH,
         snapshot_id_prefix="ncbi-assembly-summary-genbank",
         provider="NCBI Assembly",
-        source_url="https://ftp.ncbi.nlm.nih.gov/genomes/ASSEMBLY_REPORTS/assembly_summary_genbank.txt",
+        url="https://ftp.ncbi.nlm.nih.gov/genomes/ASSEMBLY_REPORTS/assembly_summary_genbank.txt",
         filter_report=_filter_assembly,
     ),
-    "refseq": _SourceReport(
+    "refseq": _BulkReport(
         label="RefSeq",
         output_name="refseq_assemblies.tsv.gz",
         sequence_accession_column="refseq_assembly_accessions",
-        manifest_path=DEFAULT_REFSEQ_ASSEMBLY_SNAPSHOT_MANIFEST,
+        manifest_path=DEFAULT_REFSEQ_ASSEMBLY_MANIFEST_PATH,
         snapshot_id_prefix="ncbi-assembly-summary-refseq",
         provider="NCBI Assembly",
-        source_url="https://ftp.ncbi.nlm.nih.gov/genomes/ASSEMBLY_REPORTS/assembly_summary_refseq.txt",
+        url="https://ftp.ncbi.nlm.nih.gov/genomes/ASSEMBLY_REPORTS/assembly_summary_refseq.txt",
         filter_report=_filter_assembly,
     ),
 }
@@ -340,7 +342,7 @@ def _close_logging() -> None:
 
 
 def main() -> int:
-    """Filter all reports and write intermediate tables and source snapshot manifests."""
+    """Filter all reports and write intermediate tables and snapshot manifests."""
     report_paths = {
         "sra": SRA_INPUT,
         "genbank": GENBANK_INPUT,
@@ -370,12 +372,12 @@ def main() -> int:
                 sha256_file(taxon_key_tsv_path),
             )
         log.info("BioSample accession filter set: %d", len(biosample_accessions))
-        for report_key, source_path in report_paths.items():
-            retrieved_on = datetime.fromtimestamp(source_path.stat().st_mtime, UTC).date()
-            log.info("%s retrieved_on: %s", SOURCE_REPORTS[report_key].label, retrieved_on)
-            _write_source_outputs(
-                report=SOURCE_REPORTS[report_key],
-                source_path=source_path,
+        for report_key, snapshot_path in report_paths.items():
+            retrieved_on = datetime.fromtimestamp(snapshot_path.stat().st_mtime, UTC).date()
+            log.info("%s retrieved_on: %s", BULK_REPORTS[report_key].label, retrieved_on)
+            _write_outputs(
+                report=BULK_REPORTS[report_key],
+                snapshot_path=snapshot_path,
                 output_dir=OUTPUT_DIR,
                 retrieved_on=retrieved_on,
                 biosample_accessions=biosample_accessions,
