@@ -308,6 +308,8 @@ def _prepare_fixture_backed_cli_run(
     config_dir = tmp_path / "config"
     shutil.copytree(invocation_module.CONFIG_DIR, config_dir)
     shutil.copyfile(standardization_fixture_resources.host_policy, config_dir / "host.yaml")
+    with (config_dir / "isolation_source.yaml").open("a", encoding="utf-8") as policy:
+        policy.write(f'cache_db_path: "{(tmp_path / "isolation-source-cache.db").as_posix()}"\n')
     return extracted_metadata, config_dir
 
 
