@@ -131,6 +131,7 @@ def main(
                 location_policy=effective_policy.location_policy,
                 isolation_source_prompt_policy=effective_policy.isolation_source_prompt_policy,
                 isolation_source_reasoning_destination=outputs.isolation_source_reasoning,
+                location_review_worklist_destination=outputs.location_review_worklist,
                 names_dmp=args.names_dmp,
                 nodes_dmp=args.nodes_dmp,
                 overwrite=True,

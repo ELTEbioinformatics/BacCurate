@@ -16,7 +16,6 @@ from baccurate.extraction import SEQUENCE_ACCESSION_COLUMNS
 from baccurate.paths import DEFAULT_NAMES_DMP, DEFAULT_NODES_DMP
 from baccurate.provenance.extracted_metadata import validate_extracted_metadata
 from baccurate.run.location_review_worklist import (
-    LOCATION_REVIEW_WORKLIST_FILENAME,
     LocationReviewWorklist,
     LocationReviewWorklistSummary,
 )
@@ -103,6 +102,7 @@ class DatasetBuildRequest:
     location_policy: LocationPolicy | None = None
     isolation_source_prompt_policy: IsolationSourcePromptPolicy | None = None
     isolation_source_reasoning_destination: Path | None = None
+    location_review_worklist_destination: Path | None = None
     names_dmp: Path = DEFAULT_NAMES_DMP
     nodes_dmp: Path = DEFAULT_NODES_DMP
     overwrite: bool = False
@@ -436,14 +436,16 @@ class DatasetBuilder:
                 if reasoning_destination is not None
                 else None
             )
-            writer = csv.writer(destination_stream, delimiter="\t", lineterminator="\n")
-            writer.writerow(
-                _FinalRowAssembler(
-                    targets,
-                    request.taxon_registry,
-                    isolation_source_facets,
-                ).columns
+            assembler = _FinalRowAssembler(
+                targets,
+                request.taxon_registry,
+                isolation_source_facets,
+                request.isolation_source_prompt_policy.ontology.exact_match_ids
+                if request.isolation_source_prompt_policy is not None
+                else None,
             )
+            writer = csv.writer(destination_stream, delimiter="\t", lineterminator="\n")
+            writer.writerow(assembler.columns)
 
             snapshot_pair = validate_extracted_metadata(
                 request.extracted_metadata,
@@ -452,14 +454,6 @@ class DatasetBuilder:
             )
             extracted_row_counts = self._count_selected_extracted_rows(
                 request.extracted_metadata, taxa
-            )
-            assembler = _FinalRowAssembler(
-                targets,
-                request.taxon_registry,
-                isolation_source_facets,
-                request.isolation_source_prompt_policy.ontology.exact_match_ids
-                if request.isolation_source_prompt_policy is not None
-                else None,
             )
             if StandardizationTarget.DATE in targets:
                 date_standardizers = {
@@ -479,7 +473,8 @@ class DatasetBuilder:
                         result_logger=request.logger,
                     )
                 )
-                location_review_worklist = LocationReviewWorklist()
+                if request.location_review_worklist_destination is not None:
+                    location_review_worklist = LocationReviewWorklist()
             host_standardizer = (
                 self._host_standardizer_factory(request.host_policy, request.logger)
                 if StandardizationTarget.HOST in targets
@@ -551,7 +546,6 @@ class DatasetBuilder:
                     date_standardizers,
                     location_standardizer,
                     host_standardizer,
-                    isolation_source_standardizer,
                     host_isolation_source_standardizer,
                     host_lineage,
                     date_stats,
@@ -570,10 +564,9 @@ class DatasetBuilder:
                     date_standardizers,
                     location_stats,
                     (
-                        location_review_worklist.write(
-                            destination.parent / LOCATION_REVIEW_WORKLIST_FILENAME
-                        )
+                        location_review_worklist.write(request.location_review_worklist_destination)
                         if location_review_worklist is not None
+                        and request.location_review_worklist_destination is not None
                         else None
                     ),
                     host_stats,
@@ -592,15 +585,11 @@ class DatasetBuilder:
     ) -> None:
         if statistics.location is None:
             return
-        summaries = {
-            LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE: (
-                "recoverable coordinate resolution failure"
-            ),
-        }
-        for diagnostic, description in summaries.items():
-            count = statistics.location.aggregate.diagnostics.get(diagnostic, 0)
-            if count:
-                result_logger.warning("%s: %d record(s)", description.capitalize(), count)
+        count = statistics.location.aggregate.diagnostics.get(
+            LocationDiagnostic.RECOVERABLE_COORDINATE_FAILURE, 0
+        )
+        if count:
+            result_logger.warning("Recoverable coordinate resolution failure: %d record(s)", count)
 
     @staticmethod
     def _validate_request(
@@ -652,7 +641,6 @@ class DatasetBuilder:
         date_standardizers: Mapping[str, RecordDateStandardizer],
         location_standardizer: LocationStandardizer | None,
         host_standardizer: HostStandardizer | None,
-        isolation_source_standardizer: IsolationSourceStandardizer | None,
         host_isolation_source_standardizer: HostIsolationSourceStandardizer | None,
         host_lineage: HostLineageEnricher | None,
         date_stats: Mapping[str, _MutableDateStatistics],
@@ -802,57 +790,6 @@ class DatasetBuilder:
                     else:
                         stats.rejected += 1
                     stats.host_recovery_passes += int(host_result.from_recovery_pass)
-
-                if (
-                    host_isolation_source_standardizer is None
-                    and isolation_source_standardizer is not None
-                ):
-                    stats = isolation_source_stats[taxon]
-                    stats.processed += 1
-                    isolation_source_result = isolation_source_standardizer.standardize(
-                        extracted_record,
-                        overflow=(host_outcome.overflow if host_outcome is not None else None),
-                    )
-                    stats.diagnostics.update(isolation_source_result.diagnostics)
-                    stats.ontology_gap_diagnostics.update(
-                        isolation_source_result.ontology_gap_diagnostics
-                    )
-                    if isinstance(isolation_source_result, IsolationSourceRejection):
-                        stats.rejected += 1
-                    else:
-                        isolation_source_outcome = isolation_source_result
-                        stats.standardized += 1
-                        stats.exact_matches += isolation_source_result.exact_matches
-                        stats.cache_hits += isolation_source_result.cache_hits
-                        stats.llm_calls += isolation_source_result.llm_calls
-                        stats.evidence_levels[isolation_source_result.evidence_level] += 1
-
-                if (
-                    host_isolation_source_standardizer is None
-                    and host_standardizer is not None
-                    and host_outcome is not None
-                    and host_outcome.standardized is None
-                    and isolation_source_outcome is not None
-                    and isolation_source_outcome.host_recovery_eligible
-                    and isolation_source_outcome.host_recovery_pairs
-                ):
-                    isolation_source_stats[taxon].host_recovery_passes += 1
-                    recovery_outcome = host_standardizer.recovery_pass(
-                        accession,
-                        "||".join(
-                            pair.attribute for pair in isolation_source_outcome.host_recovery_pairs
-                        ),
-                        "||".join(
-                            pair.value for pair in isolation_source_outcome.host_recovery_pairs
-                        ),
-                    )
-                    host_stats[taxon].host_recovery_passes += 1
-                    host_stats[taxon].diagnostics.update(recovery_outcome.diagnostics)
-                    host_outcome = recovery_outcome
-                    if recovery_outcome.standardized is not None:
-                        host_stats[taxon].standardized += 1
-                        host_stats[taxon].needs_review += int(recovery_outcome.needs_review)
-                        lineage_outcome = host_lineage.enrich(recovery_outcome.standardized.taxid)
 
                 if (
                     date_outcome is not None

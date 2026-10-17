@@ -191,6 +191,8 @@ def _build(
             final_destination=destination,
             taxon_registry=fixture_taxon_registry,
             location_policy=location_policy,
+            location_review_worklist_destination=destination.parent
+            / LOCATION_REVIEW_WORKLIST_FILENAME,
             disable_progress=True,
         )
     )
