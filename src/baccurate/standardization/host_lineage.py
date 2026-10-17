@@ -7,8 +7,6 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
-from baccurate.paths import DEFAULT_NAMES_DMP, DEFAULT_NODES_DMP
-
 logger = logging.getLogger(__name__)
 
 
@@ -37,10 +35,6 @@ RANK_ORDER = [
     "kingdom",
     "no rank",
 ]
-
-
-NAMES_DMP = DEFAULT_NAMES_DMP
-NODES_DMP = DEFAULT_NODES_DMP
 
 
 # --- Taxonomy parsing ---

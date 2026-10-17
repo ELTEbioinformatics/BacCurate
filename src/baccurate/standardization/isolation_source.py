@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import re
+import sqlite3
 import string
 from collections.abc import Callable, Mapping, Sequence
 from contextvars import ContextVar
@@ -32,7 +33,6 @@ from baccurate.paths import (
     DEFAULT_ISOLATION_SOURCE_ONTOLOGY_DIRECTORY,
 )
 from baccurate.standardization._attribute_value_text import normalize_keyword, split_pipe_separated
-from baccurate.standardization._cache import SQLiteKVCache
 from baccurate.standardization._isolation_source_ontology_renderer import render_ontology
 from baccurate.standardization.host import HostOverflowContext
 from baccurate.standardization.isolation_source_ontology import (
@@ -868,19 +868,26 @@ def _strip_digits(value: str) -> str:
     return _SAMPLE_DIGITS_PATTERN.sub("<NUM>", " ".join(value.lower().split()))
 
 
-class SQLiteCache(SQLiteKVCache):
+class SQLiteCache:
     """SQLite-backed store keyed by canonical LLM request fingerprints."""
 
-    _CREATE_TABLE_SQL = """
-        CREATE TABLE IF NOT EXISTS cache (
-            hash_id TEXT PRIMARY KEY,
-            answer TEXT NOT NULL,
-            reasoning TEXT
-        )
-    """
-
     def __init__(self, db_path: Path | str = DEFAULT_ISOLATION_SOURCE_CACHE_DB) -> None:
-        super().__init__(db_path)
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        self.conn = sqlite3.connect(db_path)
+        self.cursor = self.conn.cursor()
+        self.cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS cache (
+                hash_id TEXT PRIMARY KEY,
+                answer TEXT NOT NULL,
+                reasoning TEXT
+            )
+            """
+        )
+        self.conn.commit()
+
+    def close(self) -> None:
+        self.conn.close()
 
     def get(self, request_fingerprint: str) -> IsolationSourceClassifierAnswer | None:
         self.cursor.execute(

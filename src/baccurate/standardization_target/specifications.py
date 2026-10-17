@@ -31,7 +31,7 @@ class TargetSpec:
     uses_llm: bool
     required_policies: tuple[PolicySlot, ...]
     input_columns: tuple[str, ...]
-    output_columns: tuple[str, ...]
+    output_columns: tuple[str, ...] = ()
 
     @property
     def model_identifier_key(self) -> str | None:
@@ -101,21 +101,6 @@ TARGET_SPECS: Mapping[StandardizationTarget, TargetSpec] = MappingProxyType(
             uses_llm=True,
             required_policies=(PolicySlot.ISOLATION_SOURCE, PolicySlot.HOST),
             input_columns=("iso_attr_orig", "iso_val_orig", "host_val_orig"),
-            output_columns=(
-                "iso_attr_orig",
-                "iso_val_orig",
-                "iso_source_type",
-                "iso_body_product",
-                "iso_body_site",
-                "iso_lesion",
-                "iso_environmental_material",
-                "iso_facility",
-                "iso_sampled_object",
-                "iso_food_type",
-                "iso_host_disease",
-                "iso_term_ids",
-                "iso_external_ids",
-            ),
         ),
     }
 )
