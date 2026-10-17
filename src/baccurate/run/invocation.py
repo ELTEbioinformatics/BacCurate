@@ -51,7 +51,6 @@ class RunInvocation:
     names_dmp: Path
     nodes_dmp: Path
     registry: TaxonRegistry
-    log_level: str
     active_targets: tuple[StandardizationTarget, ...]
     extracted_metadata_path: Path
     effective_policy: EffectivePolicy
@@ -189,7 +188,6 @@ def resolve_invocation(
 
     args = parser.parse_args(arguments)
 
-    log_level = "DEBUG" if args.debug else "INFO"
     active_targets = (
         tuple(
             target
@@ -277,7 +275,6 @@ def resolve_invocation(
         names_dmp=args.names_dmp,
         nodes_dmp=args.nodes_dmp,
         registry=registry,
-        log_level=log_level,
         active_targets=active_targets,
         extracted_metadata_path=extracted_metadata_path,
         effective_policy=effective_policy,

@@ -1,18 +1,15 @@
-"""CLI entry point for metadata extraction stage."""
+"""Extraction of BacCurate-specific BioSample metadata from the NCBI snapshots."""
 
-import argparse
 import csv
 import logging
 import os
 import tempfile
 from collections import Counter, defaultdict
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
 from baccurate import paths
-from baccurate.adapters.progress import make_progress_bar
 from baccurate.extraction.bioproject import (
     resolve_bioproject_accessions,
     write_unresolved_bioproject_links,
@@ -27,7 +24,6 @@ from baccurate.provenance.extracted_metadata import (
     provenance_path_for,
 )
 from baccurate.provenance.snapshot_manifest import validate_snapshot_pair
-from baccurate.standardization_target.policy_slot import POLICY_FILENAMES, PolicySlot
 from baccurate.taxon_registry.registry import TaxonRegistry, load_taxon_registry
 
 logger = logging.getLogger(__name__)
@@ -56,18 +52,10 @@ def run_extraction(
     output_path: Path,
     index_path: Path = paths.DEFAULT_INDEX_TSV,
     names: list[str] | None = None,
-    log_level: str = "INFO",
-    disable_progress: bool = False,
     *,
     selection_policy: SelectionPolicy,
     taxon_registry: TaxonRegistry | None = None,
 ) -> ExtractionReport:
-    logging.basicConfig(
-        level=log_level.upper(),
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
-
-    biosample_paths = (paths.DEFAULT_BIOSAMPLE_SNAPSHOT_PATH,)
     snapshot_pair = validate_snapshot_pair(
         biosample_snapshot_path=paths.DEFAULT_BIOSAMPLE_SNAPSHOT_PATH,
         bioproject_snapshot_path=paths.DEFAULT_BIOPROJECT_SNAPSHOT_PATH,
@@ -98,35 +86,30 @@ def run_extraction(
         with spool_path.open("w", newline="", encoding="utf-8") as spool_stream:
             writer = csv.writer(spool_stream, delimiter="\t")
             writer.writerow(INTERMEDIATE_COLUMNS)
-            with make_progress_bar(
-                len(biosample_paths), "extracting BioSample XML", disable=disable_progress
-            ) as bar:
-                for xml_file in biosample_paths:
-                    logger.info("Parsing %s...", xml_file)
-                    records = process_biosample_xml(
-                        str(xml_file), selection_policy.evaluate, counters
-                    )
-                    for accession, decisions, bioproject_ids, ncbi_organism in records:
-                        for decision in decisions:
-                            review_worklists.observe(decision, accession=accession)
-                        assignment = taxon_assignment_by_accession.get(accession)
-                        if assignment is None:
-                            continue
-                        extracted_metadata_values = extracted_metadata_row(
-                            accession=accession,
-                            assignment=assignment,
-                            ncbi_organism=ncbi_organism,
-                            bioproject_id="||".join(bioproject_ids),
-                            bioproject_accession="",
-                            decisions=decisions,
-                        )
-                        if extracted_metadata_values is not None:
-                            writer.writerow(extracted_metadata_values)
-                            extracted_record_count += 1
-                            inclusion_route_counts[assignment.inclusion_route] += 1
-                            for project_id in bioproject_ids:
-                                linked_project_samples[project_id].add(accession)
-                    bar.update(1)
+            logger.info("Parsing %s...", paths.DEFAULT_BIOSAMPLE_SNAPSHOT_PATH)
+            records = process_biosample_xml(
+                str(paths.DEFAULT_BIOSAMPLE_SNAPSHOT_PATH), selection_policy.evaluate, counters
+            )
+            for accession, decisions, bioproject_ids, ncbi_organism in records:
+                for decision in decisions:
+                    review_worklists.observe(decision, accession=accession)
+                assignment = taxon_assignment_by_accession.get(accession)
+                if assignment is None:
+                    continue
+                extracted_metadata_values = extracted_metadata_row(
+                    accession=accession,
+                    assignment=assignment,
+                    ncbi_organism=ncbi_organism,
+                    bioproject_id="||".join(bioproject_ids),
+                    bioproject_accession="",
+                    decisions=decisions,
+                )
+                if extracted_metadata_values is not None:
+                    writer.writerow(extracted_metadata_values)
+                    extracted_record_count += 1
+                    inclusion_route_counts[assignment.inclusion_route] += 1
+                    for project_id in bioproject_ids:
+                        linked_project_samples[project_id].add(accession)
 
         accession_by_bioproject_id = resolve_bioproject_accessions(
             paths.DEFAULT_BIOPROJECT_SNAPSHOT_PATH,
@@ -159,7 +142,10 @@ def run_extraction(
         os.replace(temporary_output_path, output_path)
         os.replace(temporary_provenance_path, provenance_path)
     return ExtractionReport(
-        prepared_input_paths=(*biosample_paths, paths.DEFAULT_BIOPROJECT_SNAPSHOT_PATH),
+        prepared_input_paths=(
+            paths.DEFAULT_BIOSAMPLE_SNAPSHOT_PATH,
+            paths.DEFAULT_BIOPROJECT_SNAPSHOT_PATH,
+        ),
         extracted_metadata_path=output_path,
         extracted_record_count=extracted_record_count,
         counters=counters,
@@ -206,34 +192,3 @@ def _write_resolved_rows(
                 )
             )
             writer.writerow(row)
-
-
-def cli(argv: Sequence[str] | None = None) -> None:
-    """Run the extraction command-line interface."""
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--output", required=True)
-    parser.add_argument(
-        "--index",
-        default=str(paths.DEFAULT_INDEX_TSV),
-        help="TSV mapping accession to taxon.",
-    )
-    parser.add_argument("--names", nargs="*")
-    parser.add_argument("--log-level", default="INFO")
-    parser.add_argument("--quiet", action="store_true", help="Disable progress bars.")
-    args = parser.parse_args(argv)
-    selection_policy = SelectionPolicy.load(
-        paths.CONFIG_DIR / POLICY_FILENAMES[PolicySlot.SELECTION]
-    )
-
-    run_extraction(
-        output_path=Path(args.output),
-        selection_policy=selection_policy,
-        index_path=Path(args.index),
-        names=args.names,
-        log_level=args.log_level,
-        disable_progress=args.quiet,
-    )
-
-
-if __name__ == "__main__":
-    cli()

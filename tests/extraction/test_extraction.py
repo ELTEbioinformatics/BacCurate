@@ -25,8 +25,6 @@ from baccurate.provenance.extracted_metadata import (
 )
 
 ROOT = Path(__file__).parents[2]
-# Ruff resolves attributes on the original import binding as same-named submodules.
-extraction_facade = extraction
 
 
 class _PairedSnapshotPaths(Protocol):
@@ -42,7 +40,7 @@ def run_extraction(**kwargs: Any) -> ExtractionReport:
         "selection_policy",
         SelectionPolicy.load(ROOT / "config" / "selection.yaml"),
     )
-    return extraction_facade.run_extraction(**kwargs)
+    return extraction.run_extraction(**kwargs)
 
 
 def _configure_internal_paths(
@@ -79,7 +77,6 @@ def test_extraction_uses_internal_snapshots_without_raw_arguments(
     report = run_extraction(
         output_path=tmp_path / "extracted.tsv",
         index_path=index,
-        disable_progress=True,
     )
 
     assert report.prepared_input_paths == (
@@ -88,22 +85,6 @@ def test_extraction_uses_internal_snapshots_without_raw_arguments(
     )
     assert report.biosample_snapshot_id == "biosample-test"
     assert report.bioproject_snapshot_id == "bioproject-test"
-
-
-def test_extraction_cli_accepts_simplified_supported_invocation(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    paired_snapshots,
-) -> None:
-    snapshots = paired_snapshots
-    _configure_internal_paths(monkeypatch, snapshots)
-    index = tmp_path / "biosample_index.tsv"
-    index.write_text("accession\ttaxon_biosample\n", encoding="utf-8")
-    output = tmp_path / "extracted.tsv"
-
-    extraction_facade.cli(["--output", str(output), "--index", str(index), "--quiet"])
-
-    assert output.exists()
 
 
 def test_extraction_validates_snapshot_pair_before_other_work(
@@ -120,7 +101,6 @@ def test_extraction_validates_snapshot_pair_before_other_work(
         run_extraction(
             output_path=output,
             index_path=tmp_path / "missing-index.tsv.gz",
-            disable_progress=True,
         )
 
     assert not output.exists()
@@ -139,7 +119,6 @@ def test_extraction_report_carries_both_validated_source_identities(
     report = run_extraction(
         output_path=tmp_path / "extracted.tsv",
         index_path=index,
-        disable_progress=True,
     )
 
     assert report.biosample_snapshot_id == "biosample-test"
@@ -195,7 +174,6 @@ def test_extraction_reports_inclusion_routes_for_records_present_in_snapshot(
     report = run_extraction(
         output_path=extracted,
         index_path=index,
-        disable_progress=True,
     )
 
     # The agreeing record reassigns nothing, so it counts against the NCBI taxonomy route.
@@ -256,7 +234,6 @@ def test_extraction_report_preserves_production_selection_review_counters(
     report = run_extraction(
         output_path=tmp_path / "extracted.tsv",
         index_path=index,
-        disable_progress=True,
         selection_policy=SelectionPolicy.load(ROOT / "config" / "selection.yaml"),
     )
 
@@ -361,7 +338,6 @@ def test_extraction_writes_extracted_metadata_provenance(
     report = run_extraction(
         output_path=extracted,
         index_path=index,
-        disable_progress=True,
     )
 
     provenance = provenance_path_for(extracted)
@@ -452,7 +428,6 @@ def test_extraction_preserves_linked_project_sets_and_unresolved_evidence(
     report = run_extraction(
         output_path=extracted,
         index_path=index,
-        disable_progress=True,
     )
 
     with extracted.open(newline="", encoding="utf-8") as stream:
@@ -521,7 +496,7 @@ def test_equivalent_link_and_project_order_produces_byte_stable_data_artifacts(
             bioproject_xml=f"<PackageSet>{projects}</PackageSet>".encode(),
         )
         extracted = tmp_path / f"{stem}.tsv"
-        run_extraction(output_path=extracted, index_path=index, disable_progress=True)
+        run_extraction(output_path=extracted, index_path=index)
         outputs.append(extracted.read_bytes())
 
     assert outputs[0] == outputs[1]
@@ -552,7 +527,7 @@ def test_extraction_flags_how_each_location_pair_matched(
     )
     extracted = tmp_path / "extracted.tsv"
 
-    run_extraction(output_path=extracted, index_path=index, disable_progress=True)
+    run_extraction(output_path=extracted, index_path=index)
 
     with extracted.open(newline="", encoding="utf-8") as stream:
         row = next(csv.DictReader(stream, delimiter="\t"))
@@ -596,7 +571,7 @@ def test_transect_endpoints_are_not_selected_for_location(attribute: str) -> Non
 def test_a_quoted_duplicate_pair_is_yielded_once() -> None:
     from lxml import etree
 
-    from baccurate.extraction.xml import _iter_biosample_pairs_with_xml_element  # noqa: TID251
+    from baccurate.extraction.xml import _iter_biosample_pairs_with_xml_element
 
     record = etree.fromstring(
         "<BioSample><Attributes>"
@@ -621,7 +596,7 @@ def test_a_quoted_duplicate_pair_is_yielded_once() -> None:
 def test_record_level_dates_are_not_counted_as_submitted_pairs() -> None:
     from lxml import etree
 
-    from baccurate.extraction.xml import SelectionCounters, parse_xml  # noqa: TID251
+    from baccurate.extraction.xml import SelectionCounters, parse_xml
 
     record = etree.fromstring(
         '<BioSample accession="SAMN1"'

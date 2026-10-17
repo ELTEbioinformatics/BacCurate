@@ -27,7 +27,6 @@ def main(
     invocation = resolve_invocation(argv, taxon_registry=taxon_registry)
     args = invocation
     registry = invocation.registry
-    log_level = invocation.log_level
     active_targets = invocation.active_targets
     extracted_metadata_path = invocation.extracted_metadata_path
     effective_policy = invocation.effective_policy
@@ -102,8 +101,6 @@ def main(
                     index_path=index_path,
                     names=extraction_names,
                     taxon_registry=registry,
-                    log_level=log_level,
-                    disable_progress=disable_progress,
                 )
                 extraction_elapsed = monotonic() - extraction_started
                 run_report.record_performed_extraction(

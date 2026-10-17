@@ -1,6 +1,6 @@
 """BioSample XML metadata extraction stage."""
 
-from baccurate.extraction.cli import ExtractionReport, cli, run_extraction
+from baccurate.extraction.extract import ExtractionReport, run_extraction
 from baccurate.extraction.io import (
     SEQUENCE_ACCESSION_COLUMNS,
     InclusionRoute,
@@ -30,7 +30,6 @@ __all__ = [
     "SelectionPolicyError",
     "TargetMatch",
     "TaxonAssignment",
-    "cli",
     "load_taxon_map",
     "resolve_taxon_assignment",
     "run_extraction",
