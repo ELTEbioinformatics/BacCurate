@@ -15,7 +15,7 @@ from baccurate.paths import (
     CONFIG_DIR,
     DEFAULT_BIOPROJECT_MANIFEST_PATH,
     DEFAULT_BIOSAMPLE_MANIFEST_PATH,
-    DEFAULT_BIOSAMPLE_XML_INPUT,
+    DEFAULT_BIOSAMPLE_SNAPSHOT_PATH,
     DEFAULT_EXTRACTED_TSV,
     DEFAULT_INDEX_TSV,
     DEFAULT_NAMES_DMP,
@@ -229,7 +229,7 @@ def resolve_invocation(
     if collision is not None and not args.force:
         parser.error(f"output already exists: {collision}. Pass --force to replace it.")
 
-    biosample_input_path = DEFAULT_BIOSAMPLE_XML_INPUT
+    biosample_input_path = DEFAULT_BIOSAMPLE_SNAPSHOT_PATH
     index_path = DEFAULT_INDEX_TSV
 
     names = (

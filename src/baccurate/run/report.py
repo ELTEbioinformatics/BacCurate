@@ -18,18 +18,18 @@ from baccurate.adapters.llm.diagnostics import LLMObservability
 from baccurate.extraction import ExtractionReport
 from baccurate.paths import (
     DEFAULT_BIOPROJECT_MANIFEST_PATH,
-    DEFAULT_BIOPROJECT_XML_INPUT,
+    DEFAULT_BIOPROJECT_SNAPSHOT_PATH,
     DEFAULT_GENBANK_ASSEMBLY_MANIFEST_PATH,
     DEFAULT_REFSEQ_ASSEMBLY_MANIFEST_PATH,
     DEFAULT_SRA_MANIFEST_PATH,
     REPO_ROOT,
 )
-from baccurate.provenance.snapshot_manifest import (
-    SnapshotManifest,
+from baccurate.provenance.extracted_metadata import (
     provenance_path_for,
-    sha256_file,
-    validate_extracted_metadata_bundle,
+    validate_extracted_metadata,
 )
+from baccurate.provenance.sha256 import sha256_file
+from baccurate.provenance.snapshot_manifest import SnapshotManifest
 from baccurate.run.outputs import RunOutputs
 from baccurate.run.statistics import DatasetBuildProgress, DatasetBuildStatistics
 from baccurate.standardization.isolation_source import IsolationSourceProvenance
@@ -198,7 +198,7 @@ class RunReport:
             unreviewed_count=report.unreviewed_count,
             uncertain_count=report.uncertain_count,
             review_worklist_paths=report.review_worklist_paths,
-            bundle_provenance_path=report.bundle_provenance_path,
+            extracted_metadata_provenance_path=report.extracted_metadata_provenance_path,
         )
         self._document["updated_at"] = _local_timestamp()
         self._write()
@@ -209,7 +209,7 @@ class RunReport:
         biosample_input_path: Path,
         extracted_metadata_path: Path,
         biosample_manifest_path: Path,
-        bioproject_input_path: Path = DEFAULT_BIOPROJECT_XML_INPUT,
+        bioproject_input_path: Path = DEFAULT_BIOPROJECT_SNAPSHOT_PATH,
         bioproject_manifest_path: Path = DEFAULT_BIOPROJECT_MANIFEST_PATH,
     ) -> None:
         """Record what is known before extraction starts."""
@@ -220,7 +220,7 @@ class RunReport:
             mode="performed",
             prepared_input_paths=(biosample_input_path, bioproject_input_path),
             extracted_metadata_path=extracted_metadata_path,
-            bundle_provenance_path=provenance_path_for(extracted_metadata_path),
+            extracted_metadata_provenance_path=provenance_path_for(extracted_metadata_path),
         )
         self._document["updated_at"] = _local_timestamp()
         self._write()
@@ -238,7 +238,7 @@ class RunReport:
             next(reader, None)
             extracted_record_count = sum(1 for row in reader if row)
 
-        snapshot_pair = validate_extracted_metadata_bundle(
+        snapshot_pair = validate_extracted_metadata(
             extracted_metadata_path,
             biosample_manifest_path,
             bioproject_manifest_path,
@@ -253,7 +253,7 @@ class RunReport:
             acquired_snapshot_files=acquired_snapshot_files,
             extracted_metadata_path=extracted_metadata_path,
             extracted_record_count=extracted_record_count,
-            bundle_provenance_path=provenance_path_for(extracted_metadata_path),
+            extracted_metadata_provenance_path=provenance_path_for(extracted_metadata_path),
         )
         self._document["updated_at"] = _local_timestamp()
         self._write()
@@ -408,7 +408,7 @@ def _extraction_document(
     *,
     mode: Literal["performed", "reused"],
     extracted_metadata_path: Path,
-    bundle_provenance_path: Path,
+    extracted_metadata_provenance_path: Path,
     prepared_input_paths: tuple[Path, ...] | None = None,
     acquired_snapshot_files: tuple[str, ...] | None = None,
     elapsed_seconds: float = 0.0,
@@ -445,7 +445,7 @@ def _extraction_document(
             "review_worklist_paths": {
                 name: str(path) for name, path in sorted((review_worklist_paths or {}).items())
             },
-            "bundle_provenance_path": str(bundle_provenance_path),
+            "extracted_metadata_provenance_path": str(extracted_metadata_provenance_path),
         }
     )
     if inclusion_route_counts is not None:

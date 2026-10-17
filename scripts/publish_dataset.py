@@ -24,7 +24,7 @@ import duckdb
 # Allow package imports when run as a script.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from baccurate.extraction import SEQUENCE_ACCESSION_COLUMNS
-from baccurate.provenance.snapshot_manifest import sha256_file
+from baccurate.provenance.sha256 import sha256_file
 
 log = logging.getLogger("publish_dataset")
 

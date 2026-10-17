@@ -89,7 +89,7 @@ def test_performed_extraction_report_publishes_mode_paths_and_paired_provenance(
             biosample_snapshot_id="biosample-test",
             bioproject_snapshot_id="bioproject-test",
             metadata_reference_date=date(2026, 7, 19),
-            bundle_provenance_path=tmp_path / "extracted.provenance.yaml",
+            extracted_metadata_provenance_path=tmp_path / "extracted.provenance.yaml",
             inclusion_route_counts={
                 "biosample_taxonomy": 10,
                 "allthebacteria": 2,
@@ -106,7 +106,9 @@ def test_performed_extraction_report_publishes_mode_paths_and_paired_provenance(
         str(snapshots.biosample_snapshot_path),
         str(snapshots.bioproject_snapshot_path),
     ]
-    assert extraction["bundle_provenance_path"] == str(tmp_path / "extracted.provenance.yaml")
+    assert extraction["extracted_metadata_provenance_path"] == str(
+        tmp_path / "extracted.provenance.yaml"
+    )
     assert extraction["inclusion_route_counts"] == {
         "biosample_taxonomy": 10,
         "allthebacteria": 2,
@@ -122,26 +124,26 @@ def test_performed_extraction_report_publishes_mode_paths_and_paired_provenance(
 
 def test_reused_extraction_report_publishes_mode_and_acquired_snapshot_files(
     tmp_path: Path,
-    extracted_metadata_bundle,
+    extracted_metadata_files,
 ) -> None:
-    bundle = extracted_metadata_bundle
+    files = extracted_metadata_files
     outputs, run_report = _run_report_for_extraction(
         tmp_path,
         run_name="reused-extraction",
-        extracted_metadata=bundle.extracted_metadata,
+        extracted_metadata=files.extracted_metadata_path,
     )
 
     run_report.record_reused_extraction(
-        extracted_metadata_path=bundle.extracted_metadata,
-        biosample_manifest_path=bundle.biosample_manifest_path,
-        bioproject_manifest_path=bundle.bioproject_manifest_path,
+        extracted_metadata_path=files.extracted_metadata_path,
+        biosample_manifest_path=files.biosample_manifest_path,
+        bioproject_manifest_path=files.bioproject_manifest_path,
     )
 
     document = json.loads(outputs.run_report.read_text(encoding="utf-8"))
     extraction = document["extraction"]
     assert extraction["mode"] == "reused"
     assert extraction["acquired_snapshot_files"] == ["biosample.xml.gz", "bioproject.xml.gz"]
-    assert extraction["bundle_provenance_path"] == str(bundle.provenance)
+    assert extraction["extracted_metadata_provenance_path"] == str(files.provenance_path)
     assert "inclusion_route_counts" not in extraction
     assert document["provenance"] == _expected_sequence_accession_provenance() | {
         "biosample": {

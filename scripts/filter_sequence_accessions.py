@@ -27,11 +27,8 @@ from baccurate.paths import (
     DEFAULT_REFSEQ_ASSEMBLY_MANIFEST_PATH,
     DEFAULT_SRA_MANIFEST_PATH,
 )
-from baccurate.provenance.snapshot_manifest import (
-    SnapshotFile,
-    SnapshotManifest,
-    sha256_file,
-)
+from baccurate.provenance.sha256 import sha256_file
+from baccurate.provenance.snapshot_manifest import SnapshotFile, SnapshotManifest
 
 log = logging.getLogger("filter_sequence_accessions")
 
@@ -41,9 +38,9 @@ RAW_DIR = Path("data/raw")
 ID_LISTS_DIR = RAW_DIR / "id_lists"
 OUTPUT_DIR = RAW_DIR / "sequence_accessions"
 ATB_METADATA = RAW_DIR / "atb_2025-05.tsv"
-SRA_INPUT = RAW_DIR / "SRA_Accessions.tab"
-GENBANK_INPUT = RAW_DIR / "assembly_summary_genbank.txt"
-REFSEQ_INPUT = RAW_DIR / "assembly_summary_refseq.txt"
+SRA_SNAPSHOT_PATH = RAW_DIR / "SRA_Accessions.tab"
+GENBANK_SNAPSHOT_PATH = RAW_DIR / "assembly_summary_genbank.txt"
+REFSEQ_SNAPSHOT_PATH = RAW_DIR / "assembly_summary_refseq.txt"
 SRA_REQUIRED_COLUMNS = {
     "Accession",
     "Status",
@@ -344,9 +341,9 @@ def _close_logging() -> None:
 def main() -> int:
     """Filter all reports and write intermediate tables and snapshot manifests."""
     report_paths = {
-        "sra": SRA_INPUT,
-        "genbank": GENBANK_INPUT,
-        "refseq": REFSEQ_INPUT,
+        "sra": SRA_SNAPSHOT_PATH,
+        "genbank": GENBANK_SNAPSHOT_PATH,
+        "refseq": REFSEQ_SNAPSHOT_PATH,
     }
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     _setup_logging()

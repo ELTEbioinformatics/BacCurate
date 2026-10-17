@@ -27,7 +27,8 @@ from baccurate.paths import (
     DEFAULT_SRA_MANIFEST_PATH,
     RAW_DIR,
 )
-from baccurate.provenance.snapshot_manifest import SnapshotManifest, sha256_file
+from baccurate.provenance.sha256 import sha256_file
+from baccurate.provenance.snapshot_manifest import SnapshotManifest
 from baccurate.taxon_registry.species_label_matching import NA
 
 log = logging.getLogger("build_biosample_index")

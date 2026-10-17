@@ -21,9 +21,8 @@ CACHE_DIR = DATA_DIR / "cache"
 REFERENCE_DIR = DATA_DIR / "reference"
 
 
-DEFAULT_BIOSAMPLE_XML_INPUT = RAW_DIR / "biosamples.xml.gz"
-DEFAULT_BIOPROJECT_XML_INPUT = RAW_DIR / "bioproject.xml.gz"
-DEFAULT_XML_INPUT = DEFAULT_BIOSAMPLE_XML_INPUT
+DEFAULT_BIOSAMPLE_SNAPSHOT_PATH = RAW_DIR / "biosamples.xml.gz"
+DEFAULT_BIOPROJECT_SNAPSHOT_PATH = RAW_DIR / "bioproject.xml.gz"
 DEFAULT_INDEX_TSV = RAW_DIR / "biosample_index.tsv.gz"
 
 DEFAULT_EXTRACTED_TSV = OUTPUT_DIR / "extracted_metadata.tsv"

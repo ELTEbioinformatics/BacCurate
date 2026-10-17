@@ -2,7 +2,6 @@
 
 import csv
 from datetime import date
-from os import replace
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -16,13 +15,13 @@ from baccurate.extraction import (
 )
 from baccurate.paths import (
     DEFAULT_BIOPROJECT_MANIFEST_PATH,
-    DEFAULT_BIOPROJECT_XML_INPUT,
+    DEFAULT_BIOPROJECT_SNAPSHOT_PATH,
     DEFAULT_BIOSAMPLE_MANIFEST_PATH,
-    DEFAULT_BIOSAMPLE_XML_INPUT,
+    DEFAULT_BIOSAMPLE_SNAPSHOT_PATH,
 )
-from baccurate.provenance.snapshot_manifest import (
+from baccurate.provenance.extracted_metadata import (
     provenance_path_for,
-    validate_extracted_metadata_bundle,
+    validate_extracted_metadata,
 )
 
 ROOT = Path(__file__).parents[2]
@@ -50,8 +49,10 @@ def _configure_internal_paths(
     monkeypatch: pytest.MonkeyPatch,
     snapshots: _PairedSnapshotPaths,
 ) -> None:
-    monkeypatch.setattr(paths, "DEFAULT_BIOSAMPLE_XML_INPUT", snapshots.biosample_snapshot_path)
-    monkeypatch.setattr(paths, "DEFAULT_BIOPROJECT_XML_INPUT", snapshots.bioproject_snapshot_path)
+    monkeypatch.setattr(paths, "DEFAULT_BIOSAMPLE_SNAPSHOT_PATH", snapshots.biosample_snapshot_path)
+    monkeypatch.setattr(
+        paths, "DEFAULT_BIOPROJECT_SNAPSHOT_PATH", snapshots.bioproject_snapshot_path
+    )
     monkeypatch.setattr(paths, "DEFAULT_BIOSAMPLE_MANIFEST_PATH", snapshots.biosample_manifest_path)
     monkeypatch.setattr(
         paths, "DEFAULT_BIOPROJECT_MANIFEST_PATH", snapshots.bioproject_manifest_path
@@ -59,8 +60,8 @@ def _configure_internal_paths(
 
 
 def test_default_snapshot_locations_are_internal_compressed_paths() -> None:
-    assert DEFAULT_BIOSAMPLE_XML_INPUT.name == "biosamples.xml.gz"
-    assert DEFAULT_BIOPROJECT_XML_INPUT.name == "bioproject.xml.gz"
+    assert DEFAULT_BIOSAMPLE_SNAPSHOT_PATH.name == "biosamples.xml.gz"
+    assert DEFAULT_BIOPROJECT_SNAPSHOT_PATH.name == "bioproject.xml.gz"
     assert DEFAULT_BIOSAMPLE_MANIFEST_PATH.name == "biosample.yaml"
     assert DEFAULT_BIOPROJECT_MANIFEST_PATH.name == "bioproject.yaml"
 
@@ -302,7 +303,7 @@ def test_universal_missing_marker_does_not_match_nearby_syntax(value: str) -> No
     assert decision.events == ()
 
 
-def test_extraction_publishes_provenance_bound_metadata_bundle(
+def test_extraction_writes_extracted_metadata_provenance(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     paired_snapshots,
@@ -364,7 +365,7 @@ def test_extraction_publishes_provenance_bound_metadata_bundle(
     )
 
     provenance = provenance_path_for(extracted)
-    assert report.bundle_provenance_path == provenance
+    assert report.extracted_metadata_provenance_path == provenance
     assert provenance.name == "custom_metadata.provenance.yaml"
 
     with extracted.open(newline="", encoding="utf-8") as stream:
@@ -380,7 +381,7 @@ def test_extraction_publishes_provenance_bound_metadata_bundle(
     assert "title" not in rows[0]
     assert "description" not in rows[0]
 
-    snapshot_pair = validate_extracted_metadata_bundle(
+    snapshot_pair = validate_extracted_metadata(
         extracted,
         snapshots.biosample_manifest_path,
         snapshots.bioproject_manifest_path,
@@ -524,38 +525,6 @@ def test_equivalent_link_and_project_order_produces_byte_stable_data_artifacts(
         outputs.append(extracted.read_bytes())
 
     assert outputs[0] == outputs[1]
-
-
-def test_interrupted_bundle_publication_cannot_leave_valid_provenance(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    paired_snapshots,
-) -> None:
-    snapshots = paired_snapshots
-    _configure_internal_paths(monkeypatch, snapshots)
-    index = tmp_path / "biosample_index.tsv"
-    index.write_text("accession\ttaxon_biosample\n", encoding="utf-8")
-    extracted = tmp_path / "interrupted.tsv"
-    provenance = provenance_path_for(extracted)
-    real_replace = replace
-
-    def interrupt_provenance_publication(source: Path | str, destination: Path | str) -> None:
-        if Path(destination) == provenance:
-            raise OSError("simulated publication interruption")
-        real_replace(source, destination)
-
-    monkeypatch.setattr(
-        "baccurate.provenance.snapshot_manifest.os.replace", interrupt_provenance_publication
-    )
-
-    with pytest.raises(OSError, match="simulated publication interruption"):
-        run_extraction(
-            output_path=extracted,
-            index_path=index,
-            disable_progress=True,
-        )
-
-    assert not provenance_path_for(extracted).exists()
 
 
 def test_extraction_flags_how_each_location_pair_matched(

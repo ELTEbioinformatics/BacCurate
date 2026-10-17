@@ -9,20 +9,18 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Protocol
 
 import pytest
 import yaml
 
 from baccurate.extraction import COLUMNS
-from baccurate.provenance.snapshot_manifest import (
-    DerivedBundleProvenance,
-    SnapshotManifest,
+from baccurate.provenance.extracted_metadata import (
+    ExtractedMetadataProvenance,
     provenance_path_for,
-    sha256_file,
-    validate_extracted_metadata_bundle,
-    validate_snapshot_pair,
+    validate_extracted_metadata,
 )
+from baccurate.provenance.sha256 import sha256_file
+from baccurate.provenance.snapshot_manifest import SnapshotManifest
 from baccurate.run.dataset_builder import DatasetBuilder
 from baccurate.standardization.host import HostPolicy, HostStandardizer
 from baccurate.standardization.host_lineage import HostLineage
@@ -75,23 +73,13 @@ class StandardizationFixtureResources:
 
 
 @dataclass(frozen=True, slots=True)
-class ExtractedMetadataBundle:
-    """Paths making up one validated, provenance-bound extracted metadata bundle."""
+class ExtractedMetadataFiles:
+    """An extracted metadata TSV, its provenance file and the two manifests it records."""
 
-    extracted_metadata: Path
+    extracted_metadata_path: Path
     biosample_manifest_path: Path
     bioproject_manifest_path: Path
-    provenance: Path
-
-
-class ExtractedMetadataBundleFactory(Protocol):
-    """Build a named extracted metadata bundle from optional custom records."""
-
-    def __call__(
-        self,
-        name: str = "bundle",
-        extracted_rows: Sequence[Mapping[str, object]] | None = None,
-    ) -> ExtractedMetadataBundle: ...
+    provenance_path: Path
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,7 +167,7 @@ def fixture_isolation_source_prompt_policy(
     return IsolationSourcePromptPolicy.load(path)
 
 
-# --- Extracted metadata bundle fixtures ---
+# --- Extracted metadata fixtures ---
 
 
 @pytest.fixture
@@ -199,20 +187,20 @@ def paired_snapshots(tmp_path: Path) -> PairedSnapshots:
 
 
 @pytest.fixture
-def extracted_metadata_bundle_factory(
+def make_extracted_metadata_files(
     tmp_path: Path,
     standardization_fixture_resources: StandardizationFixtureResources,
     fixture_isolation_source_prompt_policy: IsolationSourcePromptPolicy,
-) -> ExtractedMetadataBundleFactory:
-    """Build deterministic extracted metadata bundles with valid snapshot and artifact provenance."""
+) -> Callable[..., ExtractedMetadataFiles]:
+    """Build deterministic extracted metadata files with a valid provenance file."""
 
     def build(
-        name: str = "bundle",
+        name: str = "extracted",
         extracted_rows: Sequence[Mapping[str, object]] | None = None,
-    ) -> ExtractedMetadataBundle:
-        bundle_dir = tmp_path / name
-        bundle_dir.mkdir()
-        extracted_metadata = bundle_dir / "extracted.tsv"
+    ) -> ExtractedMetadataFiles:
+        files_dir = tmp_path / name
+        files_dir.mkdir()
+        extracted_metadata = files_dir / "extracted.tsv"
 
         if extracted_rows is None:
             shutil.copyfile(
@@ -221,53 +209,47 @@ def extracted_metadata_bundle_factory(
             )
         else:
             _write_extracted_metadata(extracted_metadata, extracted_rows)
-        biosample_snapshot_path = bundle_dir / "biosample.xml.gz"
+        biosample_snapshot_path = files_dir / "biosample.xml.gz"
         biosample_snapshot_path.write_bytes(b"fixture BioSample source\n")
-        bioproject_snapshot_path = bundle_dir / "bioproject.xml.gz"
+        bioproject_snapshot_path = files_dir / "bioproject.xml.gz"
         bioproject_snapshot_path.write_bytes(b"fixture BioProject source\n")
         biosample_manifest_path = _write_manifest(
-            bundle_dir / "biosample.yaml",
+            files_dir / "biosample.yaml",
             snapshot_id="fixture-biosample-2026-01-01",
             snapshot_path=biosample_snapshot_path,
         )
         bioproject_manifest_path = _write_manifest(
-            bundle_dir / "bioproject.yaml",
+            files_dir / "bioproject.yaml",
             snapshot_id="fixture-bioproject-2026-01-01",
             snapshot_path=bioproject_snapshot_path,
         )
-        snapshot_pair = validate_snapshot_pair(
-            biosample_snapshot_path=biosample_snapshot_path,
-            bioproject_snapshot_path=bioproject_snapshot_path,
-            biosample_manifest_path=biosample_manifest_path,
-            bioproject_manifest_path=bioproject_manifest_path,
-        )
-        provenance = DerivedBundleProvenance.create(
-            snapshot_pair=snapshot_pair,
+        provenance_path = provenance_path_for(extracted_metadata)
+        ExtractedMetadataProvenance.create(
             biosample_manifest_path=biosample_manifest_path,
             bioproject_manifest_path=bioproject_manifest_path,
             extracted_metadata_path=extracted_metadata,
-        ).write(provenance_path_for(extracted_metadata))
-        validate_extracted_metadata_bundle(
+        ).write(provenance_path)
+        validate_extracted_metadata(
             extracted_metadata,
             biosample_manifest_path,
             bioproject_manifest_path,
         )
-        return ExtractedMetadataBundle(
-            extracted_metadata=extracted_metadata,
+        return ExtractedMetadataFiles(
+            extracted_metadata_path=extracted_metadata,
             biosample_manifest_path=biosample_manifest_path,
             bioproject_manifest_path=bioproject_manifest_path,
-            provenance=provenance,
+            provenance_path=provenance_path,
         )
 
     return build
 
 
 @pytest.fixture
-def extracted_metadata_bundle(
-    extracted_metadata_bundle_factory: ExtractedMetadataBundleFactory,
-) -> ExtractedMetadataBundle:
-    """Return the default one-record extracted metadata bundle."""
-    return extracted_metadata_bundle_factory()
+def extracted_metadata_files(
+    make_extracted_metadata_files: Callable[..., ExtractedMetadataFiles],
+) -> ExtractedMetadataFiles:
+    """Return the default one-record extracted metadata files."""
+    return make_extracted_metadata_files()
 
 
 # --- DatasetBuilder fixture ---
@@ -356,7 +338,8 @@ def _write_manifest(
         retrieved_on=retrieved_on,
         file={"name": snapshot_path.name, "sha256": sha256_file(snapshot_path)},
     )
-    return manifest.write(destination)
+    manifest.write(destination)
+    return destination
 
 
 def _write_compressed_snapshot(destination: Path, contents: bytes) -> None:

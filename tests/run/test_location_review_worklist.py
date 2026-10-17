@@ -172,7 +172,7 @@ def _located_record(accession: str, submitted_value: str, **overrides: str) -> d
 
 def _build(
     tmp_path: Path,
-    bundle,
+    files,
     *,
     name: str,
     location_policy: LocationPolicy | None,
@@ -183,9 +183,9 @@ def _build(
     destination = tmp_path / name / "run.tsv"
     statistics = DatasetBuilder().build(
         DatasetBuildRequest(
-            extracted_metadata=bundle.extracted_metadata,
-            biosample_manifest_path=bundle.biosample_manifest_path,
-            bioproject_manifest_path=bundle.bioproject_manifest_path,
+            extracted_metadata=files.extracted_metadata_path,
+            biosample_manifest_path=files.biosample_manifest_path,
+            bioproject_manifest_path=files.bioproject_manifest_path,
             requested_taxa=("ecoli",),
             requested_targets=targets,
             final_destination=destination,
@@ -198,8 +198,8 @@ def _build(
 
 
 @pytest.fixture
-def worklist_bundle(extracted_metadata_bundle_factory):
-    return extracted_metadata_bundle_factory(
+def worklist_files(make_extracted_metadata_files):
+    return make_extracted_metadata_files(
         "worklist",
         [
             _located_record("SAMN_STANDARDIZED", "Germany"),
@@ -218,14 +218,14 @@ def worklist_bundle(extracted_metadata_bundle_factory):
 
 def test_location_run_writes_the_worklist_and_reports_its_totals(
     tmp_path: Path,
-    worklist_bundle,
+    worklist_files,
     reviewed_location_policy: LocationPolicy,
     standardization_fixture_resources,
     fixture_taxon_registry,
 ) -> None:
     destination, statistics = _build(
         tmp_path,
-        worklist_bundle,
+        worklist_files,
         name="with-worklist",
         location_policy=reviewed_location_policy,
         targets=(StandardizationTarget.LOCATION,),
@@ -254,18 +254,18 @@ def test_location_run_writes_the_worklist_and_reports_its_totals(
 
 def test_location_run_without_unresolved_inputs_writes_the_header_only_worklist(
     tmp_path: Path,
-    extracted_metadata_bundle_factory,
+    make_extracted_metadata_files,
     reviewed_location_policy: LocationPolicy,
     standardization_fixture_resources,
     fixture_taxon_registry,
 ) -> None:
-    bundle = extracted_metadata_bundle_factory(
+    files = make_extracted_metadata_files(
         "resolved", [_located_record("SAMN_STANDARDIZED", "Germany")]
     )
 
     destination, statistics = _build(
         tmp_path,
-        bundle,
+        files,
         name="header-only",
         location_policy=reviewed_location_policy,
         targets=(StandardizationTarget.LOCATION,),
@@ -282,13 +282,13 @@ def test_location_run_without_unresolved_inputs_writes_the_header_only_worklist(
 
 def test_run_without_the_location_target_writes_no_worklist(
     tmp_path: Path,
-    worklist_bundle,
+    worklist_files,
     standardization_fixture_resources,
     fixture_taxon_registry,
 ) -> None:
     destination, statistics = _build(
         tmp_path,
-        worklist_bundle,
+        worklist_files,
         name="date-only",
         location_policy=None,
         targets=(StandardizationTarget.DATE,),
@@ -302,7 +302,7 @@ def test_run_without_the_location_target_writes_no_worklist(
 
 def test_repeated_location_runs_produce_identical_datasets_and_worklists(
     tmp_path: Path,
-    worklist_bundle,
+    worklist_files,
     reviewed_location_policy: LocationPolicy,
     standardization_fixture_resources,
     fixture_taxon_registry,
@@ -310,7 +310,7 @@ def test_repeated_location_runs_produce_identical_datasets_and_worklists(
     outputs = [
         _build(
             tmp_path,
-            worklist_bundle,
+            worklist_files,
             name=name,
             location_policy=reviewed_location_policy,
             targets=(StandardizationTarget.LOCATION,),

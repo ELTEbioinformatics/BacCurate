@@ -82,7 +82,7 @@ def test_effective_policy_loads_required_selection_policy() -> None:
         policy.selection_policy = None  # type: ignore[misc]
 
 
-def test_effective_policy_does_not_load_selection_policy_for_reused_bundle(
+def test_effective_policy_does_not_load_selection_policy_for_reused_extracted_metadata(
     tmp_path: Path,
 ) -> None:
     registry = load_taxon_registry(TAXON_REGISTRY_PATH)

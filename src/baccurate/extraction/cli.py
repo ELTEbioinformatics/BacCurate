@@ -3,6 +3,7 @@
 import argparse
 import csv
 import logging
+import os
 import tempfile
 from collections import Counter, defaultdict
 from collections.abc import Sequence
@@ -21,12 +22,11 @@ from baccurate.extraction.manual_review import ReviewWorklists
 from baccurate.extraction.selection import SelectionPolicy
 from baccurate.extraction.tables import COLUMNS, INTERMEDIATE_COLUMNS, extracted_metadata_row
 from baccurate.extraction.xml import SelectionCounters, process_biosample_xml
-from baccurate.provenance.snapshot_manifest import (
-    DerivedBundleProvenance,
-    _publish_bundle,
+from baccurate.provenance.extracted_metadata import (
+    ExtractedMetadataProvenance,
     provenance_path_for,
-    validate_snapshot_pair,
 )
+from baccurate.provenance.snapshot_manifest import validate_snapshot_pair
 from baccurate.standardization_target.policy_slot import POLICY_FILENAMES, PolicySlot
 from baccurate.taxon_registry.registry import TaxonRegistry, load_taxon_registry
 
@@ -48,7 +48,7 @@ class ExtractionReport:
     biosample_snapshot_id: str
     bioproject_snapshot_id: str
     metadata_reference_date: date
-    bundle_provenance_path: Path
+    extracted_metadata_provenance_path: Path
     inclusion_route_counts: dict[InclusionRoute, int] = field(default_factory=dict)
 
 
@@ -67,10 +67,10 @@ def run_extraction(
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
-    biosample_paths = (paths.DEFAULT_BIOSAMPLE_XML_INPUT,)
+    biosample_paths = (paths.DEFAULT_BIOSAMPLE_SNAPSHOT_PATH,)
     snapshot_pair = validate_snapshot_pair(
-        biosample_snapshot_path=paths.DEFAULT_BIOSAMPLE_XML_INPUT,
-        bioproject_snapshot_path=paths.DEFAULT_BIOPROJECT_XML_INPUT,
+        biosample_snapshot_path=paths.DEFAULT_BIOSAMPLE_SNAPSHOT_PATH,
+        bioproject_snapshot_path=paths.DEFAULT_BIOPROJECT_SNAPSHOT_PATH,
         biosample_manifest_path=paths.DEFAULT_BIOSAMPLE_MANIFEST_PATH,
         bioproject_manifest_path=paths.DEFAULT_BIOPROJECT_MANIFEST_PATH,
     )
@@ -82,7 +82,7 @@ def run_extraction(
     taxon_assignment_by_accession = load_taxon_map(index_path, registry, names)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    bundle_provenance_path = provenance_path_for(output_path)
+    provenance_path = provenance_path_for(output_path)
     extracted_record_count = 0
     inclusion_route_counts: Counter[InclusionRoute] = Counter()
     linked_project_samples: dict[str, set[str]] = defaultdict(set)
@@ -93,7 +93,7 @@ def run_extraction(
         temporary_dir_path = Path(temporary_dir)
         spool_path = temporary_dir_path / "biosample_rows.tsv"
         temporary_output_path = temporary_dir_path / output_path.name
-        temporary_provenance_path = temporary_dir_path / bundle_provenance_path.name
+        temporary_provenance_path = temporary_dir_path / provenance_path.name
 
         with spool_path.open("w", newline="", encoding="utf-8") as spool_stream:
             writer = csv.writer(spool_stream, delimiter="\t")
@@ -129,13 +129,12 @@ def run_extraction(
                     bar.update(1)
 
         accession_by_bioproject_id = resolve_bioproject_accessions(
-            paths.DEFAULT_BIOPROJECT_XML_INPUT,
+            paths.DEFAULT_BIOPROJECT_SNAPSHOT_PATH,
             linked_project_samples,
         )
         _write_resolved_rows(spool_path, temporary_output_path, accession_by_bioproject_id)
 
-        provenance = DerivedBundleProvenance.create(
-            snapshot_pair=snapshot_pair,
+        provenance = ExtractedMetadataProvenance.create(
             biosample_manifest_path=paths.DEFAULT_BIOSAMPLE_MANIFEST_PATH,
             bioproject_manifest_path=paths.DEFAULT_BIOPROJECT_MANIFEST_PATH,
             extracted_metadata_path=temporary_output_path,
@@ -157,14 +156,10 @@ def run_extraction(
         review_worklists.log_automatic_rejections(logger)
         logger.info("Selection summary: %s", counters.summary())
 
-        _publish_bundle(
-            temporary_output_path=temporary_output_path,
-            output_path=output_path,
-            temporary_provenance_path=temporary_provenance_path,
-            provenance_path=bundle_provenance_path,
-        )
+        os.replace(temporary_output_path, output_path)
+        os.replace(temporary_provenance_path, provenance_path)
     return ExtractionReport(
-        prepared_input_paths=(*biosample_paths, paths.DEFAULT_BIOPROJECT_XML_INPUT),
+        prepared_input_paths=(*biosample_paths, paths.DEFAULT_BIOPROJECT_SNAPSHOT_PATH),
         extracted_metadata_path=output_path,
         extracted_record_count=extracted_record_count,
         counters=counters,
@@ -175,7 +170,7 @@ def run_extraction(
         biosample_snapshot_id=snapshot_pair.biosample.snapshot_id,
         bioproject_snapshot_id=snapshot_pair.bioproject.snapshot_id,
         metadata_reference_date=snapshot_pair.metadata_reference_date,
-        bundle_provenance_path=bundle_provenance_path,
+        extracted_metadata_provenance_path=provenance_path,
         inclusion_route_counts={
             route: inclusion_route_counts[route]
             for route in ("biosample_taxonomy", "allthebacteria")

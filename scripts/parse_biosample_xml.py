@@ -20,7 +20,7 @@ from lxml import etree
 # make the package importable when run as a plain script
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from baccurate.adapters.compressed_io import open_binary, open_text
-from baccurate.paths import DEFAULT_NODES_DMP, DEFAULT_XML_INPUT, RAW_DIR
+from baccurate.paths import DEFAULT_BIOSAMPLE_SNAPSHOT_PATH, DEFAULT_NODES_DMP, RAW_DIR
 from baccurate.taxon_registry.registry import TaxonRegistry, load_taxon_registry
 from baccurate.taxon_registry.species_label_matching import (
     NA,
@@ -253,7 +253,7 @@ def main() -> int:
     ap.add_argument(
         "--subset",
         type=Path,
-        default=DEFAULT_XML_INPUT,
+        default=DEFAULT_BIOSAMPLE_SNAPSHOT_PATH,
         help="filtered subset XML for the downstream stage",
     )
     ap.add_argument(

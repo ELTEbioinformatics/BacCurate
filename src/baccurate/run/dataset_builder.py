@@ -14,7 +14,7 @@ from baccurate.adapters.llm.client import LLMSettings, load_llm_settings
 from baccurate.adapters.progress import make_progress_bar
 from baccurate.extraction import SEQUENCE_ACCESSION_COLUMNS
 from baccurate.paths import DEFAULT_NAMES_DMP, DEFAULT_NODES_DMP
-from baccurate.provenance.snapshot_manifest import validate_extracted_metadata_bundle
+from baccurate.provenance.extracted_metadata import validate_extracted_metadata
 from baccurate.run.location_review_worklist import (
     LOCATION_REVIEW_WORKLIST_FILENAME,
     LocationReviewWorklist,
@@ -445,7 +445,7 @@ class DatasetBuilder:
                 ).columns
             )
 
-            snapshot_pair = validate_extracted_metadata_bundle(
+            snapshot_pair = validate_extracted_metadata(
                 request.extracted_metadata,
                 request.biosample_manifest_path,
                 request.bioproject_manifest_path,

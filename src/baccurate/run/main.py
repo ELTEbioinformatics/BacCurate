@@ -6,7 +6,7 @@ from time import monotonic
 
 from baccurate.adapters.progress import progress_context
 from baccurate.extraction import run_extraction
-from baccurate.paths import DEFAULT_BIOPROJECT_XML_INPUT
+from baccurate.paths import DEFAULT_BIOPROJECT_SNAPSHOT_PATH
 from baccurate.run.dataset_builder import DatasetBuilder, DatasetBuildRequest
 from baccurate.run.invocation import resolve_invocation
 from baccurate.run.logging import LIFECYCLE_LOGGER_NAME, configure_run_logging
@@ -85,7 +85,7 @@ def main(
                 run_report.transition(RunPhase.EXTRACTION)
                 run_report.begin_performed_extraction(
                     biosample_input_path=biosample_input_path,
-                    bioproject_input_path=DEFAULT_BIOPROJECT_XML_INPUT,
+                    bioproject_input_path=DEFAULT_BIOPROJECT_SNAPSHOT_PATH,
                     extracted_metadata_path=extracted_metadata_path,
                     biosample_manifest_path=DEFAULT_BIOSAMPLE_MANIFEST_PATH,
                     bioproject_manifest_path=DEFAULT_BIOPROJECT_MANIFEST_PATH,

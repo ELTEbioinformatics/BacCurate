@@ -92,7 +92,7 @@ def _build_isolation_source_run(
     *,
     rows: list[dict[str, str]],
     client: ScriptedClient,
-    extracted_metadata_bundle_factory,
+    make_extracted_metadata_files,
     fixture_dataset_builder_factory,
     fixture_host_policy: HostPolicy,
     fixture_isolation_source_prompt_policy: IsolationSourcePromptPolicy,
@@ -100,7 +100,7 @@ def _build_isolation_source_run(
     standardization_fixture_resources,
     targets: tuple[StandardizationTarget, ...] = (StandardizationTarget.ISOLATION_SOURCE,),
 ):
-    bundle = extracted_metadata_bundle_factory(
+    files = make_extracted_metadata_files(
         "bioproject-linkage",
         extracted_rows=rows,
     )
@@ -121,9 +121,9 @@ def _build_isolation_source_run(
         isolation_source_standardizer_factory=isolation_source_factory
     ).build(
         DatasetBuildRequest(
-            extracted_metadata=bundle.extracted_metadata,
-            biosample_manifest_path=bundle.biosample_manifest_path,
-            bioproject_manifest_path=bundle.bioproject_manifest_path,
+            extracted_metadata=files.extracted_metadata_path,
+            biosample_manifest_path=files.biosample_manifest_path,
+            bioproject_manifest_path=files.bioproject_manifest_path,
             requested_taxa=("ecoli",),
             requested_targets=targets,
             final_destination=dataset,
@@ -152,7 +152,7 @@ def _reasoning_rows(path: Path) -> dict[str, dict[str, object]]:
 
 def test_dataset_build_limits_evidence_to_biosample_pairs(
     tmp_path: Path,
-    extracted_metadata_bundle_factory,
+    make_extracted_metadata_files,
     fixture_dataset_builder_factory,
     fixture_host_policy,
     fixture_isolation_source_prompt_policy,
@@ -201,7 +201,7 @@ def test_dataset_build_limits_evidence_to_biosample_pairs(
             },
         ],
         client=client,
-        extracted_metadata_bundle_factory=extracted_metadata_bundle_factory,
+        make_extracted_metadata_files=make_extracted_metadata_files,
         fixture_dataset_builder_factory=fixture_dataset_builder_factory,
         fixture_host_policy=fixture_host_policy,
         fixture_isolation_source_prompt_policy=fixture_isolation_source_prompt_policy,
@@ -240,7 +240,7 @@ def test_dataset_build_limits_evidence_to_biosample_pairs(
 
 def test_dataset_build_request_identity_uses_only_biosample_pairs(
     tmp_path: Path,
-    extracted_metadata_bundle_factory,
+    make_extracted_metadata_files,
     fixture_dataset_builder_factory,
     fixture_host_policy,
     fixture_isolation_source_prompt_policy,
@@ -268,7 +268,7 @@ def test_dataset_build_request_identity_uses_only_biosample_pairs(
             },
         ],
         client=client,
-        extracted_metadata_bundle_factory=extracted_metadata_bundle_factory,
+        make_extracted_metadata_files=make_extracted_metadata_files,
         fixture_dataset_builder_factory=fixture_dataset_builder_factory,
         fixture_host_policy=fixture_host_policy,
         fixture_isolation_source_prompt_policy=fixture_isolation_source_prompt_policy,
@@ -286,7 +286,7 @@ def test_dataset_build_request_identity_uses_only_biosample_pairs(
 
 def test_dataset_build_rejects_bioproject_only_record_without_model_call(
     tmp_path: Path,
-    extracted_metadata_bundle_factory,
+    make_extracted_metadata_files,
     fixture_dataset_builder_factory,
     fixture_host_policy,
     fixture_isolation_source_prompt_policy,
@@ -304,7 +304,7 @@ def test_dataset_build_rejects_bioproject_only_record_without_model_call(
             }
         ],
         client=client,
-        extracted_metadata_bundle_factory=extracted_metadata_bundle_factory,
+        make_extracted_metadata_files=make_extracted_metadata_files,
         fixture_dataset_builder_factory=fixture_dataset_builder_factory,
         fixture_host_policy=fixture_host_policy,
         fixture_isolation_source_prompt_policy=fixture_isolation_source_prompt_policy,
@@ -322,14 +322,14 @@ def test_dataset_build_rejects_bioproject_only_record_without_model_call(
 
 def test_host_recovery_uses_biosample_pairs_not_bioproject_linkage(
     tmp_path: Path,
-    extracted_metadata_bundle_factory,
+    make_extracted_metadata_files,
     fixture_dataset_builder_factory,
     fixture_host_policy,
     fixture_isolation_source_prompt_policy,
     fixture_taxon_registry,
     standardization_fixture_resources,
 ) -> None:
-    bundle = extracted_metadata_bundle_factory(
+    files = make_extracted_metadata_files(
         "host-recovery",
         extracted_rows=[
             {
@@ -408,9 +408,9 @@ def test_host_recovery_uses_biosample_pairs_not_bioproject_linkage(
         isolation_source_standardizer_factory=lambda *_args: BioSampleIsolationSourceStandardizer(),
     ).build(
         DatasetBuildRequest(
-            extracted_metadata=bundle.extracted_metadata,
-            biosample_manifest_path=bundle.biosample_manifest_path,
-            bioproject_manifest_path=bundle.bioproject_manifest_path,
+            extracted_metadata=files.extracted_metadata_path,
+            biosample_manifest_path=files.biosample_manifest_path,
+            bioproject_manifest_path=files.bioproject_manifest_path,
             requested_taxa=("ecoli",),
             requested_targets=(StandardizationTarget.HOST, StandardizationTarget.ISOLATION_SOURCE),
             final_destination=dataset,

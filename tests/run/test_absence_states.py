@@ -22,12 +22,12 @@ from baccurate.extraction import (
     SelectionEvent,
     SelectionPolicy,
 )
-from baccurate.provenance.snapshot_manifest import (
-    DerivedBundleProvenance,
-    SnapshotManifest,
+from baccurate.provenance.extracted_metadata import (
+    ExtractedMetadataProvenance,
     provenance_path_for,
-    sha256_file,
 )
+from baccurate.provenance.sha256 import sha256_file
+from baccurate.provenance.snapshot_manifest import SnapshotManifest
 from baccurate.run.dataset_builder import (
     DatasetBuilder,
     DatasetBuildRequest,
@@ -162,7 +162,7 @@ def _write_manifest(
     return manifest
 
 
-def _write_extracted_bundle(
+def _write_extracted_metadata_files(
     tmp_path: Path,
     rows: Sequence[Mapping[str, str]],
 ) -> tuple[Path, Path, Path]:
@@ -190,7 +190,7 @@ def _write_extracted_bundle(
         snapshot_id="bioproject-absence-characterization",
         sha256_fill_character="1",
     )
-    DerivedBundleProvenance(
+    ExtractedMetadataProvenance(
         biosample_snapshot_id=biosample_manifest.snapshot_id,
         biosample_manifest_sha256=sha256_file(biosample_manifest_path),
         bioproject_snapshot_id=bioproject_manifest.snapshot_id,
@@ -212,9 +212,11 @@ def _build_dataset(
     host_standardizer_factory: Callable[..., HostStandardizer] | None = None,
     isolation_source_standardizer_factory: Callable[..., IsolationSourceStandardizer] | None = None,
 ) -> _BuiltDataset:
-    extracted_path, biosample_manifest_path, bioproject_manifest_path = _write_extracted_bundle(
-        tmp_path,
-        rows,
+    extracted_path, biosample_manifest_path, bioproject_manifest_path = (
+        _write_extracted_metadata_files(
+            tmp_path,
+            rows,
+        )
     )
     destination = tmp_path / "final.tsv"
     statistics = DatasetBuilder(

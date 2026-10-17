@@ -21,7 +21,7 @@ class EffectivePolicy:
     Immutable domain policy selected for one BacCurate run.
 
     A selection policy is present exactly when the run must perform extraction, so a
-    run that reuses an extracted bundle is never blocked by extraction policy it
+    run that reuses extracted metadata is never blocked by extraction policy it
     does not evaluate.
     """
 

@@ -9,7 +9,7 @@ from baccurate.standardization_target.specifications import StandardizationTarge
 
 def test_fixture_dataset_builder_standardizes_host_without_production_taxonomy(
     tmp_path: Path,
-    extracted_metadata_bundle,
+    extracted_metadata_files,
     fixture_dataset_builder: DatasetBuilder,
     fixture_host_policy: HostPolicy,
     fixture_taxon_registry,
@@ -19,9 +19,9 @@ def test_fixture_dataset_builder_standardizes_host_without_production_taxonomy(
 
     statistics = fixture_dataset_builder.build(
         DatasetBuildRequest(
-            extracted_metadata=extracted_metadata_bundle.extracted_metadata,
-            biosample_manifest_path=extracted_metadata_bundle.biosample_manifest_path,
-            bioproject_manifest_path=extracted_metadata_bundle.bioproject_manifest_path,
+            extracted_metadata=extracted_metadata_files.extracted_metadata_path,
+            biosample_manifest_path=extracted_metadata_files.biosample_manifest_path,
+            bioproject_manifest_path=extracted_metadata_files.bioproject_manifest_path,
             requested_taxa=("ecoli",),
             requested_targets=(StandardizationTarget.HOST,),
             final_destination=destination,

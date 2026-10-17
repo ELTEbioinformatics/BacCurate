@@ -13,12 +13,12 @@ import baccurate.run.invocation as invocation_module
 import baccurate.run.main as main_module
 from baccurate.adapters.policy_yaml import PolicyConfigurationError
 from baccurate.extraction import COLUMNS, SelectionPolicyError
-from baccurate.provenance.snapshot_manifest import (
-    DerivedBundleProvenance,
-    SnapshotManifest,
+from baccurate.provenance.extracted_metadata import (
+    ExtractedMetadataProvenance,
     provenance_path_for,
-    sha256_file,
 )
+from baccurate.provenance.sha256 import sha256_file
+from baccurate.provenance.snapshot_manifest import SnapshotManifest
 from baccurate.run.logging import configure_run_logging
 from baccurate.run.main import main as pipeline_cli
 from baccurate.standardization.isolation_source import IsolationSourcePromptPolicy
@@ -100,7 +100,7 @@ def test_pipeline_cli_discovers_taxa_in_supplied_registry_order(
         "SAMN4\talpha\tNA\n",
         encoding="utf-8",
     )
-    extracted_metadata = _prepare_empty_extracted_bundle(tmp_path, monkeypatch)
+    extracted_metadata = _prepare_empty_extracted_metadata(tmp_path, monkeypatch)
     monkeypatch.setattr(invocation_module, "DEFAULT_INDEX_TSV", index)
 
     pipeline_cli(
@@ -129,7 +129,7 @@ def test_pipeline_output_label_uses_supplied_registry(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    extracted_metadata = _prepare_empty_extracted_bundle(
+    extracted_metadata = _prepare_empty_extracted_metadata(
         tmp_path,
         monkeypatch,
         records=[
@@ -166,10 +166,10 @@ def test_pipeline_output_label_uses_supplied_registry(
     assert row["taxon"] == "Zeta example"
 
 
-def test_pipeline_cli_uses_custom_extracted_metadata_bundle(
+def test_pipeline_cli_uses_custom_extracted_metadata(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    extracted_metadata = _prepare_empty_extracted_bundle(tmp_path, monkeypatch)
+    extracted_metadata = _prepare_empty_extracted_metadata(tmp_path, monkeypatch)
 
     pipeline_cli(
         [
@@ -181,14 +181,14 @@ def test_pipeline_cli_uses_custom_extracted_metadata_bundle(
             "--output-dir",
             str(tmp_path / "runs"),
             "--run-name",
-            "custom-bundle",
+            "custom-files",
             "--skip-llm",
             "--quiet",
         ]
     )
 
-    run_dir = tmp_path / "runs" / "custom-bundle"
-    assert (run_dir / "custom-bundle.tsv").exists()
+    run_dir = tmp_path / "runs" / "custom-files"
+    assert (run_dir / "custom-files.tsv").exists()
     run_report = json.loads((run_dir / "run_report.json").read_text(encoding="utf-8"))
     assert run_report["outputs"]["extracted_input"] == str(extracted_metadata)
     options = run_report["runtime"]["options"]
@@ -237,7 +237,7 @@ def test_pipeline_cli_validates_selected_standardization_policy_before_resources
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    extracted_metadata = _prepare_empty_extracted_bundle(tmp_path, monkeypatch)
+    extracted_metadata = _prepare_empty_extracted_metadata(tmp_path, monkeypatch)
     config_dir = tmp_path / "config"
     config_dir.mkdir()
     invalid_path = config_dir / "location.yaml"
@@ -269,11 +269,11 @@ def test_pipeline_cli_validates_selected_standardization_policy_before_resources
     assert not (tmp_path / "isolation-cache.db").exists()
 
 
-def test_pipeline_cli_reuses_extracted_bundle_without_selection_policy(
+def test_pipeline_cli_reuses_extracted_metadata_without_selection_policy(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    extracted_metadata = _prepare_empty_extracted_bundle(tmp_path, monkeypatch)
+    extracted_metadata = _prepare_empty_extracted_metadata(tmp_path, monkeypatch)
     config_dir = tmp_path / "missing-config"
 
     pipeline_cli(
@@ -304,7 +304,7 @@ def _prepare_fixture_backed_cli_run(
     standardization_fixture_resources,
 ) -> tuple[Path, Path]:
     monkeypatch.setattr(main_module, "DatasetBuilder", fixture_dataset_builder_factory)
-    extracted_metadata = _prepare_empty_extracted_bundle(tmp_path, monkeypatch)
+    extracted_metadata = _prepare_empty_extracted_metadata(tmp_path, monkeypatch)
     config_dir = tmp_path / "config"
     shutil.copytree(invocation_module.CONFIG_DIR, config_dir)
     shutil.copyfile(standardization_fixture_resources.host_policy, config_dir / "host.yaml")
@@ -466,7 +466,7 @@ def test_pipeline_cli_scopes_prompt_snapshot_to_active_llm_standardization_targe
     assert set(run_report["runtime"]["model_identifiers"]) == expected_model_keys
 
 
-def _prepare_empty_extracted_bundle(
+def _prepare_empty_extracted_metadata(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     records: list[dict[str, str]] | None = None,
@@ -478,7 +478,7 @@ def _prepare_empty_extracted_bundle(
     bioproject_manifest_path = invocation_module.DEFAULT_BIOPROJECT_MANIFEST_PATH
     biosample_manifest = SnapshotManifest.load(biosample_manifest_path)
     bioproject_manifest = SnapshotManifest.load(bioproject_manifest_path)
-    DerivedBundleProvenance(
+    ExtractedMetadataProvenance(
         biosample_snapshot_id=biosample_manifest.snapshot_id,
         biosample_manifest_sha256=sha256_file(biosample_manifest_path),
         bioproject_snapshot_id=bioproject_manifest.snapshot_id,
