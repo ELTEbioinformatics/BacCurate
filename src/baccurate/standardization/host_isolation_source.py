@@ -9,36 +9,20 @@ values.
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
-from pathlib import Path
-from time import perf_counter
 
-from baccurate.adapters.llm.client import LLMSettings, load_llm_settings
-from baccurate.adapters.llm.request import canonical_json_sha256
-from baccurate.paths import DEFAULT_NAMES_DMP, DEFAULT_NODES_DMP
-from baccurate.standardization.host import (
-    HostDiagnostic,
-    HostOutcome,
-    HostPolicy,
-    HostStandardizer,
-)
+from baccurate.standardization.host import HostDiagnostic, HostOutcome, HostStandardizer
 from baccurate.standardization.host_lineage import HostLineageEnricher
 from baccurate.standardization.isolation_source import (
     HOST_SOURCE_TYPE_BY_LINEAGE_ROOT,
     IsolationSourceDiagnostic,
     IsolationSourceEvidenceLevel,
     IsolationSourceOutcome,
-    IsolationSourcePromptPolicy,
-    IsolationSourceReasoningStep,
     IsolationSourceRejection,
     IsolationSourceStandardizer,
 )
-
-# None disables the LLM path here.
-_LOAD_LLM_ADAPTER = object()
 
 # --- Routing classification ---
 
@@ -59,25 +43,12 @@ class HostRecoveryRouting(StrEnum):
     UNRESOLVED = "unresolved"
 
 
-class IsolationSourceRouting(StrEnum):
-    """The terminal route used for isolation-source standardization."""
-
-    REJECTED = "rejected"
-    DETERMINISTIC = "deterministic"
-    CACHE = "cache"
-    LLM = "llm"
-    LLM_DISABLED = "llm_disabled"
-
-
 @dataclass(frozen=True, slots=True)
 class HostIsolationSourceRouting:
     """Coverage classification for the host--isolation-source collaboration."""
 
     host_initial: HostInitialRouting
     host_recovery: HostRecoveryRouting
-    isolation_source: IsolationSourceRouting
-    host_overflow_used: bool
-    relation_applied: bool
 
 
 # --- Result contract ---
@@ -92,31 +63,13 @@ class HostIsolationSourceDiagnostics:
 
 
 @dataclass(frozen=True, slots=True)
-class HostIsolationSourceTiming:
-    """Record-level elapsed execution time."""
-
-    elapsed_seconds: float
-
-
-@dataclass(frozen=True, slots=True)
-class HostIsolationSourceFingerprints:
-    """Optional canonical model request identity."""
-
-    request: str | None
-
-
-@dataclass(frozen=True, slots=True)
 class HostIsolationSourceResult:
     """Immutable final result of coordinated host--isolation-source standardization."""
 
     host: HostOutcome
     isolation_source: IsolationSourceOutcome | IsolationSourceRejection
-    reasoning: tuple[IsolationSourceReasoningStep, ...]
     diagnostics: HostIsolationSourceDiagnostics
-    evidence_level: IsolationSourceEvidenceLevel
     routing: HostIsolationSourceRouting
-    timing: HostIsolationSourceTiming
-    fingerprints: HostIsolationSourceFingerprints
 
 
 # --- Main class ---
@@ -127,77 +80,16 @@ class HostIsolationSourceStandardizer:
 
     def __init__(
         self,
-        *,
-        host_policy: HostPolicy,
-        isolation_source_prompt_policy: IsolationSourcePromptPolicy,
-        result_logger: logging.Logger | None = None,
-        llm_adapter: object = _LOAD_LLM_ADAPTER,
-        llm_settings: LLMSettings | None = None,
-        read_llm_cache: bool = True,
-        host_lineage: HostLineageEnricher | None = None,
-        names_dmp: Path = DEFAULT_NAMES_DMP,
-        nodes_dmp: Path = DEFAULT_NODES_DMP,
+        host: HostStandardizer,
+        isolation_source: IsolationSourceStandardizer,
+        lineage: HostLineageEnricher,
     ) -> None:
-        effective_llm_settings = llm_settings or load_llm_settings()
-        self._host = HostStandardizer(host_policy, result_logger=result_logger)
-        if llm_adapter is _LOAD_LLM_ADAPTER:
-            self._isolation_source = IsolationSourceStandardizer(
-                isolation_source_prompt_policy,
-                result_logger=result_logger,
-                llm_settings=effective_llm_settings,
-                read_llm_cache=read_llm_cache,
-            )
-        else:
-            self._isolation_source = IsolationSourceStandardizer(
-                isolation_source_prompt_policy,
-                result_logger=result_logger,
-                client=None,
-                llm_settings=effective_llm_settings,
-                read_llm_cache=read_llm_cache,
-            )
-            self._isolation_source.pipeline.client = llm_adapter
-        self._owns_components = True
-        self._host_lineage = host_lineage
-        self._host_lineage_paths = (names_dmp, nodes_dmp)
-        self._initialize_fingerprints()
-
-    def _initialize_fingerprints(self) -> None:
-        """
-        Capture the component identities needed to reproduce results.
-
-        Reading each value from the components makes both construction routes describe
-        the run identically. Copying the endpoint or cache-read policy from arguments
-        could instead record a configuration that the components are not using.
-        """
-        pipeline = getattr(self._isolation_source, "pipeline", None)
-        self._model_identifier = getattr(pipeline, "model", "")
-        self._llm_cache_reads_enabled = getattr(pipeline, "read_cache", True)
-        self._model_endpoint_fingerprint = canonical_json_sha256(
-            {"server": getattr(pipeline, "server", None)}
-        )
-        self._prompt_configuration_fingerprint = (
-            self._isolation_source.policy.prompt_configuration_fingerprint
-        )
-
-    @property
-    def llm_cache_reads_enabled(self) -> bool:
-        return self._llm_cache_reads_enabled
-
-    @property
-    def model_identifier(self) -> str:
-        return self._model_identifier
-
-    @property
-    def prompt_configuration_fingerprint(self) -> str:
-        return self._prompt_configuration_fingerprint
-
-    @property
-    def model_endpoint_fingerprint(self) -> str:
-        return self._model_endpoint_fingerprint
+        self._host = host
+        self._isolation_source = isolation_source
+        self._host_lineage = lineage
 
     def standardize(self, extracted_record: Mapping[str, str]) -> HostIsolationSourceResult:
         """Standardize one extracted metadata record without exposing orchestration steps."""
-        started = perf_counter()
 
         # 1st Host pass
         initial_host = self._host.standardize(extracted_record)
@@ -280,42 +172,22 @@ class HostIsolationSourceStandardizer:
             if initial_host.overflow is not None
             else HostInitialRouting.REJECTED
         )
-        isolation_source_routing = self._isolation_source_routing(isolation_source)
-        if isinstance(isolation_source, IsolationSourceOutcome):
-            reasoning = isolation_source.reasoning
-            evidence_level = isolation_source.evidence_level
-            request_fingerprint = isolation_source.request_fingerprint
-        else:
-            reasoning = ()
-            evidence_level = IsolationSourceEvidenceLevel.NONE
-            request_fingerprint = None
         return HostIsolationSourceResult(
             host=final_host,
             isolation_source=isolation_source,
-            reasoning=reasoning,
             diagnostics=HostIsolationSourceDiagnostics(
                 host=host_diagnostics,
                 isolation_source=isolation_source.diagnostics,
             ),
-            evidence_level=evidence_level,
             routing=HostIsolationSourceRouting(
                 host_initial=initial_routing,
                 host_recovery=recovery_routing,
-                isolation_source=isolation_source_routing,
-                host_overflow_used=initial_host.overflow is not None,
-                relation_applied=any(step.node == "relation" for step in reasoning),
-            ),
-            timing=HostIsolationSourceTiming(elapsed_seconds=perf_counter() - started),
-            fingerprints=HostIsolationSourceFingerprints(
-                request=request_fingerprint,
             ),
         )
 
     def _lineage_source_type(self, host: HostOutcome) -> tuple[int, str] | None:
         if host.standardized is None:
             return None
-        if self._host_lineage is None:
-            self._host_lineage = HostLineageEnricher(*self._host_lineage_paths)
         return next(
             (
                 (lineage_root_taxid, source_type_term_id)
@@ -326,53 +198,3 @@ class HostIsolationSourceStandardizer:
             ),
             None,
         )
-
-    @staticmethod
-    def _isolation_source_routing(
-        isolation_source: IsolationSourceOutcome | IsolationSourceRejection,
-    ) -> IsolationSourceRouting:
-        """Name the most expensive route the record traveled, cheapest last."""
-        if isinstance(isolation_source, IsolationSourceRejection):
-            return IsolationSourceRouting.REJECTED
-        if isolation_source.llm_calls:
-            return IsolationSourceRouting.LLM
-        if isolation_source.cache_hits:
-            return IsolationSourceRouting.CACHE
-        if isolation_source.exact_matches:
-            return IsolationSourceRouting.DETERMINISTIC
-        if any(
-            step.node in ("host_lineage_derivation", "laboratory_strain")
-            for step in isolation_source.reasoning
-        ):
-            return IsolationSourceRouting.DETERMINISTIC
-        # No route left any trace, which only happens with no configured client.
-        return IsolationSourceRouting.LLM_DISABLED
-
-    def close(self) -> None:
-        if self._owns_components:
-            self._isolation_source.close()
-
-
-# --- Builder adaptation ---
-
-
-def host_isolation_source_standardizer_from_components(
-    host_standardizer: HostStandardizer,
-    isolation_source_standardizer: IsolationSourceStandardizer,
-    host_lineage: HostLineageEnricher,
-) -> HostIsolationSourceStandardizer:
-    """
-    Adapt builder-owned standardizers to the cross-target standardizer.
-
-    Bypasses __init__ because the builder constructs and owns both components
-    itself. Every attribute __init__ assigns must therefore be assigned here
-    too, or the omission surfaces as an AttributeError mid-run.
-    """
-    standardizer = HostIsolationSourceStandardizer.__new__(HostIsolationSourceStandardizer)
-    standardizer._host = host_standardizer
-    standardizer._isolation_source = isolation_source_standardizer
-    standardizer._host_lineage = host_lineage
-    standardizer._host_lineage_paths = None
-    standardizer._owns_components = False
-    standardizer._initialize_fingerprints()
-    return standardizer

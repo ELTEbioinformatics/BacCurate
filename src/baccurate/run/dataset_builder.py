@@ -49,7 +49,6 @@ from baccurate.standardization.host_isolation_source import (
     HostInitialRouting,
     HostIsolationSourceStandardizer,
     HostRecoveryRouting,
-    host_isolation_source_standardizer_from_components,
 )
 from baccurate.standardization.host_lineage import HostLineage, HostLineageEnricher
 from baccurate.standardization.isolation_source import (
@@ -508,7 +507,7 @@ class DatasetBuilder:
                 else None
             )
             host_isolation_source_standardizer = (
-                host_isolation_source_standardizer_from_components(
+                HostIsolationSourceStandardizer(
                     host_standardizer,
                     isolation_source_standardizer,
                     host_lineage,

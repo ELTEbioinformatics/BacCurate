@@ -2,21 +2,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
 
-import baccurate.standardization.host_isolation_source as host_isolation_source_module
-from baccurate.adapters.llm.client import LLMSettings
 from baccurate.paths import CONFIG_DIR
-from baccurate.standardization.host import HostPolicy, HostStandardizer
-from baccurate.standardization.host_isolation_source import (
-    HostIsolationSourceStandardizer,
-    host_isolation_source_standardizer_from_components,
-)
+from baccurate.standardization.host import HostStandardizer
+from baccurate.standardization.host_isolation_source import HostIsolationSourceStandardizer
 from baccurate.standardization.isolation_source import (
     IsolationSourcePromptPolicy,
+    IsolationSourceRejection,
     IsolationSourceStandardizer,
 )
 
@@ -41,28 +38,30 @@ class ScriptedClient:
         return kwargs["response_model"].model_validate(self.answer)  # type: ignore[union-attr]
 
 
+@contextmanager
 def _coordinator(
     resources,
     host_policy,
     isolation_source_policy,
     *,
     client: ScriptedClient | None = None,
-) -> HostIsolationSourceStandardizer:
+) -> Iterator[HostIsolationSourceStandardizer]:
     isolation_source = IsolationSourceStandardizer(
         isolation_source_policy,
         client=None,
     )
     isolation_source.pipeline.client = client
     lineage_memberships = {(9606, 9606), (9606, 33208), (9031, 33208), (3702, 33090)}
-    coordinator = host_isolation_source_standardizer_from_components(
-        HostStandardizer(host_policy, resources.ncbi_taxonomy_reference_table),
-        isolation_source,
-        SimpleNamespace(
-            is_descendant_or_self=lambda taxid, root: (taxid, root) in lineage_memberships
-        ),
-    )
-    coordinator._owns_components = True
-    return coordinator
+    try:
+        yield HostIsolationSourceStandardizer(
+            HostStandardizer(host_policy, resources.ncbi_taxonomy_reference_table),
+            isolation_source,
+            SimpleNamespace(
+                is_descendant_or_self=lambda taxid, root: (taxid, root) in lineage_memberships
+            ),
+        )
+    finally:
+        isolation_source.close()
 
 
 def _classifier_answer(source_type: str | None) -> dict[str, object]:
@@ -81,95 +80,6 @@ def _classifier_answer(source_type: str | None) -> dict[str, object]:
     }
 
 
-FIRST_ENDPOINT = "https://models.example/v1"
-SECOND_ENDPOINT = "https://models.internal/v1"
-
-
-@pytest.fixture
-def coordinators(
-    monkeypatch: pytest.MonkeyPatch,
-    standardization_fixture_resources,
-    fixture_host_policy,
-    fixture_isolation_source_prompt_policy,
-) -> Iterator[SimpleNamespace]:
-    """
-    Construct coordinators over one shared configuration, through either route.
-
-    Both routes receive the same host policy, isolation-source policy, ontology, and cache
-    location, so any identity difference between them comes from construction alone.
-    """
-
-    class FixtureHostStandardizer(HostStandardizer):
-        """Read the small fixture taxonomy table instead of the full NCBI release."""
-
-        def __init__(self, policy: HostPolicy, result_logger: object = None) -> None:
-            super().__init__(
-                policy,
-                standardization_fixture_resources.ncbi_taxonomy_reference_table,
-                result_logger,  # type: ignore[arg-type]
-            )
-
-    monkeypatch.setattr(host_isolation_source_module, "HostStandardizer", FixtureHostStandardizer)
-    closers: list[Callable[[], None]] = []
-
-    def public(server: str) -> HostIsolationSourceStandardizer:
-        coordinator = HostIsolationSourceStandardizer(
-            host_policy=fixture_host_policy,
-            isolation_source_prompt_policy=fixture_isolation_source_prompt_policy,
-            llm_adapter=None,
-            llm_settings=LLMSettings("test-key", server, "test-model"),
-        )
-        closers.append(coordinator.close)
-        return coordinator
-
-    def from_components(server: str) -> HostIsolationSourceStandardizer:
-        isolation_source = IsolationSourceStandardizer(
-            fixture_isolation_source_prompt_policy,
-            client=None,
-            llm_settings=LLMSettings("test-key", server, "test-model"),
-        )
-        closers.append(isolation_source.close)
-        return host_isolation_source_standardizer_from_components(
-            FixtureHostStandardizer(fixture_host_policy),
-            isolation_source,
-            SimpleNamespace(is_descendant_or_self=lambda _taxid, _root: False),
-        )
-
-    yield SimpleNamespace(public=public, from_components=from_components)
-    for close in closers:
-        close()
-
-
-def test_runtime_settings_agree_across_construction_routes(
-    coordinators: SimpleNamespace,
-) -> None:
-    """One runtime setup must report the same settings through either construction route."""
-    public = coordinators.public(FIRST_ENDPOINT)
-    adapted = coordinators.from_components(FIRST_ENDPOINT)
-
-    assert adapted.model_endpoint_fingerprint == public.model_endpoint_fingerprint
-    assert adapted.model_identifier == public.model_identifier == "test-model"
-    assert adapted.llm_cache_reads_enabled == public.llm_cache_reads_enabled
-
-
-def test_model_endpoint_fingerprint_distinguishes_endpoints_on_both_routes(
-    coordinators: SimpleNamespace,
-) -> None:
-    """Two model endpoints must have different fingerprints through either route."""
-    first = coordinators.from_components(FIRST_ENDPOINT)
-    second = coordinators.from_components(SECOND_ENDPOINT)
-
-    assert first.model_endpoint_fingerprint != second.model_endpoint_fingerprint
-    assert (
-        first.model_endpoint_fingerprint
-        == coordinators.public(FIRST_ENDPOINT).model_endpoint_fingerprint
-    )
-    assert (
-        second.model_endpoint_fingerprint
-        == coordinators.public(SECOND_ENDPOINT).model_endpoint_fingerprint
-    )
-
-
 @pytest.mark.parametrize("model_source_type", ["host-associated", "plant host"])
 @pytest.mark.parametrize(
     ("host", "host_source_type"), [("human", HUMAN_HOST), ("chicken", ANIMAL_HOST)]
@@ -183,13 +93,12 @@ def test_metazoa_lineage_refines_generic_or_conflicting_host_source_type(
     host_source_type: str,
 ) -> None:
     client = ScriptedClient(_classifier_answer(model_source_type))
-    coordinator = _coordinator(
+    with _coordinator(
         standardization_fixture_resources,
         fixture_host_policy,
         fixture_isolation_source_prompt_policy,
         client=client,
-    )
-    try:
+    ) as coordinator:
         result = coordinator.standardize(
             {
                 "accession": model_source_type,
@@ -199,15 +108,15 @@ def test_metazoa_lineage_refines_generic_or_conflicting_host_source_type(
                 "iso_val_orig": "unresolved material 481516",
             }
         )
-    finally:
-        coordinator.close()
 
     assert [term.term_id for term in result.isolation_source.selected_terms] == [
         "BACC:0000001",
         host_source_type,
     ]
-    assert result.reasoning[-1].node == "host_lineage_derivation"
-    assert ("conflicting" in result.reasoning[-1].reasoning) == (model_source_type == "plant host")
+    assert result.isolation_source.reasoning[-1].node == "host_lineage_derivation"
+    assert ("conflicting" in result.isolation_source.reasoning[-1].reasoning) == (
+        model_source_type == "plant host"
+    )
 
 
 def test_host_only_metazoa_lineage_is_deterministic_without_classification(
@@ -216,13 +125,12 @@ def test_host_only_metazoa_lineage_is_deterministic_without_classification(
     fixture_isolation_source_prompt_policy,
 ) -> None:
     client = ScriptedClient(_classifier_answer("environmental"))
-    coordinator = _coordinator(
+    with _coordinator(
         standardization_fixture_resources,
         fixture_host_policy,
         fixture_isolation_source_prompt_policy,
         client=client,
-    )
-    try:
+    ) as coordinator:
         result = coordinator.standardize(
             {
                 "accession": "HOST_ONLY_DETERMINISTIC",
@@ -230,13 +138,11 @@ def test_host_only_metazoa_lineage_is_deterministic_without_classification(
                 "host_val_orig": "human",
             }
         )
-    finally:
-        coordinator.close()
 
     assert result.isolation_source.selected_terms[-1].term_id == HUMAN_HOST
-    assert result.reasoning[-1].node == "host_lineage_derivation"
-    assert result.evidence_level.value == "sample"
-    assert result.routing.isolation_source.value == "deterministic"
+    assert result.isolation_source.reasoning[-1].node == "host_lineage_derivation"
+    assert result.isolation_source.evidence_level.value == "sample"
+    assert result.isolation_source.cache_hits == 0
     assert client.calls == 0
 
 
@@ -246,28 +152,29 @@ def test_host_lineage_refinement_applies_after_cache_hit(
     fixture_isolation_source_prompt_policy,
 ) -> None:
     client = ScriptedClient(_classifier_answer("host-associated"))
-    coordinator = _coordinator(
-        standardization_fixture_resources,
-        fixture_host_policy,
-        fixture_isolation_source_prompt_policy,
-        client=client,
-    )
     record = {
         "host_attr_orig": "host",
         "host_val_orig": "human",
         "iso_attr_orig": "isolation_source",
         "iso_val_orig": "unresolved material 12345",
     }
-    try:
+    with _coordinator(
+        standardization_fixture_resources,
+        fixture_host_policy,
+        fixture_isolation_source_prompt_policy,
+        client=client,
+    ) as coordinator:
         first = coordinator.standardize({"accession": "CACHE_FIRST", **record})
         second = coordinator.standardize({"accession": "CACHE_SECOND", **record})
-    finally:
-        coordinator.close()
 
     assert client.calls == 1
-    assert second.routing.isolation_source.value == "cache"
+    assert second.isolation_source.cache_hits
     assert second.isolation_source.selected_terms[-1].term_id == HUMAN_HOST
-    assert first.reasoning[-1].node == second.reasoning[-1].node == "host_lineage_derivation"
+    assert (
+        first.isolation_source.reasoning[-1].node
+        == second.isolation_source.reasoning[-1].node
+        == "host_lineage_derivation"
+    )
 
 
 def test_recovered_host_lineage_preserves_food_source(
@@ -275,12 +182,11 @@ def test_recovered_host_lineage_preserves_food_source(
     fixture_host_policy,
     fixture_isolation_source_prompt_policy,
 ) -> None:
-    host_coordinator = _coordinator(
+    with _coordinator(
         standardization_fixture_resources,
         fixture_host_policy,
         fixture_isolation_source_prompt_policy,
-    )
-    try:
+    ) as host_coordinator:
         host_result = host_coordinator.standardize(
             {
                 "accession": "RECOVERED_HOST",
@@ -288,19 +194,16 @@ def test_recovered_host_lineage_preserves_food_source(
                 "iso_val_orig": "human",
             }
         )
-    finally:
-        host_coordinator.close()
 
     food_client = ScriptedClient(
         {**_classifier_answer("food or feed"), "source_type": [], "food_type": ["meat product"]}
     )
-    food_coordinator = _coordinator(
+    with _coordinator(
         standardization_fixture_resources,
         fixture_host_policy,
         fixture_isolation_source_prompt_policy,
         client=food_client,
-    )
-    try:
+    ) as food_coordinator:
         food_result = food_coordinator.standardize(
             {
                 "accession": "RECOVERED_FOOD_HOST",
@@ -308,13 +211,11 @@ def test_recovered_host_lineage_preserves_food_source(
                 "iso_val_orig": "human meat 24680",
             }
         )
-    finally:
-        food_coordinator.close()
 
     assert host_result.routing.host_recovery.value == "resolved"
     assert host_result.host.standardized.taxid == 9606
     assert host_result.isolation_source.selected_terms[-1].term_id == HUMAN_HOST
-    assert host_result.reasoning[-1].node == "host_lineage_derivation"
+    assert host_result.isolation_source.reasoning[-1].node == "host_lineage_derivation"
     assert food_result.routing.host_recovery.value == "resolved"
     assert food_result.host.standardized.taxid == 9606
     assert FOOD_OR_FEED in {term.term_id for term in food_result.isolation_source.selected_terms}
@@ -327,13 +228,12 @@ def test_host_lineage_adds_the_host_source_type_to_a_non_source_value(
     fixture_isolation_source_prompt_policy,
 ) -> None:
     client = ScriptedClient(_classifier_answer("laboratory strain"))
-    coordinator = _coordinator(
+    with _coordinator(
         standardization_fixture_resources,
         fixture_host_policy,
         fixture_isolation_source_prompt_policy,
         client=client,
-    )
-    try:
+    ) as coordinator:
         result = coordinator.standardize(
             {
                 "accession": "NON_SOURCE_WITH_HOST",
@@ -343,8 +243,6 @@ def test_host_lineage_adds_the_host_source_type_to_a_non_source_value(
                 "iso_val_orig": "plasmid DNA",
             }
         )
-    finally:
-        coordinator.close()
 
     assert client.calls == 0
     assert {term.term_id for term in result.isolation_source.selected_terms} == {
@@ -359,13 +257,12 @@ def test_host_lineage_adds_no_host_source_type_to_food(
     fixture_isolation_source_prompt_policy,
 ) -> None:
     client = ScriptedClient({**_classifier_answer(None), "food_type": ["meat product"]})
-    coordinator = _coordinator(
+    with _coordinator(
         standardization_fixture_resources,
         fixture_host_policy,
         fixture_isolation_source_prompt_policy,
         client=client,
-    )
-    try:
+    ) as coordinator:
         result = coordinator.standardize(
             {
                 "accession": "FOOD_WITH_HOST",
@@ -375,8 +272,6 @@ def test_host_lineage_adds_no_host_source_type_to_food(
                 "iso_val_orig": "chicken breast 97531",
             }
         )
-    finally:
-        coordinator.close()
 
     selected_ids = {term.term_id for term in result.isolation_source.selected_terms}
     assert result.host.standardized.taxid == 9031
@@ -390,13 +285,12 @@ def test_laboratory_strain_in_organism_name_adds_laboratory(
     fixture_isolation_source_prompt_policy,
 ) -> None:
     client = ScriptedClient(_classifier_answer(None))
-    coordinator = _coordinator(
+    with _coordinator(
         standardization_fixture_resources,
         fixture_host_policy,
         fixture_isolation_source_prompt_policy,
         client=client,
-    )
-    try:
+    ) as coordinator:
         result = coordinator.standardize(
             {
                 "accession": "SAMN48918554",
@@ -405,11 +299,9 @@ def test_laboratory_strain_in_organism_name_adds_laboratory(
                 "iso_val_orig": "unresolved material 31415",
             }
         )
-    finally:
-        coordinator.close()
 
     assert [term.term_id for term in result.isolation_source.selected_terms] == [LABORATORY]
-    assert result.reasoning[-1].node == "laboratory_strain"
+    assert result.isolation_source.reasoning[-1].node == "laboratory_strain"
     assert "unspecified" not in result.diagnostics.isolation_source
 
 
@@ -424,13 +316,12 @@ def test_laboratory_strain_needs_no_isolation_source_value(
     expected: set[str],
 ) -> None:
     client = ScriptedClient(_classifier_answer("environmental"))
-    coordinator = _coordinator(
+    with _coordinator(
         standardization_fixture_resources,
         fixture_host_policy,
         fixture_isolation_source_prompt_policy,
         client=client,
-    )
-    try:
+    ) as coordinator:
         result = coordinator.standardize(
             {
                 "accession": "K12_WITHOUT_VALUE",
@@ -439,12 +330,10 @@ def test_laboratory_strain_needs_no_isolation_source_value(
                 "host_val_orig": host,
             }
         )
-    finally:
-        coordinator.close()
 
     assert {term.term_id for term in result.isolation_source.selected_terms} == expected
-    assert result.routing.isolation_source.value == "deterministic"
-    assert result.evidence_level.value == "sample"
+    assert result.isolation_source.cache_hits == 0
+    assert result.isolation_source.evidence_level.value == "sample"
     assert client.calls == 0
 
 
@@ -453,19 +342,16 @@ def test_other_strain_gets_no_laboratory(
     fixture_host_policy,
     fixture_isolation_source_prompt_policy,
 ) -> None:
-    coordinator = _coordinator(
+    with _coordinator(
         standardization_fixture_resources,
         fixture_host_policy,
         fixture_isolation_source_prompt_policy,
-    )
-    try:
+    ) as coordinator:
         result = coordinator.standardize(
             {"accession": "ATCC_STRAIN", "ncbi_organism": "Escherichia coli ATCC 25922"}
         )
-    finally:
-        coordinator.close()
 
-    assert result.routing.isolation_source.value == "rejected"
+    assert isinstance(result.isolation_source, IsolationSourceRejection)
 
 
 @pytest.mark.parametrize(
@@ -486,20 +372,17 @@ def test_laboratory_strain_in_strain_attribute(
     strain: str,
     expected: set[str] | None,
 ) -> None:
-    coordinator = _coordinator(
+    with _coordinator(
         standardization_fixture_resources,
         fixture_host_policy,
         fixture_isolation_source_prompt_policy,
-    )
-    try:
+    ) as coordinator:
         result = coordinator.standardize(
             {"accession": "STRAIN", "ncbi_organism": organism, "strain": strain}
         )
-    finally:
-        coordinator.close()
 
     if expected is None:
-        assert result.routing.isolation_source.value == "rejected"
+        assert isinstance(result.isolation_source, IsolationSourceRejection)
     else:
         assert {term.term_id for term in result.isolation_source.selected_terms} == expected
 
