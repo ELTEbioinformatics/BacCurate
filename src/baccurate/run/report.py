@@ -131,6 +131,11 @@ class RunReport:
                 "prompt_snapshot": (
                     str(outputs.prompt_snapshot) if outputs.prompt_snapshot is not None else None
                 ),
+                "location_review_worklist": (
+                    str(outputs.location_review_worklist)
+                    if outputs.location_review_worklist is not None
+                    else None
+                ),
             },
             "timings": self._timings,
             "llm": self._llm_observability.snapshot(),

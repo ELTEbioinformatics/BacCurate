@@ -8,7 +8,7 @@ from baccurate.run.location_review_worklist import LOCATION_REVIEW_WORKLIST_FILE
 
 @dataclass(frozen=True, slots=True)
 class RunOutputs:
-    """The complete set of files this run writes."""
+    """The files this run writes to its run folder, without the extraction files."""
 
     dataset: Path
     log: Path

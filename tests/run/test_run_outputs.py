@@ -121,6 +121,7 @@ def test_run_report_records_prompt_snapshot_path_and_hash(tmp_path: Path) -> Non
         "extracted_input",
         "isolation_source_reasoning",
         "prompt_snapshot",
+        "location_review_worklist",
     }
     assert run_report["outputs"]["run_report"] == str(outputs.run_report)
     assert run_report["outputs"]["prompt_snapshot"] == str(outputs.prompt_snapshot)
