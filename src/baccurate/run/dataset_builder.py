@@ -6,7 +6,7 @@ import logging
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import ExitStack
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Protocol, TextIO
 
@@ -32,19 +32,8 @@ from baccurate.run.statistics import (
     LocationStatistics,
     invented_label_inventory,
 )
-from baccurate.standardization.collection_date import (
-    DateDiagnostic,
-    DatePrecision,
-    DateStructure,
-    RecordDates,
-    RecordDateStandardizer,
-)
-from baccurate.standardization.host import (
-    HostConfig,
-    HostDiagnostic,
-    HostOutcome,
-    HostStandardizer,
-)
+from baccurate.standardization.collection_date import RecordDates, RecordDateStandardizer
+from baccurate.standardization.host import HostConfig, HostOutcome, HostStandardizer
 from baccurate.standardization.host_isolation_source import (
     HostInitialRouting,
     HostIsolationSourceStandardizer,
@@ -52,8 +41,6 @@ from baccurate.standardization.host_isolation_source import (
 )
 from baccurate.standardization.host_lineage import HostLineage, HostLineageEnricher
 from baccurate.standardization.isolation_source import (
-    IsolationSourceDiagnostic,
-    IsolationSourceEvidenceLevel,
     IsolationSourceOntologyGapDiagnostic,
     IsolationSourceOutcome,
     IsolationSourceRejection,
@@ -68,7 +55,6 @@ from baccurate.standardization.location import (
     LocationDiagnostic,
     LocationOutcome,
     LocationRejection,
-    LocationResolutionRoute,
     LocationStandardizer,
 )
 from baccurate.targets import (
@@ -84,8 +70,16 @@ from baccurate.taxon_registry.species_label_matching import NA
 logger = logging.getLogger(__name__)
 
 
-def _sum_counts[Key: str](counts: Iterable[Counter[Key]]) -> dict[Key, int]:
-    return dict(sorted(sum(counts, Counter()).items()))
+def _aggregate[Statistics](by_taxon: Mapping[str, Statistics], total: Statistics) -> Statistics:
+    """Add the integer and ``Counter`` fields of each per-taxon statistics into ``total``."""
+    for statistics in by_taxon.values():
+        for count_field in fields(total):
+            count = getattr(total, count_field.name)
+            if isinstance(count, Counter):
+                count.update(getattr(statistics, count_field.name))
+            elif isinstance(count, int):
+                setattr(total, count_field.name, count + getattr(statistics, count_field.name))
+    return total
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,56 +106,6 @@ class DatasetBuildRequest:
     logger: logging.Logger = field(default_factory=lambda: logger)
     disable_progress: bool = False
     progress: DatasetBuildProgress = field(default_factory=DatasetBuildProgress)
-
-
-@dataclass(slots=True)
-class _MutableDateStatistics:
-    processed: int = 0
-    standardized: int = 0
-    rejected: int = 0
-    structures: Counter[DateStructure] = field(default_factory=Counter)
-    precisions: Counter[DatePrecision] = field(default_factory=Counter)
-    date_diagnostics: Counter[str] = field(default_factory=Counter)
-
-
-@dataclass(slots=True)
-class _MutableLocationStatistics:
-    processed: int = 0
-    standardized: int = 0
-    rejected: int = 0
-    coordinate_decodes: int = 0
-    insdc_term_matches: int = 0
-    country_conversion_matches: int = 0
-    reviewed_mapping_matches: int = 0
-    resolution_routes: Counter[LocationResolutionRoute] = field(default_factory=Counter)
-    diagnostics: Counter[LocationDiagnostic] = field(default_factory=Counter)
-
-
-@dataclass(slots=True)
-class _MutableHostStatistics:
-    processed: int = 0
-    standardized: int = 0
-    rejected: int = 0
-    overflow: int = 0
-    needs_review: int = 0
-    host_recovery_passes: int = 0
-    diagnostics: Counter[HostDiagnostic] = field(default_factory=Counter)
-
-
-@dataclass(slots=True)
-class _MutableIsolationSourceStatistics:
-    processed: int = 0
-    standardized: int = 0
-    rejected: int = 0
-    exact_matches: int = 0
-    cache_hits: int = 0
-    llm_calls: int = 0
-    host_recovery_passes: int = 0
-    evidence_levels: Counter[IsolationSourceEvidenceLevel] = field(default_factory=Counter)
-    diagnostics: Counter[IsolationSourceDiagnostic] = field(default_factory=Counter)
-    ontology_gap_diagnostics: Counter[IsolationSourceOntologyGapDiagnostic] = field(
-        default_factory=Counter
-    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -514,24 +458,32 @@ class DatasetBuilder:
                 and host_lineage is not None
                 else None
             )
-            date_stats = (
-                {taxon: _MutableDateStatistics() for taxon in taxa} if date_standardizers else {}
-            )
+            date_stats = {
+                taxon: DateStatistics(
+                    diagnostics=standardizer.diagnostic_counts,
+                    parsed_date_rejections=standardizer.rejection_counts,
+                    notices=standardizer.notice_counts,
+                )
+                for taxon, standardizer in date_standardizers.items()
+            }
             location_stats = (
-                {taxon: _MutableLocationStatistics() for taxon in taxa}
+                {taxon: LocationStatistics() for taxon in taxa}
                 if location_standardizer is not None
                 else {}
             )
             host_stats = (
-                {taxon: _MutableHostStatistics() for taxon in taxa}
+                {taxon: HostStatistics() for taxon in taxa}
                 if StandardizationTarget.HOST in targets
                 else {}
             )
             isolation_source_stats = (
-                {taxon: _MutableIsolationSourceStatistics() for taxon in taxa}
+                {taxon: IsolationSourceStatistics() for taxon in taxa}
                 if isolation_source_standardizer is not None
                 else {}
             )
+            ontology_gaps: dict[str, Counter[IsolationSourceOntologyGapDiagnostic]] = {
+                taxon: Counter() for taxon in isolation_source_stats
+            }
             rows_written = 0
             try:
                 rows_written = self._process_extracted_records(
@@ -549,6 +501,7 @@ class DatasetBuilder:
                     location_review_worklist,
                     host_stats,
                     isolation_source_stats,
+                    ontology_gaps,
                     assembler,
                     writer,
                     reasoning_stream,
@@ -557,7 +510,6 @@ class DatasetBuilder:
                 request.progress.statistics = self._make_build_statistics(
                     destination,
                     date_stats,
-                    date_standardizers,
                     location_stats,
                     (
                         location_review_worklist.write(request.location_review_worklist_destination)
@@ -567,6 +519,7 @@ class DatasetBuilder:
                     ),
                     host_stats,
                     isolation_source_stats,
+                    ontology_gaps,
                     request.progress.rows_written,
                 )
         statistics = request.progress.statistics
@@ -637,11 +590,12 @@ class DatasetBuilder:
         host_standardizer: HostStandardizer | None,
         host_isolation_source_standardizer: HostIsolationSourceStandardizer | None,
         host_lineage: HostLineageEnricher | None,
-        date_stats: Mapping[str, _MutableDateStatistics],
-        location_stats: Mapping[str, _MutableLocationStatistics],
+        date_stats: Mapping[str, DateStatistics],
+        location_stats: Mapping[str, LocationStatistics],
         location_review_worklist: LocationReviewWorklist | None,
-        host_stats: Mapping[str, _MutableHostStatistics],
-        isolation_source_stats: Mapping[str, _MutableIsolationSourceStatistics],
+        host_stats: Mapping[str, HostStatistics],
+        isolation_source_stats: Mapping[str, IsolationSourceStatistics],
+        ontology_gaps: Mapping[str, Counter[IsolationSourceOntologyGapDiagnostic]],
         assembler: _FinalRowAssembler,
         writer: _RowWriter,
         reasoning_stream: TextIO | None,
@@ -747,9 +701,7 @@ class DatasetBuilder:
                     isolation_source_taxon_stats.diagnostics.update(
                         host_isolation_source_result.diagnostics.isolation_source
                     )
-                    isolation_source_taxon_stats.ontology_gap_diagnostics.update(
-                        isolation_source_result.ontology_gap_diagnostics
-                    )
+                    ontology_gaps[taxon].update(isolation_source_result.ontology_gap_diagnostics)
                     isolation_source_taxon_stats.host_recovery_passes += int(
                         host_isolation_source_result.routing.host_recovery
                         is not HostRecoveryRouting.NOT_ELIGIBLE
@@ -820,200 +772,49 @@ class DatasetBuilder:
     @staticmethod
     def _make_build_statistics(
         destination: Path,
-        date_stats: Mapping[str, _MutableDateStatistics],
-        date_standardizers: Mapping[str, RecordDateStandardizer],
-        location_stats: Mapping[str, _MutableLocationStatistics],
+        date_stats: Mapping[str, DateStatistics],
+        location_stats: Mapping[str, LocationStatistics],
         location_review_worklist: LocationReviewWorklistSummary | None,
-        host_stats: Mapping[str, _MutableHostStatistics],
-        isolation_source_stats: Mapping[str, _MutableIsolationSourceStatistics],
+        host_stats: Mapping[str, HostStatistics],
+        isolation_source_stats: Mapping[str, IsolationSourceStatistics],
+        ontology_gaps: Mapping[str, Counter[IsolationSourceOntologyGapDiagnostic]],
         rows_written: int,
     ) -> DatasetBuildStatistics:
-        date_statistics = DatasetBuilder._make_date_statistics(date_stats, date_standardizers)
-        location_statistics = DatasetBuilder._make_location_statistics(
-            location_stats,
-            location_review_worklist,
-        )
-        host_statistics = DatasetBuilder._make_host_statistics(host_stats)
-        isolation_source_statistics = DatasetBuilder._make_isolation_source_statistics(
-            isolation_source_stats
-        )
+        isolation_source_statistics = None
+        if isolation_source_stats:
+            for taxon, stats in isolation_source_stats.items():
+                stats.invented_labels = invented_label_inventory(ontology_gaps[taxon])
+            aggregate = _aggregate(isolation_source_stats, IsolationSourceStatistics())
+            aggregate.invented_labels = invented_label_inventory(
+                sum(ontology_gaps.values(), Counter())
+            )
+            isolation_source_statistics = IsolationSourceBuildStatistics(
+                aggregate, isolation_source_stats
+            )
         return DatasetBuildStatistics(
             final_destination=destination,
             rows_written=rows_written,
-            date=date_statistics,
-            location=location_statistics,
-            host=host_statistics,
+            date=(
+                DateBuildStatistics(_aggregate(date_stats, DateStatistics()), date_stats)
+                if date_stats
+                else None
+            ),
+            location=(
+                LocationBuildStatistics(
+                    _aggregate(location_stats, LocationStatistics()),
+                    location_stats,
+                    location_review_worklist,
+                )
+                if location_stats
+                else None
+            ),
+            host=(
+                HostBuildStatistics(_aggregate(host_stats, HostStatistics()), host_stats)
+                if host_stats
+                else None
+            ),
             isolation_source=isolation_source_statistics,
         )
-
-    @staticmethod
-    def _make_date_statistics(
-        mutable_stats: Mapping[str, _MutableDateStatistics],
-        standardizers: Mapping[str, RecordDateStandardizer],
-    ) -> DateBuildStatistics | None:
-        if not mutable_stats:
-            return None
-        by_taxon: dict[str, DateStatistics] = {}
-        aggregate_diagnostics: Counter[DateDiagnostic] = Counter()
-        aggregate_rejections: Counter[str] = Counter()
-        aggregate_notices: Counter[str] = Counter()
-        for taxon, stats in mutable_stats.items():
-            standardizer = standardizers[taxon]
-            rejection_counts = dict(sorted(standardizer.rejection_counts.items()))
-            notice_counts = dict(sorted(standardizer.notice_counts.items()))
-            aggregate_rejections.update(rejection_counts)
-            aggregate_notices.update(notice_counts)
-            aggregate_diagnostics.update(getattr(standardizer, "diagnostic_counts", {}))
-            by_taxon[taxon] = DateStatistics(
-                processed=stats.processed,
-                standardized=stats.standardized,
-                rejected=stats.rejected,
-                structures=dict(sorted(stats.structures.items())),
-                precisions=dict(sorted(stats.precisions.items())),
-                date_diagnostics=dict(sorted(stats.date_diagnostics.items())),
-                diagnostics=dict(sorted(getattr(standardizer, "diagnostic_counts", {}).items())),
-                parsed_date_rejections=rejection_counts,
-                notices=notice_counts,
-            )
-        aggregate = DateStatistics(
-            processed=sum(stats.processed for stats in mutable_stats.values()),
-            standardized=sum(stats.standardized for stats in mutable_stats.values()),
-            rejected=sum(stats.rejected for stats in mutable_stats.values()),
-            structures=_sum_counts(stats.structures for stats in mutable_stats.values()),
-            precisions=_sum_counts(stats.precisions for stats in mutable_stats.values()),
-            date_diagnostics=_sum_counts(
-                stats.date_diagnostics for stats in mutable_stats.values()
-            ),
-            diagnostics=dict(sorted(aggregate_diagnostics.items())),
-            parsed_date_rejections=dict(sorted(aggregate_rejections.items())),
-            notices=dict(sorted(aggregate_notices.items())),
-        )
-        return DateBuildStatistics(aggregate=aggregate, by_taxon=by_taxon)
-
-    @staticmethod
-    def _make_location_statistics(
-        mutable_stats: Mapping[str, _MutableLocationStatistics],
-        review_worklist: LocationReviewWorklistSummary | None,
-    ) -> LocationBuildStatistics | None:
-        if not mutable_stats:
-            return None
-
-        def freeze(stats: _MutableLocationStatistics) -> LocationStatistics:
-            return LocationStatistics(
-                processed=stats.processed,
-                standardized=stats.standardized,
-                rejected=stats.rejected,
-                coordinate_decodes=stats.coordinate_decodes,
-                insdc_term_matches=stats.insdc_term_matches,
-                country_conversion_matches=stats.country_conversion_matches,
-                reviewed_mapping_matches=stats.reviewed_mapping_matches,
-                resolution_routes=dict(sorted(stats.resolution_routes.items())),
-                diagnostics=dict(sorted(stats.diagnostics.items())),
-            )
-
-        by_taxon = {taxon: freeze(stats) for taxon, stats in mutable_stats.items()}
-        aggregate = LocationStatistics(
-            processed=sum(stats.processed for stats in mutable_stats.values()),
-            standardized=sum(stats.standardized for stats in mutable_stats.values()),
-            rejected=sum(stats.rejected for stats in mutable_stats.values()),
-            coordinate_decodes=sum(stats.coordinate_decodes for stats in mutable_stats.values()),
-            insdc_term_matches=sum(stats.insdc_term_matches for stats in mutable_stats.values()),
-            country_conversion_matches=sum(
-                stats.country_conversion_matches for stats in mutable_stats.values()
-            ),
-            reviewed_mapping_matches=sum(
-                stats.reviewed_mapping_matches for stats in mutable_stats.values()
-            ),
-            resolution_routes=_sum_counts(
-                stats.resolution_routes for stats in mutable_stats.values()
-            ),
-            diagnostics=_sum_counts(stats.diagnostics for stats in mutable_stats.values()),
-        )
-        return LocationBuildStatistics(
-            aggregate=aggregate,
-            by_taxon=by_taxon,
-            review_worklist=review_worklist,
-        )
-
-    @staticmethod
-    def _make_host_statistics(
-        mutable_stats: Mapping[str, _MutableHostStatistics],
-    ) -> HostBuildStatistics | None:
-        if not mutable_stats:
-            return None
-
-        def freeze(stats: _MutableHostStatistics) -> HostStatistics:
-            return HostStatistics(
-                processed=stats.processed,
-                standardized=stats.standardized,
-                rejected=stats.rejected,
-                overflow=stats.overflow,
-                needs_review=stats.needs_review,
-                host_recovery_passes=stats.host_recovery_passes,
-                diagnostics=dict(sorted(stats.diagnostics.items())),
-            )
-
-        by_taxon = {taxon: freeze(stats) for taxon, stats in mutable_stats.items()}
-        aggregate_diagnostics: Counter[HostDiagnostic] = Counter()
-        for stats in mutable_stats.values():
-            aggregate_diagnostics.update(stats.diagnostics)
-        aggregate = HostStatistics(
-            processed=sum(stats.processed for stats in mutable_stats.values()),
-            standardized=sum(stats.standardized for stats in mutable_stats.values()),
-            rejected=sum(stats.rejected for stats in mutable_stats.values()),
-            overflow=sum(stats.overflow for stats in mutable_stats.values()),
-            needs_review=sum(stats.needs_review for stats in mutable_stats.values()),
-            host_recovery_passes=sum(
-                stats.host_recovery_passes for stats in mutable_stats.values()
-            ),
-            diagnostics=dict(sorted(aggregate_diagnostics.items())),
-        )
-        return HostBuildStatistics(aggregate=aggregate, by_taxon=by_taxon)
-
-    @staticmethod
-    def _make_isolation_source_statistics(
-        mutable_stats: Mapping[str, _MutableIsolationSourceStatistics],
-    ) -> IsolationSourceBuildStatistics | None:
-        if not mutable_stats:
-            return None
-
-        def freeze(stats: _MutableIsolationSourceStatistics) -> IsolationSourceStatistics:
-            return IsolationSourceStatistics(
-                processed=stats.processed,
-                standardized=stats.standardized,
-                rejected=stats.rejected,
-                exact_matches=stats.exact_matches,
-                cache_hits=stats.cache_hits,
-                llm_calls=stats.llm_calls,
-                host_recovery_passes=stats.host_recovery_passes,
-                evidence_levels=dict(sorted(stats.evidence_levels.items())),
-                diagnostics=dict(sorted(stats.diagnostics.items())),
-                invented_labels=invented_label_inventory(stats.ontology_gap_diagnostics),
-            )
-
-        by_taxon = {taxon: freeze(stats) for taxon, stats in mutable_stats.items()}
-        aggregate_diagnostics: Counter[IsolationSourceDiagnostic] = Counter()
-        aggregate_evidence_levels: Counter[IsolationSourceEvidenceLevel] = Counter()
-        aggregate_ontology_gaps: Counter[IsolationSourceOntologyGapDiagnostic] = Counter()
-        for stats in mutable_stats.values():
-            aggregate_diagnostics.update(stats.diagnostics)
-            aggregate_evidence_levels.update(stats.evidence_levels)
-            aggregate_ontology_gaps.update(stats.ontology_gap_diagnostics)
-        aggregate = IsolationSourceStatistics(
-            processed=sum(stats.processed for stats in mutable_stats.values()),
-            standardized=sum(stats.standardized for stats in mutable_stats.values()),
-            rejected=sum(stats.rejected for stats in mutable_stats.values()),
-            exact_matches=sum(stats.exact_matches for stats in mutable_stats.values()),
-            cache_hits=sum(stats.cache_hits for stats in mutable_stats.values()),
-            llm_calls=sum(stats.llm_calls for stats in mutable_stats.values()),
-            host_recovery_passes=sum(
-                stats.host_recovery_passes for stats in mutable_stats.values()
-            ),
-            evidence_levels=dict(sorted(aggregate_evidence_levels.items())),
-            diagnostics=dict(sorted(aggregate_diagnostics.items())),
-            invented_labels=invented_label_inventory(aggregate_ontology_gaps),
-        )
-        return IsolationSourceBuildStatistics(aggregate=aggregate, by_taxon=by_taxon)
 
 
 def _require_columns(

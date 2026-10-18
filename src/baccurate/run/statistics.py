@@ -29,19 +29,19 @@ class DatasetBuildProgress:
     statistics: "DatasetBuildStatistics | None" = None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class DateStatistics:
     """Collection-date counts, either overall or for a single taxon."""
 
-    processed: int
-    standardized: int
-    rejected: int
-    structures: Mapping[DateStructure, int]
-    precisions: Mapping[DatePrecision, int]
-    date_diagnostics: Mapping[str, int]
-    diagnostics: Mapping[DateDiagnostic, int]
-    parsed_date_rejections: Mapping[str, int]
-    notices: Mapping[str, int]
+    processed: int = 0
+    standardized: int = 0
+    rejected: int = 0
+    structures: Counter[DateStructure] = field(default_factory=Counter)
+    precisions: Counter[DatePrecision] = field(default_factory=Counter)
+    date_diagnostics: Counter[str] = field(default_factory=Counter)
+    diagnostics: Counter[DateDiagnostic] = field(default_factory=Counter)
+    parsed_date_rejections: Counter[str] = field(default_factory=Counter)
+    notices: Counter[str] = field(default_factory=Counter)
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,21 +64,21 @@ class DatasetBuildStatistics:
     isolation_source: "IsolationSourceBuildStatistics | None"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class LocationStatistics:
     """Location counts, either overall or for a single taxon."""
 
-    processed: int
-    standardized: int
-    rejected: int
-    coordinate_decodes: int
-    insdc_term_matches: int
-    country_conversion_matches: int
-    reviewed_mapping_matches: int
+    processed: int = 0
+    standardized: int = 0
+    rejected: int = 0
+    coordinate_decodes: int = 0
+    insdc_term_matches: int = 0
+    country_conversion_matches: int = 0
+    reviewed_mapping_matches: int = 0
     # This counter counts standardized records.
     # Each record has one route and no per-pair counter can give this count.
-    resolution_routes: Mapping[LocationResolutionRoute, int]
-    diagnostics: Mapping[LocationDiagnostic, int]
+    resolution_routes: Counter[LocationResolutionRoute] = field(default_factory=Counter)
+    diagnostics: Counter[LocationDiagnostic] = field(default_factory=Counter)
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,17 +94,17 @@ class LocationBuildStatistics:
     review_worklist: LocationReviewWorklistSummary | None = None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class HostStatistics:
     """Host counts, either overall or for a single taxon."""
 
-    processed: int
-    standardized: int
-    rejected: int
-    overflow: int
-    needs_review: int
-    host_recovery_passes: int
-    diagnostics: Mapping[HostDiagnostic, int]
+    processed: int = 0
+    standardized: int = 0
+    rejected: int = 0
+    overflow: int = 0
+    needs_review: int = 0
+    host_recovery_passes: int = 0
+    diagnostics: Counter[HostDiagnostic] = field(default_factory=Counter)
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,19 +123,19 @@ class InventedLabelStatistics:
     accessions: Mapping[str, int]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class IsolationSourceStatistics:
     """Isolation-source counts, either overall or for a single taxon."""
 
-    processed: int
-    standardized: int
-    rejected: int
-    exact_matches: int
-    cache_hits: int
-    llm_calls: int
-    host_recovery_passes: int
-    evidence_levels: Mapping[IsolationSourceEvidenceLevel, int]
-    diagnostics: Mapping[IsolationSourceDiagnostic, int]
+    processed: int = 0
+    standardized: int = 0
+    rejected: int = 0
+    exact_matches: int = 0
+    cache_hits: int = 0
+    llm_calls: int = 0
+    host_recovery_passes: int = 0
+    evidence_levels: Counter[IsolationSourceEvidenceLevel] = field(default_factory=Counter)
+    diagnostics: Counter[IsolationSourceDiagnostic] = field(default_factory=Counter)
     invented_labels: Mapping[str, Mapping[str, InventedLabelStatistics]] = field(
         default_factory=dict
     )
