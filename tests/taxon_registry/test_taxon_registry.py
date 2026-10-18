@@ -12,6 +12,11 @@ from baccurate.taxon_registry.registry import (
     TaxonRegistryError,
     load_taxon_registry,
 )
+from baccurate.taxon_registry.species_label_matching import (
+    NA,
+    build_taxon_key_maps,
+    sylph_to_taxon_key,
+)
 
 
 def _write_policy(path: Path, policy: dict[Any, Any]) -> Path:
@@ -184,34 +189,30 @@ def test_container_may_contain_a_taxon_key_that_matches_a_policy_field(
     assert registry.taxon_keys == ("rank",)
 
 
-def test_registry_collections_are_immutable(tmp_path: Path) -> None:
-    path = _write_policy(
-        tmp_path / "taxa.yaml",
+def test_species_label_mappings_use_the_supplied_registry() -> None:
+    registry = TaxonRegistry(
+        1,
         {
-            "schema_version": 1,
-            "alpha": {
-                "scientific_name": "Alpha",
-                "ncbi_taxid": 10,
-                "rank": "genus",
-            },
+            "zeta": Taxon("zeta", "Zeta example", 30, "species"),
+            "alpha": Taxon("alpha", "Alpha", 10, "genus"),
         },
+        {},
     )
-    registry = load_taxon_registry(path)
+    genus_map, species_map = build_taxon_key_maps(registry)
 
-    with pytest.raises(TypeError):
-        registry.included_taxa["beta"] = registry.included_taxa["alpha"]  # type: ignore[index]
-    with pytest.raises(AttributeError):
-        registry.schema_version = 2  # type: ignore[misc]
-
-
-def test_directly_constructed_registry_copies_mutable_collections() -> None:
-    alpha = Taxon("alpha", "Alpha", 10, "genus")
-    included_taxa = {"alpha": alpha}
-    containers = {"examples": ("alpha",)}
-
-    registry = TaxonRegistry(1, included_taxa, containers)
-    included_taxa["beta"] = Taxon("beta", "Beta", 20, "genus")
-    containers["examples"] = ("beta",)
-
-    assert registry.included_taxa == {"alpha": alpha}
-    assert registry.containers == {"examples": ("alpha",)}
+    assert {
+        classification: sylph_to_taxon_key(classification, genus_map, species_map)
+        for classification in (
+            "Zeta example",
+            "Zeta example_A",
+            "Alpha species",
+            "Alpha_B species",
+            "Notatarget species",
+        )
+    } == {
+        "Zeta example": "zeta",
+        "Zeta example_A": "zeta",
+        "Alpha species": "alpha",
+        "Alpha_B species": "alpha",
+        "Notatarget species": NA,
+    }

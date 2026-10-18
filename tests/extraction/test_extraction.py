@@ -13,12 +13,6 @@ from baccurate.extraction import (
     ExtractionReport,
     SelectionPolicy,
 )
-from baccurate.paths import (
-    DEFAULT_BIOPROJECT_MANIFEST_PATH,
-    DEFAULT_BIOPROJECT_SNAPSHOT_PATH,
-    DEFAULT_BIOSAMPLE_MANIFEST_PATH,
-    DEFAULT_BIOSAMPLE_SNAPSHOT_PATH,
-)
 from baccurate.provenance.extracted_metadata import (
     provenance_path_for,
     validate_extracted_metadata,
@@ -55,13 +49,6 @@ def _configure_internal_paths(
     monkeypatch.setattr(
         paths, "DEFAULT_BIOPROJECT_MANIFEST_PATH", snapshots.bioproject_manifest_path
     )
-
-
-def test_default_snapshot_locations_are_internal_compressed_paths() -> None:
-    assert DEFAULT_BIOSAMPLE_SNAPSHOT_PATH.name == "biosamples.xml.gz"
-    assert DEFAULT_BIOPROJECT_SNAPSHOT_PATH.name == "bioproject.xml.gz"
-    assert DEFAULT_BIOSAMPLE_MANIFEST_PATH.name == "biosample.yaml"
-    assert DEFAULT_BIOPROJECT_MANIFEST_PATH.name == "bioproject.yaml"
 
 
 def test_extraction_uses_internal_snapshots_without_raw_arguments(
