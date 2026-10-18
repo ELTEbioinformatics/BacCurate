@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import csv
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 from pathlib import Path
 
 from lxml import etree
@@ -40,30 +39,6 @@ def resolve_bioproject_accessions(
             finally:
                 _clear_bioproject_record(bioproject_record)
     return accession_by_id
-
-
-def write_unresolved_bioproject_links(
-    linked_samples: Mapping[str, set[str]],
-    resolved_ids: Iterable[str],
-    destination: Path | str,
-) -> Path | None:
-    """Write missing linked IDs with counts and representative BioSamples.
-
-    Returns the written path, or None when every link resolved and no
-    artifact was produced.
-    """
-    unresolved_ids = linked_samples.keys() - set(resolved_ids)
-    if not unresolved_ids:
-        return None
-    path = Path(destination)
-    with path.open("w", encoding="utf-8", newline="") as stream:
-        writer = csv.writer(stream, delimiter="\t", lineterminator="\n")
-        writer.writerow(("bioproject_id", "count", "representative_biosample_accessions"))
-        for project_id in sorted(unresolved_ids):
-            accessions = sorted(linked_samples[project_id])
-            representatives = "||".join(accessions[:3])
-            writer.writerow((project_id, len(accessions), representatives))
-    return path
 
 
 def _clear_bioproject_record(bioproject_record: etree._Element) -> None:

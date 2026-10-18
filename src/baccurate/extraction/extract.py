@@ -10,10 +10,7 @@ from datetime import date
 from pathlib import Path
 
 from baccurate import paths
-from baccurate.extraction.bioproject import (
-    resolve_bioproject_accessions,
-    write_unresolved_bioproject_links,
-)
+from baccurate.extraction.bioproject import resolve_bioproject_accessions
 from baccurate.extraction.io import InclusionRoute, load_taxon_map
 from baccurate.extraction.manual_review import ReviewWorklists
 from baccurate.extraction.selection import SelectionPolicy
@@ -125,13 +122,10 @@ def run_extraction(
         provenance.write(temporary_provenance_path)
 
         review_worklist_paths = review_worklists.write(output_path.parent)
-        unresolved_path = write_unresolved_bioproject_links(
-            linked_project_samples,
-            accession_by_bioproject_id.keys(),
-            output_path.parent / "unresolved_bioproject_links.tsv",
+        logger.info(
+            "Linked BioProject IDs without an accession in the BioProject XML: %d",
+            len(linked_project_samples.keys() - accession_by_bioproject_id.keys()),
         )
-        if unresolved_path is not None:
-            review_worklist_paths["unresolved_bioproject_links"] = unresolved_path
         if review_worklists.has_unreviewed:
             logger.warning(
                 "Unreviewed metadata attributes were excluded. See unreviewed_attributes.tsv"

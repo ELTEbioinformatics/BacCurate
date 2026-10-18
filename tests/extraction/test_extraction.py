@@ -353,9 +353,10 @@ def test_extraction_writes_extracted_metadata_provenance(
     assert snapshot_pair.bioproject.snapshot_id == "bioproject-test"
 
 
-def test_extraction_preserves_linked_project_sets_and_unresolved_evidence(
+def test_extraction_preserves_linked_project_sets_and_logs_unresolved_count(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
     paired_snapshots,
 ) -> None:
     snapshots = paired_snapshots
@@ -412,10 +413,11 @@ def test_extraction_preserves_linked_project_sets_and_unresolved_evidence(
     )
     extracted = tmp_path / "linked_sets.tsv"
 
-    report = run_extraction(
-        output_path=extracted,
-        index_path=index,
-    )
+    with caplog.at_level("INFO", logger="baccurate.extraction.extract"):
+        report = run_extraction(
+            output_path=extracted,
+            index_path=index,
+        )
 
     with extracted.open(newline="", encoding="utf-8") as stream:
         rows = {row["accession"]: row for row in csv.DictReader(stream, delimiter="\t")}
@@ -424,13 +426,11 @@ def test_extraction_preserves_linked_project_sets_and_unresolved_evidence(
     assert rows["SAMN00000003"]["bioproject_accession"] == ""
     assert rows["SAMN00000004"]["bioproject_accession"] == ""
     assert "SAMN00000005" not in rows
-    unresolved = tmp_path / "unresolved_bioproject_links.tsv"
-    assert report.review_worklist_paths["unresolved_bioproject_links"] == unresolved
-    assert unresolved.read_text(encoding="utf-8") == (
-        "bioproject_id\tcount\trepresentative_biosample_accessions\n"
-        "98\t1\tSAMN00000003\n"
-        "99\t1\tSAMN00000002\n"
-    )
+    assert not (tmp_path / "unresolved_bioproject_links.tsv").exists()
+    assert "unresolved_bioproject_links" not in report.review_worklist_paths
+    assert [
+        record.getMessage() for record in caplog.records if "BioProject IDs" in record.getMessage()
+    ] == ["Linked BioProject IDs without an accession in the BioProject XML: 2"]
 
 
 def test_equivalent_link_and_project_order_produces_byte_stable_data_artifacts(
