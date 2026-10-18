@@ -126,7 +126,7 @@ def run_extraction(
             "Linked BioProject IDs without an accession in the BioProject XML: %d",
             len(linked_project_samples.keys() - accession_by_bioproject_id.keys()),
         )
-        if review_worklists.has_unreviewed:
+        if review_worklists.unreviewed_count:
             logger.warning(
                 "Unreviewed metadata attributes were excluded. See unreviewed_attributes.tsv"
             )

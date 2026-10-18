@@ -12,56 +12,33 @@ from pathlib import Path
 from baccurate.extraction.selection import SelectionDecision
 
 _REPRESENTATIVE_LIMIT = 3
-_UNREVIEWED_COLUMNS = (
+_SELECTION_REVIEW_KINDS = ("unreviewed_attribute", "uncertain_rejection")
+_SELECTION_REVIEW_COLUMNS = (
+    "kind",
     "target",
     "family",
     "normalized_attribute",
-    "count",
-    "representative_examples",
-)
-_UNCERTAIN_COLUMNS = (
-    "target",
-    "family",
     "normalized_value",
     "count",
     "representative_examples",
 )
 
 
-def _remember[Representative](
-    representatives: set[Representative], example: Representative
-) -> None:
+def keep_representative[Example](examples: set[Example], example: Example) -> None:
     """Keep up to three examples, chosen consistently regardless of input order."""
-    representatives.add(example)
-    if len(representatives) > _REPRESENTATIVE_LIMIT:
-        representatives.remove(max(representatives))
+    examples.add(example)
+    if len(examples) > _REPRESENTATIVE_LIMIT:
+        examples.remove(max(examples))
 
 
 @dataclass(slots=True)
-class _UnreviewedBucket:
+class _ReviewBucket:
     count: int = 0
     examples: set[tuple[str, str, str]] = field(default_factory=set)
 
     def add(self, decision: SelectionDecision, accession: str) -> None:
         self.count += 1
-        _remember(self.examples, (decision.attribute, decision.value, accession))
-
-    def render_examples(self) -> str:
-        examples = [
-            {"attribute": attribute, "value": value, "accession": accession}
-            for attribute, value, accession in sorted(self.examples)
-        ]
-        return json.dumps(examples, ensure_ascii=False)
-
-
-@dataclass(slots=True)
-class _UncertainBucket:
-    count: int = 0
-    examples: set[tuple[str, str, str]] = field(default_factory=set)
-
-    def add(self, decision: SelectionDecision, accession: str) -> None:
-        self.count += 1
-        _remember(self.examples, (decision.attribute, decision.value, accession))
+        keep_representative(self.examples, (decision.attribute, decision.value, accession))
 
     def render_examples(self) -> str:
         examples = [
@@ -75,23 +52,18 @@ class ReviewWorklists:
     """Collect counts and examples for the review worklists written after extraction."""
 
     def __init__(self) -> None:
-        self._unreviewed: dict[tuple[str, str, str], _UnreviewedBucket] = {}
-        self._uncertain: dict[tuple[str, str, str], _UncertainBucket] = {}
+        self._buckets: dict[tuple[str, str, str, str, str], _ReviewBucket] = {}
         self._automatic_rejections: Counter[tuple[str, str]] = Counter()
-
-    @property
-    def has_unreviewed(self) -> bool:
-        return bool(self._unreviewed)
 
     @property
     def unreviewed_count(self) -> int:
         """Return the number of unreviewed attribute occurrences."""
-        return sum(bucket.count for bucket in self._unreviewed.values())
+        return self._count("unreviewed_attribute")
 
     @property
     def uncertain_count(self) -> int:
         """Return the number of uncertain rejection occurrences."""
-        return sum(bucket.count for bucket in self._uncertain.values())
+        return self._count("uncertain_rejection")
 
     @property
     def automatic_rejection_counts(self) -> dict[str, dict[str, int]]:
@@ -103,26 +75,26 @@ class ReviewWorklists:
 
     def observe(self, decision: SelectionDecision, *, accession: str) -> None:
         for event in decision.events:
-            if event.kind == "unreviewed_attribute":
-                key = (event.target, event.family, event.normalized_attribute)
-                self._unreviewed.setdefault(key, _UnreviewedBucket()).add(decision, accession)
-            elif event.kind == "uncertain_rejection":
-                key = (event.target, event.family, event.normalized_value)
-                self._uncertain.setdefault(key, _UncertainBucket()).add(decision, accession)
+            if event.kind in _SELECTION_REVIEW_KINDS:
+                key = (
+                    event.kind,
+                    event.target,
+                    event.family,
+                    event.normalized_attribute,
+                    event.normalized_value,
+                )
+                self._buckets.setdefault(key, _ReviewBucket()).add(decision, accession)
             elif event.kind == "rejected_value":
                 self._automatic_rejections[(event.target, event.family)] += 1
 
     def write(self, directory: Path) -> dict[str, Path]:
-        unreviewed_path = directory / "unreviewed_attributes.tsv"
-        uncertain_path = directory / "uncertain_rejections.tsv"
-        self._write_unreviewed(unreviewed_path)
-        self._write_uncertain(uncertain_path)
-        paths = {}
-        if self._unreviewed:
-            paths["unreviewed_attributes"] = unreviewed_path
-        if self._uncertain:
-            paths["uncertain_rejections"] = uncertain_path
-        return paths
+        path = directory / "unreviewed_attributes.tsv"
+        with path.open("w", newline="", encoding="utf-8") as stream:
+            writer = csv.writer(stream, delimiter="\t", lineterminator="\n")
+            writer.writerow(_SELECTION_REVIEW_COLUMNS)
+            for key, bucket in sorted(self._buckets.items()):
+                writer.writerow((*key, bucket.count, bucket.render_examples()))
+        return {"unreviewed_attributes": path} if self._buckets else {}
 
     def log_automatic_rejections(self, logger: logging.Logger) -> None:
         if not self._automatic_rejections:
@@ -133,32 +105,5 @@ class ReviewWorklists:
         )
         logger.info("Automatic metadata rejections: %s", summary)
 
-    def _write_unreviewed(self, path: Path) -> None:
-        with path.open("w", newline="", encoding="utf-8") as stream:
-            writer = csv.writer(stream, delimiter="\t", lineterminator="\n")
-            writer.writerow(_UNREVIEWED_COLUMNS)
-            for (target, family, normalized), bucket in sorted(self._unreviewed.items()):
-                writer.writerow(
-                    (
-                        target,
-                        family,
-                        normalized,
-                        bucket.count,
-                        bucket.render_examples(),
-                    )
-                )
-
-    def _write_uncertain(self, path: Path) -> None:
-        with path.open("w", newline="", encoding="utf-8") as stream:
-            writer = csv.writer(stream, delimiter="\t", lineterminator="\n")
-            writer.writerow(_UNCERTAIN_COLUMNS)
-            for (target, family, normalized), bucket in sorted(self._uncertain.items()):
-                writer.writerow(
-                    (
-                        target,
-                        family,
-                        normalized,
-                        bucket.count,
-                        bucket.render_examples(),
-                    )
-                )
+    def _count(self, kind: str) -> int:
+        return sum(bucket.count for key, bucket in self._buckets.items() if key[0] == kind)

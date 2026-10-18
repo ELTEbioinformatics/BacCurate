@@ -1,6 +1,7 @@
 """BioSample metadata extraction and publication contracts."""
 
 import csv
+from collections import Counter
 from datetime import date
 from pathlib import Path
 from typing import Any, Protocol
@@ -230,6 +231,16 @@ def test_extraction_report_preserves_production_selection_review_counters(
         "date": {"non_date_evidence": 1, "universal_missing": 1},
         "host": {"universal_missing": 2},
         "iso": {"non_discriminative_process": 1},
+    }
+    assert not (tmp_path / "uncertain_rejections.tsv").exists()
+    with (tmp_path / "unreviewed_attributes.tsv").open(encoding="utf-8") as stream:
+        rows = list(csv.DictReader(stream, delimiter="\t"))
+    counts_by_kind: Counter[str] = Counter()
+    for row in rows:
+        counts_by_kind[row["kind"]] += int(row["count"])
+    assert counts_by_kind == {
+        "unreviewed_attribute": report.unreviewed_count,
+        "uncertain_rejection": report.uncertain_count,
     }
 
 

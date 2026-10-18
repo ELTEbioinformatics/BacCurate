@@ -10,6 +10,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from baccurate.extraction.manual_review import keep_representative
 from baccurate.standardization.location import (
     UnresolvedLocationInput,
     normalize_submitted_location_value,
@@ -25,8 +26,6 @@ COLUMNS = (
     "submitted_attribute_counts",
     "representative_examples",
 )
-
-_REPRESENTATIVE_LIMIT = 3
 
 # (biosample_accession, taxon_key, submitted_attribute, submitted_value)
 type _Example = tuple[str, str, str, str]
@@ -65,11 +64,9 @@ class _WorklistRow:
         self.submitted_attribute_counts[unresolved.attribute] = (
             self.submitted_attribute_counts.get(unresolved.attribute, 0) + 1
         )
-        # Keeping the lexically smallest examples makes the set deterministic
-        # regardless of input order.
-        self.examples.add((accession, taxon_key, unresolved.attribute, unresolved.value))
-        if len(self.examples) > _REPRESENTATIVE_LIMIT:
-            self.examples.remove(max(self.examples))
+        keep_representative(
+            self.examples, (accession, taxon_key, unresolved.attribute, unresolved.value)
+        )
 
     def render_examples(self) -> str:
         return _compact_json(
