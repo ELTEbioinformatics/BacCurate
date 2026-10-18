@@ -24,6 +24,9 @@ REFERENCE_DIR = DATA_DIR / "reference"
 DEFAULT_BIOSAMPLE_SNAPSHOT_PATH = RAW_DIR / "biosamples.xml.gz"
 DEFAULT_BIOPROJECT_SNAPSHOT_PATH = RAW_DIR / "bioproject.xml.gz"
 DEFAULT_INDEX_TSV = RAW_DIR / "biosample_index.tsv.gz"
+DEFAULT_ATB_METADATA = RAW_DIR / "atb_2025-05.tsv"
+ID_LISTS_DIR = RAW_DIR / "id_lists"
+SEQUENCE_ACCESSIONS_DIR = RAW_DIR / "sequence_accessions"
 
 DEFAULT_EXTRACTED_TSV = OUTPUT_DIR / "extracted_metadata.tsv"
 

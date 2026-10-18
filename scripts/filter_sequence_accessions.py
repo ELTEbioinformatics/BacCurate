@@ -20,12 +20,14 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-# Allow package imports when a maintainer runs this file as a script.
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from baccurate.paths import (
+    DEFAULT_ATB_METADATA,
     DEFAULT_GENBANK_ASSEMBLY_MANIFEST_PATH,
     DEFAULT_REFSEQ_ASSEMBLY_MANIFEST_PATH,
     DEFAULT_SRA_MANIFEST_PATH,
+    ID_LISTS_DIR,
+    RAW_DIR,
+    SEQUENCE_ACCESSIONS_DIR,
 )
 from baccurate.provenance.sha256 import sha256_file
 from baccurate.provenance.snapshot_manifest import SnapshotFile, SnapshotManifest
@@ -34,10 +36,6 @@ log = logging.getLogger("filter_sequence_accessions")
 
 # --- Constants ---
 
-RAW_DIR = Path("data/raw")
-ID_LISTS_DIR = RAW_DIR / "id_lists"
-OUTPUT_DIR = RAW_DIR / "sequence_accessions"
-ATB_METADATA = RAW_DIR / "atb_2025-05.tsv"
 SRA_SNAPSHOT_PATH = RAW_DIR / "SRA_Accessions.tab"
 GENBANK_SNAPSHOT_PATH = RAW_DIR / "assembly_summary_genbank.txt"
 REFSEQ_SNAPSHOT_PATH = RAW_DIR / "assembly_summary_refseq.txt"
@@ -321,7 +319,7 @@ BULK_REPORTS = {
 def _setup_logging() -> None:
     formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
     file_handler = logging.FileHandler(
-        OUTPUT_DIR.parent / "filter_sequence_accessions.log",
+        SEQUENCE_ACCESSIONS_DIR.parent / "filter_sequence_accessions.log",
         encoding="utf-8",
     )
     stream_handler = logging.StreamHandler(sys.stdout)
@@ -345,11 +343,11 @@ def main() -> int:
         "genbank": GENBANK_SNAPSHOT_PATH,
         "refseq": REFSEQ_SNAPSHOT_PATH,
     }
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    SEQUENCE_ACCESSIONS_DIR.mkdir(parents=True, exist_ok=True)
     _setup_logging()
     try:
         for input_path in (
-            ATB_METADATA,
+            DEFAULT_ATB_METADATA,
             *report_paths.values(),
         ):
             if not input_path.is_file():
@@ -359,9 +357,11 @@ def main() -> int:
         taxon_key_biosample_accessions, taxon_key_tsv_paths = _load_taxon_key_biosample_accessions(
             ID_LISTS_DIR
         )
-        atb_biosample_accessions = _load_atb_biosample_accessions(ATB_METADATA)
+        atb_biosample_accessions = _load_atb_biosample_accessions(DEFAULT_ATB_METADATA)
         biosample_accessions = taxon_key_biosample_accessions | atb_biosample_accessions
-        log.info("ATB metadata: %s | sha256: %s", ATB_METADATA, sha256_file(ATB_METADATA))
+        log.info(
+            "ATB metadata: %s | sha256: %s", DEFAULT_ATB_METADATA, sha256_file(DEFAULT_ATB_METADATA)
+        )
         for taxon_key_tsv_path in taxon_key_tsv_paths:
             log.info(
                 "taxon-key TSV: %s | sha256: %s",
@@ -375,7 +375,7 @@ def main() -> int:
             _write_outputs(
                 report=BULK_REPORTS[report_key],
                 snapshot_path=snapshot_path,
-                output_dir=OUTPUT_DIR,
+                output_dir=SEQUENCE_ACCESSIONS_DIR,
                 retrieved_on=retrieved_on,
                 biosample_accessions=biosample_accessions,
             )

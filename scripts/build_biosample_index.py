@@ -17,15 +17,15 @@ from pathlib import Path
 
 import pandas as pd
 
-# make the package importable when run as a plain script
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from baccurate.paths import (
+    DEFAULT_ATB_METADATA,
     DEFAULT_BIOSAMPLE_MANIFEST_PATH,
     DEFAULT_GENBANK_ASSEMBLY_MANIFEST_PATH,
     DEFAULT_INDEX_TSV,
     DEFAULT_REFSEQ_ASSEMBLY_MANIFEST_PATH,
     DEFAULT_SRA_MANIFEST_PATH,
-    RAW_DIR,
+    ID_LISTS_DIR,
+    SEQUENCE_ACCESSIONS_DIR,
 )
 from baccurate.provenance.sha256 import sha256_file
 from baccurate.provenance.snapshot_manifest import SnapshotManifest
@@ -33,9 +33,6 @@ from baccurate.taxon_registry.species_label_matching import NA
 
 log = logging.getLogger("build_biosample_index")
 
-ID_LISTS_DIR = RAW_DIR / "id_lists"
-ATB_METADATA = RAW_DIR / "atb_2025-05.tsv"
-SEQUENCE_ACCESSIONS_DIR = RAW_DIR / "sequence_accessions"
 SEQUENCE_ACCESSION_INTERMEDIATES = (
     ("sra_runs.tsv.gz", "sra_run_accessions"),
     ("genbank_assemblies.tsv.gz", "genbank_assembly_accessions"),
@@ -182,8 +179,8 @@ def main() -> int:
 
     log.info("run date: %s", date.today().isoformat())
     log.info("id_lists dir:  %s", args.id_lists_dir)
-    log.info("atb_metadata:  %s", ATB_METADATA)
-    log.info("  sha256: %s", sha256_file(ATB_METADATA))
+    log.info("atb_metadata:  %s", DEFAULT_ATB_METADATA)
+    log.info("  sha256: %s", sha256_file(DEFAULT_ATB_METADATA))
 
     manifests = {
         "BioSample": SnapshotManifest.load(args.biosample_manifest_path),
@@ -223,7 +220,7 @@ def main() -> int:
     tax_acc = set(tax["accession"])
 
     # ATB branch
-    atb = pd.read_csv(ATB_METADATA, sep="\t", dtype=str, keep_default_na=False)
+    atb = pd.read_csv(DEFAULT_ATB_METADATA, sep="\t", dtype=str, keep_default_na=False)
     tarball_by_acc = dict(zip(atb["accession"], atb["osf_tarball_filename"]))
     sylph_by_acc = dict(zip(atb["accession"], atb["sylph_species"]))
     atb_acc = set(atb["accession"])

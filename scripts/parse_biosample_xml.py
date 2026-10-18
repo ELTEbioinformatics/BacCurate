@@ -8,7 +8,6 @@ Produces:
 from __future__ import annotations
 
 import argparse
-import hashlib
 import logging
 import sys
 from collections import defaultdict, deque
@@ -17,10 +16,15 @@ from pathlib import Path
 
 from lxml import etree
 
-# make the package importable when run as a plain script
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from baccurate.adapters.compressed_io import open_binary, open_text
-from baccurate.paths import DEFAULT_BIOSAMPLE_SNAPSHOT_PATH, DEFAULT_NODES_DMP, RAW_DIR
+from baccurate.paths import (
+    DEFAULT_ATB_METADATA,
+    DEFAULT_BIOSAMPLE_SNAPSHOT_PATH,
+    DEFAULT_NODES_DMP,
+    ID_LISTS_DIR,
+    RAW_DIR,
+)
+from baccurate.provenance.sha256 import sha256_file
 from baccurate.taxon_registry.registry import TaxonRegistry, load_taxon_registry
 from baccurate.taxon_registry.species_label_matching import (
     NA,
@@ -31,18 +35,8 @@ from baccurate.taxon_registry.species_label_matching import (
 log = logging.getLogger("parse_biosample_xml")
 
 DEFAULT_DUMP = RAW_DIR / "biosample_set.xml.gz"
-DEFAULT_ATB = RAW_DIR / "atb_2025-05.tsv"
 DEFAULT_MERGED_DMP = DEFAULT_NODES_DMP.parent / "merged.dmp"
-ID_LISTS_DIR = RAW_DIR / "id_lists"
 PROGRESS_EVERY = 2_000_000
-
-
-def sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def target_seeds(
@@ -232,7 +226,7 @@ def write_summary(
     with summary_path.open("w", encoding="utf-8", newline="\n") as f:
         f.write("taxon_key\trun_date\ttaxids\tsnapshot_file\trows\tstatus\tsha256\n")
         for taxon_key, n in counts.items():
-            digest = sha256(out_dir / f"{taxon_key}.tsv")
+            digest = sha256_file(out_dir / f"{taxon_key}.tsv")
             f.write(
                 f"{taxon_key}\t{run}\t{taxids_of[taxon_key]}\t{snapshot_file}\t{n}\tok\t{digest}\n"
             )
@@ -246,7 +240,7 @@ def main() -> int:
     ap.add_argument(
         "dump", nargs="?", type=Path, default=DEFAULT_DUMP, help="BioSample dump (.xml or .xml.gz)"
     )
-    ap.add_argument("--atb", type=Path, default=DEFAULT_ATB, help="ATB metadata TSV")
+    ap.add_argument("--atb", type=Path, default=DEFAULT_ATB_METADATA, help="ATB metadata TSV")
     ap.add_argument("--nodes-dmp", type=Path, default=DEFAULT_NODES_DMP)
     ap.add_argument("--merged-dmp", type=Path, default=DEFAULT_MERGED_DMP)
     ap.add_argument("--id-lists-dir", type=Path, default=ID_LISTS_DIR)
