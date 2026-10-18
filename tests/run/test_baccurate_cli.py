@@ -10,8 +10,8 @@ import pytest
 
 import baccurate.run.invocation as invocation_module
 import baccurate.run.main as main_module
-from baccurate.adapters.policy_yaml import PolicyConfigurationError
-from baccurate.extraction import COLUMNS, SelectionPolicyError
+from baccurate.adapters.config_yaml import ConfigError
+from baccurate.extraction import COLUMNS, SelectionConfigError
 from baccurate.provenance.extracted_metadata import (
     ExtractedMetadataProvenance,
     provenance_path_for,
@@ -19,12 +19,14 @@ from baccurate.provenance.extracted_metadata import (
 from baccurate.provenance.sha256 import sha256_file
 from baccurate.provenance.snapshot_manifest import SnapshotManifest
 from baccurate.run.main import main as pipeline_cli
-from baccurate.standardization.isolation_source import IsolationSourcePromptPolicy
+from baccurate.standardization.isolation_source_config import (
+    IsolationSourceConfig,
+)
 from baccurate.taxon_registry.registry import Taxon, TaxonRegistry
 
 
 def _fail_if_run_resources_started(*_args: object, **_kwargs: object) -> None:
-    pytest.fail("invalid selected policy reached run resource initialization")
+    pytest.fail("invalid selected config reached run resource initialization")
 
 
 def _guard_run_resources(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -166,7 +168,7 @@ def test_pipeline_cli_validates_required_selection_before_output_initialization(
     output_dir = tmp_path / "runs"
     _guard_run_resources(monkeypatch)
 
-    with pytest.raises(SelectionPolicyError) as error:
+    with pytest.raises(SelectionConfigError) as error:
         pipeline_cli(
             [
                 "ecoli",
@@ -179,7 +181,7 @@ def test_pipeline_cli_validates_required_selection_before_output_initialization(
                 "--output-dir",
                 str(output_dir),
                 "--run-name",
-                "invalid-policy",
+                "invalid-config",
                 "--skip-llm",
                 "--quiet",
             ]
@@ -190,7 +192,7 @@ def test_pipeline_cli_validates_required_selection_before_output_initialization(
     assert not output_dir.exists()
 
 
-def test_pipeline_cli_validates_selected_standardization_policy_before_resources(
+def test_pipeline_cli_validates_selected_standardization_config_before_resources(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -202,7 +204,7 @@ def test_pipeline_cli_validates_selected_standardization_policy_before_resources
     output_dir = tmp_path / "runs"
     _guard_run_resources(monkeypatch)
 
-    with pytest.raises(PolicyConfigurationError) as error:
+    with pytest.raises(ConfigError) as error:
         pipeline_cli(
             [
                 "ecoli",
@@ -215,7 +217,7 @@ def test_pipeline_cli_validates_selected_standardization_policy_before_resources
                 "--output-dir",
                 str(output_dir),
                 "--run-name",
-                "invalid-selected-policy",
+                "invalid-selected-config",
                 "--quiet",
             ]
         )
@@ -226,7 +228,7 @@ def test_pipeline_cli_validates_selected_standardization_policy_before_resources
     assert not (tmp_path / "isolation-cache.db").exists()
 
 
-def test_pipeline_cli_reuses_extracted_metadata_without_selection_policy(
+def test_pipeline_cli_reuses_extracted_metadata_without_selection_config(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -264,13 +266,13 @@ def _prepare_fixture_backed_cli_run(
     extracted_metadata = _prepare_empty_extracted_metadata(tmp_path, monkeypatch)
     config_dir = tmp_path / "config"
     shutil.copytree(invocation_module.CONFIG_DIR, config_dir)
-    shutil.copyfile(standardization_fixture_resources.host_policy, config_dir / "host.yaml")
-    with (config_dir / "isolation_source.yaml").open("a", encoding="utf-8") as policy:
-        policy.write(f'cache_db_path: "{(tmp_path / "isolation-source-cache.db").as_posix()}"\n')
+    shutil.copyfile(standardization_fixture_resources.host_config, config_dir / "host.yaml")
+    with (config_dir / "isolation_source.yaml").open("a", encoding="utf-8") as config:
+        config.write(f'cache_db_path: "{(tmp_path / "isolation-source-cache.db").as_posix()}"\n')
     return extracted_metadata, config_dir
 
 
-def test_isolation_source_run_report_adds_loaded_policy_provenance_to_snapshot_provenance(
+def test_isolation_source_run_report_adds_loaded_config_provenance_to_snapshot_provenance(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     fixture_dataset_builder_factory,
@@ -306,9 +308,7 @@ def test_isolation_source_run_report_adds_loaded_policy_provenance_to_snapshot_p
             encoding="utf-8"
         )
     )
-    expected = asdict(
-        IsolationSourcePromptPolicy.load(config_dir / "isolation_source.yaml").provenance
-    )
+    expected = asdict(IsolationSourceConfig.load(config_dir / "isolation_source.yaml").provenance)
     assert set(run_report["provenance"]) == {
         "biosample",
         "bioproject",
@@ -320,7 +320,7 @@ def test_isolation_source_run_report_adds_loaded_policy_provenance_to_snapshot_p
     assert run_report["provenance"]["isolation_source"] == expected
 
 
-def test_isolation_source_only_run_report_changes_when_borrowed_host_policy_changes(
+def test_isolation_source_only_run_report_changes_when_borrowed_host_config_changes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     fixture_dataset_builder_factory,
@@ -357,20 +357,20 @@ def test_isolation_source_only_run_report_changes_when_borrowed_host_policy_chan
         )
         return run_report["runtime"]["configuration_sha256"]
 
-    before = run_configuration_hashes("before-host-policy-change")
-    host_policy_path = config_dir / "host.yaml"
-    host_policy = host_policy_path.read_text(encoding="utf-8")
-    changed_host_policy = host_policy.replace("    - meat\n", "    - meat product\n")
-    assert changed_host_policy != host_policy
-    host_policy_path.write_text(changed_host_policy, encoding="utf-8")
+    before = run_configuration_hashes("before-host-config-change")
+    host_config_path = config_dir / "host.yaml"
+    host_config = host_config_path.read_text(encoding="utf-8")
+    changed_host_config = host_config.replace("    - meat\n", "    - meat product\n")
+    assert changed_host_config != host_config
+    host_config_path.write_text(changed_host_config, encoding="utf-8")
 
-    after = run_configuration_hashes("after-host-policy-change")
+    after = run_configuration_hashes("after-host-config-change")
 
-    host_policy_key = str(host_policy_path)
+    host_config_key = str(host_config_path)
     assert set(before) == set(after)
-    assert before[host_policy_key] != after[host_policy_key]
-    assert {path: sha256 for path, sha256 in before.items() if path != host_policy_key} == {
-        path: sha256 for path, sha256 in after.items() if path != host_policy_key
+    assert before[host_config_key] != after[host_config_key]
+    assert {path: sha256 for path, sha256 in before.items() if path != host_config_key} == {
+        path: sha256 for path, sha256 in after.items() if path != host_config_key
     }
 
 

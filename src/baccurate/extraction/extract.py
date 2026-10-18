@@ -13,7 +13,7 @@ from baccurate import paths
 from baccurate.extraction.bioproject import resolve_bioproject_accessions
 from baccurate.extraction.io import InclusionRoute, load_taxon_map
 from baccurate.extraction.manual_review import ReviewWorklists
-from baccurate.extraction.selection import SelectionPolicy
+from baccurate.extraction.selection import SelectionConfig
 from baccurate.extraction.tables import COLUMNS, INTERMEDIATE_COLUMNS, extracted_metadata_row
 from baccurate.extraction.xml import SelectionCounters, process_biosample_xml
 from baccurate.provenance.extracted_metadata import (
@@ -50,7 +50,7 @@ def run_extraction(
     index_path: Path = paths.DEFAULT_INDEX_TSV,
     names: list[str] | None = None,
     *,
-    selection_policy: SelectionPolicy,
+    selection_config: SelectionConfig,
     taxon_registry: TaxonRegistry | None = None,
 ) -> ExtractionReport:
     snapshot_pair = validate_snapshot_pair(
@@ -85,7 +85,7 @@ def run_extraction(
             writer.writerow(INTERMEDIATE_COLUMNS)
             logger.info("Parsing %s...", paths.DEFAULT_BIOSAMPLE_SNAPSHOT_PATH)
             records = process_biosample_xml(
-                str(paths.DEFAULT_BIOSAMPLE_SNAPSHOT_PATH), selection_policy.evaluate, counters
+                str(paths.DEFAULT_BIOSAMPLE_SNAPSHOT_PATH), selection_config.evaluate, counters
             )
             for accession, decisions, bioproject_ids, ncbi_organism in records:
                 for decision in decisions:

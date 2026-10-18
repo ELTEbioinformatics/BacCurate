@@ -23,12 +23,12 @@ from baccurate.provenance.extracted_metadata import (
 from baccurate.provenance.sha256 import sha256_file
 from baccurate.provenance.snapshot_manifest import SnapshotManifest
 from baccurate.run.dataset_builder import DatasetBuilder
-from baccurate.standardization.host import HostPolicy, HostStandardizer
+from baccurate.standardization.host import HostConfig, HostStandardizer
 from baccurate.standardization.host_lineage import HostLineage
-from baccurate.standardization.isolation_source import (
-    IsolationSourcePromptPolicy,
+from baccurate.standardization.isolation_source_config import (
+    IsolationSourceConfig,
 )
-from baccurate.standardization.location import LocationPolicy
+from baccurate.standardization.location import LocationConfig
 from baccurate.taxon_registry.registry import TaxonRegistry, load_taxon_registry
 
 CLASSIFIER_FACETS = (
@@ -59,7 +59,7 @@ FACET_BY_LABEL = {
 
 @dataclass(frozen=True, slots=True)
 class StandardizationFixtureResources:
-    """Paths to the compact reference and policy resources shared by tests."""
+    """Paths to the compact reference and config resources shared by tests."""
 
     root: Path
 
@@ -80,15 +80,15 @@ class StandardizationFixtureResources:
         return self.root / "taxa.yaml"
 
     @property
-    def host_policy(self) -> Path:
+    def host_config(self) -> Path:
         return self.root / "host.yaml"
 
     @property
-    def location_policy(self) -> Path:
+    def location_config(self) -> Path:
         return self.root / "location.yaml"
 
     @property
-    def isolation_source_policy(self) -> Path:
+    def isolation_source_config(self) -> Path:
         return self.root / "isolation_source.yaml"
 
     @property
@@ -191,7 +191,7 @@ def fake_llm_client() -> FakeLLMClient:
     return FakeLLMClient()
 
 
-# --- Reference and policy fixtures ---
+# --- Reference and config fixtures ---
 
 
 @pytest.fixture(scope="session")
@@ -209,44 +209,44 @@ def fixture_taxon_registry(
 
 
 @pytest.fixture(scope="session")
-def fixture_host_policy(
+def fixture_host_config(
     standardization_fixture_resources: StandardizationFixtureResources,
     fixture_taxon_registry: TaxonRegistry,
-) -> HostPolicy:
-    """Load fixture host policy through the same validation boundary as production policy."""
-    return HostPolicy.load(
-        standardization_fixture_resources.host_policy,
+) -> HostConfig:
+    """Load fixture host config through the same validation boundary as production config."""
+    return HostConfig.load(
+        standardization_fixture_resources.host_config,
         fixture_taxon_registry,
     )
 
 
 @pytest.fixture
-def fixture_location_policy(
+def fixture_location_config(
     tmp_path: Path,
     standardization_fixture_resources: StandardizationFixtureResources,
-) -> LocationPolicy:
-    """Load geographic-location policy against the fixture INSDC location vocabulary."""
-    path = _write_runtime_policy(
-        standardization_fixture_resources.location_policy,
+) -> LocationConfig:
+    """Load geographic-location config against the fixture INSDC location vocabulary."""
+    path = _write_runtime_config(
+        standardization_fixture_resources.location_config,
         tmp_path / "location.yaml",
         geo_loc_list_path=standardization_fixture_resources.geographic_locations,
     )
-    return LocationPolicy.load(path)
+    return LocationConfig.load(path)
 
 
 @pytest.fixture
-def fixture_isolation_source_prompt_policy(
+def fixture_isolation_source_config(
     tmp_path: Path,
     standardization_fixture_resources: StandardizationFixtureResources,
-) -> IsolationSourcePromptPolicy:
-    """Load isolation-source policy against the fixture ontology and a temporary cache."""
-    path = _write_runtime_policy(
-        standardization_fixture_resources.isolation_source_policy,
+) -> IsolationSourceConfig:
+    """Load isolation-source config against the fixture ontology and a temporary cache."""
+    path = _write_runtime_config(
+        standardization_fixture_resources.isolation_source_config,
         tmp_path / "isolation_source.yaml",
         ontology_directory=standardization_fixture_resources.isolation_source_ontology_directory,
         cache_db_path=tmp_path / "isolation-source-cache.db",
     )
-    return IsolationSourcePromptPolicy.load(path)
+    return IsolationSourceConfig.load(path)
 
 
 # --- Extracted metadata fixtures ---
@@ -272,7 +272,7 @@ def paired_snapshots(tmp_path: Path) -> PairedSnapshots:
 def make_extracted_metadata_files(
     tmp_path: Path,
     standardization_fixture_resources: StandardizationFixtureResources,
-    fixture_isolation_source_prompt_policy: IsolationSourcePromptPolicy,
+    fixture_isolation_source_config: IsolationSourceConfig,
 ) -> Callable[..., ExtractedMetadataFiles]:
     """Build deterministic extracted metadata files with a valid provenance file."""
 
@@ -365,8 +365,8 @@ def fixture_dataset_builder_factory(
 
     def build() -> DatasetBuilder:
         return DatasetBuilder(
-            host_standardizer_factory=lambda policy, result_logger: HostStandardizer(
-                policy,
+            host_standardizer_factory=lambda config, result_logger: HostStandardizer(
+                config,
                 ncbi_table_path=standardization_fixture_resources.ncbi_taxonomy_reference_table,
                 result_logger=result_logger,
             ),
@@ -420,8 +420,8 @@ def _write_compressed_snapshot(destination: Path, contents: bytes) -> None:
         stream.write(contents)
 
 
-def _write_runtime_policy(source: Path, destination: Path, **paths: Path) -> Path:
-    policy = yaml.safe_load(source.read_text(encoding="utf-8"))
-    policy.update({key: value.as_posix() for key, value in paths.items()})
-    destination.write_text(yaml.safe_dump(policy, sort_keys=False), encoding="utf-8")
+def _write_runtime_config(source: Path, destination: Path, **paths: Path) -> Path:
+    config = yaml.safe_load(source.read_text(encoding="utf-8"))
+    config.update({key: value.as_posix() for key, value in paths.items()})
+    destination.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     return destination

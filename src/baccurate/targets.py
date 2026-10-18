@@ -1,4 +1,4 @@
-"""Standardization targets, the policy files they need, their columns and the extraction flags."""
+"""Standardization targets, the config files they need, their columns and the extraction flags."""
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -6,8 +6,8 @@ from enum import StrEnum
 from types import MappingProxyType
 
 
-class PolicySlot(StrEnum):
-    """A policy file with the rules for one pipeline step, for example `host.yaml`."""
+class ConfigSlot(StrEnum):
+    """A config file with the rules for one pipeline step, for example `host.yaml`."""
 
     SELECTION = "selection"
     HOST = "host"
@@ -15,12 +15,12 @@ class PolicySlot(StrEnum):
     ISOLATION_SOURCE = "isolation_source"
 
 
-POLICY_FILENAMES: Mapping[PolicySlot, str] = MappingProxyType(
+CONFIG_FILENAMES: Mapping[ConfigSlot, str] = MappingProxyType(
     {
-        PolicySlot.SELECTION: "selection.yaml",
-        PolicySlot.HOST: "host.yaml",
-        PolicySlot.LOCATION: "location.yaml",
-        PolicySlot.ISOLATION_SOURCE: "isolation_source.yaml",
+        ConfigSlot.SELECTION: "selection.yaml",
+        ConfigSlot.HOST: "host.yaml",
+        ConfigSlot.LOCATION: "location.yaml",
+        ConfigSlot.ISOLATION_SOURCE: "isolation_source.yaml",
     }
 )
 
@@ -42,11 +42,11 @@ class StandardizationTarget(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class TargetSpec:
-    """The fixed facts about one target: its output key, LLM use, policy files and columns."""
+    """The fixed facts about one target: its output key, LLM use, config files and columns."""
 
     published_key: str
     uses_llm: bool
-    required_policies: tuple[PolicySlot, ...]
+    required_configs: tuple[ConfigSlot, ...]
     input_columns: tuple[str, ...]
     output_columns: tuple[str, ...] = ()
 
@@ -61,7 +61,7 @@ TARGET_SPECS: Mapping[StandardizationTarget, TargetSpec] = MappingProxyType(
         StandardizationTarget.HOST: TargetSpec(
             published_key="host",
             uses_llm=False,
-            required_policies=(PolicySlot.HOST,),
+            required_configs=(ConfigSlot.HOST,),
             input_columns=("host_attr_orig", "host_val_orig"),
             output_columns=(
                 "host_attr_orig",
@@ -78,7 +78,7 @@ TARGET_SPECS: Mapping[StandardizationTarget, TargetSpec] = MappingProxyType(
         StandardizationTarget.DATE: TargetSpec(
             published_key="date",
             uses_llm=False,
-            required_policies=(),
+            required_configs=(),
             input_columns=(
                 "biosample_last_update",
                 "date_attr_orig",
@@ -99,7 +99,7 @@ TARGET_SPECS: Mapping[StandardizationTarget, TargetSpec] = MappingProxyType(
         StandardizationTarget.LOCATION: TargetSpec(
             published_key="location",
             uses_llm=False,
-            required_policies=(PolicySlot.LOCATION,),
+            required_configs=(ConfigSlot.LOCATION,),
             input_columns=("loc_attr_orig", "loc_val_orig", "loc_matched_by"),
             output_columns=(
                 "loc_attr_orig",
@@ -116,7 +116,7 @@ TARGET_SPECS: Mapping[StandardizationTarget, TargetSpec] = MappingProxyType(
         StandardizationTarget.ISOLATION_SOURCE: TargetSpec(
             published_key="isolation_source",
             uses_llm=True,
-            required_policies=(PolicySlot.ISOLATION_SOURCE, PolicySlot.HOST),
+            required_configs=(ConfigSlot.ISOLATION_SOURCE, ConfigSlot.HOST),
             input_columns=("iso_attr_orig", "iso_val_orig", "host_val_orig"),
         ),
     }
@@ -133,22 +133,22 @@ DATASET_COLUMN_ORDER = (
 )
 
 
-def required_policy_slots(
+def required_config_slots(
     targets: Iterable[StandardizationTarget],
-) -> frozenset[PolicySlot]:
-    """Return the policy files that at least one of ``targets`` needs."""
+) -> frozenset[ConfigSlot]:
+    """Return the config files that at least one of ``targets`` needs."""
     return frozenset(
-        policy_slot for target in targets for policy_slot in TARGET_SPECS[target].required_policies
+        config_slot for target in targets for config_slot in TARGET_SPECS[target].required_configs
     )
 
 
-def run_policy_slots(
+def run_config_slots(
     targets: Iterable[StandardizationTarget],
     *,
     extraction_required: bool,
-) -> tuple[PolicySlot, ...]:
-    """Return the policy files that one run loads, in run-report order."""
-    required = required_policy_slots(targets)
+) -> tuple[ConfigSlot, ...]:
+    """Return the config files that one run loads, in run-report order."""
+    required = required_config_slots(targets)
     if extraction_required:
-        required |= {PolicySlot.SELECTION}
-    return tuple(policy_slot for policy_slot in PolicySlot if policy_slot in required)
+        required |= {ConfigSlot.SELECTION}
+    return tuple(config_slot for config_slot in ConfigSlot if config_slot in required)

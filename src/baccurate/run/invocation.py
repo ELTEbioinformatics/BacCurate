@@ -10,7 +10,7 @@ from pathlib import Path
 
 from baccurate.adapters.compressed_io import open_text
 from baccurate.adapters.llm.client import LLMSettings, load_llm_settings
-from baccurate.extraction import SelectionPolicy, resolve_taxon_assignment
+from baccurate.extraction import SelectionConfig, resolve_taxon_assignment
 from baccurate.paths import (
     CONFIG_DIR,
     DEFAULT_BIOPROJECT_MANIFEST_PATH,
@@ -23,13 +23,13 @@ from baccurate.paths import (
     OUTPUT_DIR,
     TAXA_YAML,
 )
-from baccurate.run.effective_policy import EffectivePolicy, load_effective_policy
+from baccurate.run.config import RunConfig, load_run_config
 from baccurate.run.outputs import RunOutputs
 from baccurate.targets import (
-    POLICY_FILENAMES,
+    CONFIG_FILENAMES,
     TARGET_SPECS,
     StandardizationTarget,
-    run_policy_slots,
+    run_config_slots,
 )
 from baccurate.taxon_registry.registry import TaxonRegistry, load_taxon_registry
 from baccurate.taxon_registry.species_label_matching import build_taxon_key_maps
@@ -53,8 +53,8 @@ class RunInvocation:
     registry: TaxonRegistry
     active_targets: tuple[StandardizationTarget, ...]
     extracted_metadata_path: Path
-    effective_policy: EffectivePolicy
-    selection_policy: SelectionPolicy | None
+    config: RunConfig
+    selection_config: SelectionConfig | None
     outputs: RunOutputs
     biosample_input_path: Path
     index_path: Path
@@ -102,7 +102,7 @@ def resolve_invocation(
     taxon_registry: TaxonRegistry | None = None,
 ) -> RunInvocation:
     arguments = tuple(argv) if argv is not None else tuple(sys.argv[1:])
-    # The registry names the accepted command keywords, so it is the one policy that
+    # The registry names the accepted command keywords, so it is the one config that
     # has to be resolved before the arguments selecting the rest can be parsed.
     registry = taxon_registry or load_taxon_registry(TAXA_YAML)
     parser = argparse.ArgumentParser()
@@ -198,15 +198,15 @@ def resolve_invocation(
         else STANDARDIZATION_TARGETS
     )
     extracted_metadata_path = args.extracted_metadata or DEFAULT_EXTRACTED_TSV
-    # Selected policy is validated here so that invalid policy fails before this run
+    # Selected config is validated here so that invalid config fails before this run
     # opens outputs, caches, or external services.
-    effective_policy = load_effective_policy(
+    run_config = load_run_config(
         taxon_registry=registry,
         configuration_root=args.config_dir,
         requested_standardization_targets=tuple(target.value for target in active_targets),
         extraction_required=not extracted_metadata_path.exists(),
     )
-    selection_policy = effective_policy.selection_policy
+    selection_config = run_config.selection_config
 
     run_name = args.run_name or datetime.now().strftime("%Y-%m-%d_%H-%M")
     try:
@@ -243,13 +243,13 @@ def resolve_invocation(
         DEFAULT_BIOSAMPLE_MANIFEST_PATH,
         DEFAULT_BIOPROJECT_MANIFEST_PATH,
     ]
-    # The taxon registry is resolved before argument parsing; remaining policy
+    # The taxon registry is resolved before argument parsing; remaining config
     # filenames are resolved after target and extraction selection.
     configuration_paths.extend(
-        args.config_dir / POLICY_FILENAMES[policy_slot]
-        for policy_slot in run_policy_slots(
+        args.config_dir / CONFIG_FILENAMES[config_slot]
+        for config_slot in run_config_slots(
             active_targets,
-            extraction_required=selection_policy is not None,
+            extraction_required=selection_config is not None,
         )
     )
     normalized_options = {
@@ -277,8 +277,8 @@ def resolve_invocation(
         registry=registry,
         active_targets=active_targets,
         extracted_metadata_path=extracted_metadata_path,
-        effective_policy=effective_policy,
-        selection_policy=selection_policy,
+        config=run_config,
+        selection_config=selection_config,
         outputs=outputs,
         biosample_input_path=biosample_input_path,
         index_path=index_path,

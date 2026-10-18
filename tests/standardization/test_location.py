@@ -10,9 +10,9 @@ import yaml
 
 import baccurate.standardization.location as location_module
 from baccurate.standardization.location import (
+    LocationConfig,
     LocationDiagnostic,
     LocationOutcome,
-    LocationPolicy,
     LocationRejection,
     LocationResolutionRoute,
     LocationStandardizer,
@@ -24,37 +24,37 @@ from baccurate.standardization.supporting_attribute_value_pair import (
 )
 
 
-def _location_policy(
+def _location_config(
     tmp_path: Path,
-    fixture_policy: LocationPolicy,
+    fixture_config: LocationConfig,
     **overrides: object,
-) -> LocationPolicy:
+) -> LocationConfig:
     config: dict[str, object] = {
         "schema_version": 2,
         "coordinate_attributes": ["lat_lon"],
         "insdc_country_map": {"United States": "USA", "Vietnam": "Viet Nam"},
         "reviewed_mappings": {},
         "reviewed_unmapped": [],
-        "geo_loc_list_path": fixture_policy.geo_loc_list_path.as_posix(),
+        "geo_loc_list_path": fixture_config.geo_loc_list_path.as_posix(),
     }
     config.update(overrides)
-    policy_path = tmp_path / f"reviewed-{len(list(tmp_path.glob('reviewed-*.yaml')))}.yaml"
-    policy_path.write_text(
+    config_path = tmp_path / f"reviewed-{len(list(tmp_path.glob('reviewed-*.yaml')))}.yaml"
+    config_path.write_text(
         yaml.safe_dump(config, sort_keys=False, allow_unicode=True),
         encoding="utf-8",
     )
-    return LocationPolicy.load(policy_path)
+    return LocationConfig.load(config_path)
 
 
-def _standardize(policy: LocationPolicy, **record: str) -> LocationOutcome | LocationRejection:
-    return LocationStandardizer(policy).standardize({"accession": "RECORD", **record})
+def _standardize(config: LocationConfig, **record: str) -> LocationOutcome | LocationRejection:
+    return LocationStandardizer(config).standardize({"accession": "RECORD", **record})
 
 
 @pytest.fixture
-def standardizer(fixture_location_policy: LocationPolicy):
+def standardizer(fixture_location_config: LocationConfig):
     return LocationStandardizer(
         replace(
-            fixture_location_policy,
+            fixture_location_config,
             coordinate_attributes=("lat_lon",),
             insdc_country_map={
                 "United States": "USA",
@@ -682,9 +682,9 @@ def test_record_standardization_retains_coordinate_failure_when_place_name_resol
 
 
 def test_absent_vs_unresolved_values(
-    fixture_location_policy,
+    fixture_location_config,
 ):
-    standardizer = LocationStandardizer(fixture_location_policy)
+    standardizer = LocationStandardizer(fixture_location_config)
 
     absent = standardizer.standardize(
         {"accession": "ABSENT", "loc_attr_orig": "", "loc_val_orig": ""}
@@ -713,15 +713,15 @@ def test_absent_vs_unresolved_values(
 
 
 def test_reviewed_mapping_standardizes_a_country_alias_without_a_sublocation(
-    tmp_path, fixture_location_policy
+    tmp_path, fixture_location_config
 ):
-    policy = _location_policy(
+    config = _location_config(
         tmp_path,
-        fixture_location_policy,
+        fixture_location_config,
         reviewed_mappings={"uae": "United Arab Emirates"},
     )
 
-    outcome = _standardize(policy, loc_attr_orig="geo_loc_name", loc_val_orig="UAE")
+    outcome = _standardize(config, loc_attr_orig="geo_loc_name", loc_val_orig="UAE")
 
     assert isinstance(outcome, LocationOutcome)
     assert outcome.country == "United Arab Emirates"
@@ -732,14 +732,14 @@ def test_reviewed_mapping_standardizes_a_country_alias_without_a_sublocation(
     assert outcome.diagnostics == ()
 
 
-def test_reviewed_mapping_to_a_water_body_publishes_no_un_region(tmp_path, fixture_location_policy):
-    policy = _location_policy(
+def test_reviewed_mapping_to_a_water_body_publishes_no_un_region(tmp_path, fixture_location_config):
+    config = _location_config(
         tmp_path,
-        fixture_location_policy,
+        fixture_location_config,
         reviewed_mappings={"baltic sea": "Baltic Sea"},
     )
 
-    outcome = _standardize(policy, loc_attr_orig="geo_loc_name", loc_val_orig="Baltic Sea")
+    outcome = _standardize(config, loc_attr_orig="geo_loc_name", loc_val_orig="Baltic Sea")
 
     assert isinstance(outcome, LocationOutcome)
     assert outcome.country == "Baltic Sea"
@@ -747,11 +747,11 @@ def test_reviewed_mapping_to_a_water_body_publishes_no_un_region(tmp_path, fixtu
 
 
 def test_reviewed_unmapped_value_is_rejected_and_stays_out_of_the_review_worklist(
-    tmp_path, fixture_location_policy
+    tmp_path, fixture_location_config
 ):
-    policy = _location_policy(tmp_path, fixture_location_policy, reviewed_unmapped=["ncbs"])
+    config = _location_config(tmp_path, fixture_location_config, reviewed_unmapped=["ncbs"])
 
-    outcome = _standardize(policy, loc_attr_orig="geo_loc_name", loc_val_orig="NCBS")
+    outcome = _standardize(config, loc_attr_orig="geo_loc_name", loc_val_orig="NCBS")
 
     assert isinstance(outcome, LocationRejection)
     assert outcome.diagnostics == (LocationDiagnostic.REVIEWED_UNMAPPED,)
@@ -759,16 +759,16 @@ def test_reviewed_unmapped_value_is_rejected_and_stays_out_of_the_review_worklis
 
 
 def test_disagreeing_reviewed_mappings_reject_the_record_but_not_its_unreviewed_evidence(
-    tmp_path, fixture_location_policy
+    tmp_path, fixture_location_config
 ):
-    policy = _location_policy(
+    config = _location_config(
         tmp_path,
-        fixture_location_policy,
+        fixture_location_config,
         reviewed_mappings={"uae": "United Arab Emirates", "cambodge": "Cambodia"},
     )
 
     outcome = _standardize(
-        policy,
+        config,
         loc_attr_orig="geo_loc_name||collection_site||isolation_country",
         loc_val_orig="UAE||Cambodge||unreviewed site 5512",
     )
@@ -789,11 +789,11 @@ def test_disagreeing_reviewed_mappings_reject_the_record_but_not_its_unreviewed_
 
 
 def test_agreeing_reviewed_mappings_are_not_cancelled_by_other_values(
-    tmp_path, fixture_location_policy
+    tmp_path, fixture_location_config
 ):
-    policy = _location_policy(
+    config = _location_config(
         tmp_path,
-        fixture_location_policy,
+        fixture_location_config,
         reviewed_mappings={
             "not provided: cologne": "Germany",
             "not provided, tübingen": "Germany",
@@ -802,7 +802,7 @@ def test_agreeing_reviewed_mappings_are_not_cancelled_by_other_values(
     )
 
     outcome = _standardize(
-        policy,
+        config,
         loc_attr_orig="geo_loc_name||isolation_source||collection_site",
         loc_val_orig="Not Provided: Cologne||water||not provided,  Tübingen",
     )
@@ -815,12 +815,12 @@ def test_agreeing_reviewed_mappings_are_not_cancelled_by_other_values(
 
 
 def test_deterministic_resolution_beside_an_unreviewed_value_still_reports_it(
-    tmp_path, fixture_location_policy
+    tmp_path, fixture_location_config
 ):
-    policy = _location_policy(tmp_path, fixture_location_policy)
+    config = _location_config(tmp_path, fixture_location_config)
 
     outcome = _standardize(
-        policy,
+        config,
         loc_attr_orig="geo_loc_name||collection_site",
         loc_val_orig="Germany||unreviewed site 8841",
     )
@@ -835,13 +835,13 @@ def test_deterministic_resolution_beside_an_unreviewed_value_still_reports_it(
 
 
 def test_deterministic_resolution_does_not_report_a_reviewed_unmapped_neighbour(
-    tmp_path, fixture_location_policy
+    tmp_path, fixture_location_config
 ):
-    """Diagnostics record what the record needed, not what the reviewed policy contains."""
-    policy = _location_policy(tmp_path, fixture_location_policy, reviewed_unmapped=["water"])
+    """Diagnostics record what the record needed, not what the reviewed config contains."""
+    config = _location_config(tmp_path, fixture_location_config, reviewed_unmapped=["water"])
 
     outcome = _standardize(
-        policy,
+        config,
         loc_attr_orig="geo_loc_name||isolation_source",
         loc_val_orig="Germany||water",
     )
@@ -865,14 +865,14 @@ def test_reviewed_key_normalization(submitted, normalized):
     assert normalize_submitted_location_value(submitted) == normalized
 
 
-def test_reviewed_matching_is_whole_key_equality_only(tmp_path, fixture_location_policy):
-    policy = _location_policy(
+def test_reviewed_matching_is_whole_key_equality_only(tmp_path, fixture_location_config):
+    config = _location_config(
         tmp_path,
-        fixture_location_policy,
+        fixture_location_config,
         reviewed_mappings={"uae": "United Arab Emirates"},
     )
 
-    outcome = _standardize(policy, loc_attr_orig="geo_loc_name", loc_val_orig="UAE hospital 4471")
+    outcome = _standardize(config, loc_attr_orig="geo_loc_name", loc_val_orig="UAE hospital 4471")
 
     assert isinstance(outcome, LocationRejection)
     assert outcome.diagnostics == (LocationDiagnostic.UNRESOLVED_PLACE,)

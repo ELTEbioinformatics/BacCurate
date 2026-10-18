@@ -17,26 +17,28 @@ from pydantic import BaseModel, ValidationError
 from baccurate.adapters.llm.client import LLMSettings
 from baccurate.extraction import (
     SEQUENCE_ACCESSION_COLUMNS,
+    SelectionConfig,
     SelectionDecision,
     SelectionEvent,
-    SelectionPolicy,
 )
 from baccurate.run.dataset_builder import (
     DatasetBuilder,
     DatasetBuildRequest,
 )
 from baccurate.run.statistics import DatasetBuildStatistics, InventedLabelStatistics
-from baccurate.standardization.host import HostPolicy, HostStandardizer
+from baccurate.standardization.host import HostConfig, HostStandardizer
 from baccurate.standardization.host_lineage import HostLineage
 from baccurate.standardization.isolation_source import (
     IsolationSourceDiagnostic,
-    IsolationSourcePromptPolicy,
     IsolationSourceStandardizer,
+)
+from baccurate.standardization.isolation_source_config import (
+    IsolationSourceConfig,
 )
 from baccurate.standardization.isolation_source_ontology import IsolationSourceOntology
 from baccurate.standardization.location import (
+    LocationConfig,
     LocationDiagnostic,
-    LocationPolicy,
     LocationStandardizer,
 )
 from baccurate.targets import (
@@ -46,9 +48,9 @@ from baccurate.targets import (
 from baccurate.taxon_registry.registry import load_taxon_registry
 
 ROOT = Path(__file__).parents[2]
-SELECTION_POLICY_PATH = ROOT / "config" / "selection.yaml"
-LOCATION_POLICY_PATH = ROOT / "config" / "location.yaml"
-ISOLATION_SOURCE_POLICY_PATH = ROOT / "config" / "isolation_source.yaml"
+SELECTION_CONFIG_PATH = ROOT / "config" / "selection.yaml"
+LOCATION_CONFIG_PATH = ROOT / "config" / "location.yaml"
+ISOLATION_SOURCE_CONFIG_PATH = ROOT / "config" / "isolation_source.yaml"
 
 DATE_COLUMNS = (
     "date_attr_orig",
@@ -109,8 +111,8 @@ class _BuiltDataset:
 
 
 @pytest.fixture(scope="module")
-def selection_policy() -> SelectionPolicy:
-    return SelectionPolicy.load(SELECTION_POLICY_PATH)
+def selection_config() -> SelectionConfig:
+    return SelectionConfig.load(SELECTION_CONFIG_PATH)
 
 
 @pytest.fixture
@@ -122,9 +124,9 @@ def build_dataset(
         targets: tuple[StandardizationTarget, ...],
         *,
         name: str = "extracted",
-        location_policy: LocationPolicy | None = None,
-        host_policy: HostPolicy | None = None,
-        isolation_source_policy: IsolationSourcePromptPolicy | None = None,
+        location_config: LocationConfig | None = None,
+        host_config: HostConfig | None = None,
+        isolation_source_config: IsolationSourceConfig | None = None,
         location_standardizer_factory: Callable[..., LocationStandardizer] | None = None,
         host_standardizer_factory: Callable[..., HostStandardizer] | None = None,
         isolation_source_standardizer_factory: Callable[..., IsolationSourceStandardizer]
@@ -149,9 +151,9 @@ def build_dataset(
                 requested_targets=targets,
                 final_destination=destination,
                 taxon_registry=load_taxon_registry(),
-                host_policy=host_policy,
-                location_policy=location_policy,
-                isolation_source_prompt_policy=isolation_source_policy,
+                host_config=host_config,
+                location_config=location_config,
+                isolation_source_config=isolation_source_config,
                 llm_settings=LLMSettings(None, None, "test-model"),
                 disable_progress=True,
             )
@@ -232,15 +234,15 @@ def test_sequence_accessions_pass_through_from_extracted_metadata(build_dataset)
     assert unlinked["sra_run_accessions"] == ""
 
 
-def _location_policy() -> LocationPolicy:
-    return LocationPolicy.load(LOCATION_POLICY_PATH)
+def _location_config() -> LocationConfig:
+    return LocationConfig.load(LOCATION_CONFIG_PATH)
 
 
-def _location_standardizer(policy: LocationPolicy, _logger: object) -> LocationStandardizer:
-    return LocationStandardizer(policy)
+def _location_standardizer(config: LocationConfig, _logger: object) -> LocationStandardizer:
+    return LocationStandardizer(config)
 
 
-def _minimal_host_components(tmp_path: Path) -> tuple[HostPolicy, Path]:
+def _minimal_host_components(tmp_path: Path) -> tuple[HostConfig, Path]:
     tmp_path.mkdir(parents=True, exist_ok=True)
     taxonomy_path = tmp_path / "taxonomy.tsv"
     taxonomy_path.write_text(
@@ -249,7 +251,7 @@ def _minimal_host_components(tmp_path: Path) -> tuple[HostPolicy, Path]:
         encoding="utf-8",
     )
     return (
-        HostPolicy(
+        HostConfig(
             schema_version=3,
             ignored_substrings=(),
             isolation_source_keywords=(),
@@ -323,10 +325,10 @@ def test_published_dates_separate_the_collection_date_from_the_record_date(
     )
 
 
-def _isolation_source_policy(tmp_path: Path) -> IsolationSourcePromptPolicy:
+def _isolation_source_config(tmp_path: Path) -> IsolationSourceConfig:
     tmp_path.mkdir(parents=True, exist_ok=True)
     return replace(
-        IsolationSourcePromptPolicy.load(
+        IsolationSourceConfig.load(
             ROOT / "tests" / "fixtures" / "standardization" / "isolation_source.yaml"
         ),
         cache_db_path=tmp_path / "isolation-source-cache.db",
@@ -338,20 +340,20 @@ def _build_isolation_source_dataset(
     tmp_path: Path,
     rows: Sequence[Mapping[str, str]],
 ) -> _BuiltDataset:
-    host_policy, taxonomy_path = _minimal_host_components(tmp_path)
-    isolation_source_policy = _isolation_source_policy(tmp_path)
+    host_config, taxonomy_path = _minimal_host_components(tmp_path)
+    isolation_source_config = _isolation_source_config(tmp_path)
     return build_dataset(
         rows,
         (StandardizationTarget.DATE, StandardizationTarget.ISOLATION_SOURCE),
-        host_policy=host_policy,
-        isolation_source_policy=isolation_source_policy,
-        host_standardizer_factory=lambda policy, _logger: HostStandardizer(
-            policy,
+        host_config=host_config,
+        isolation_source_config=isolation_source_config,
+        host_standardizer_factory=lambda config, _logger: HostStandardizer(
+            config,
             taxonomy_path,
         ),
         isolation_source_standardizer_factory=(
-            lambda policy, logger: IsolationSourceStandardizer(
-                policy,
+            lambda config, logger: IsolationSourceStandardizer(
+                config,
                 client=None,
                 llm_settings=LLMSettings(None, None, "test-model"),
                 result_logger=logger,
@@ -364,9 +366,9 @@ def test_isolation_source_outcome_projects_thirteen_columns_in_facet_order(
     tmp_path: Path,
     build_dataset,
 ) -> None:
-    host_policy, taxonomy_path = _minimal_host_components(tmp_path)
-    isolation_source_policy = replace(
-        IsolationSourcePromptPolicy.load(ISOLATION_SOURCE_POLICY_PATH),
+    host_config, taxonomy_path = _minimal_host_components(tmp_path)
+    isolation_source_config = replace(
+        IsolationSourceConfig.load(ISOLATION_SOURCE_CONFIG_PATH),
         cache_db_path=tmp_path / "faceted-isolation-source-cache.db",
     )
     built = build_dataset(
@@ -378,15 +380,15 @@ def test_isolation_source_outcome_projects_thirteen_columns_in_facet_order(
             )
         ],
         (StandardizationTarget.DATE, StandardizationTarget.ISOLATION_SOURCE),
-        host_policy=host_policy,
-        isolation_source_policy=isolation_source_policy,
-        host_standardizer_factory=lambda policy, _logger: HostStandardizer(
-            policy,
+        host_config=host_config,
+        isolation_source_config=isolation_source_config,
+        host_standardizer_factory=lambda config, _logger: HostStandardizer(
+            config,
             taxonomy_path,
         ),
         isolation_source_standardizer_factory=(
-            lambda policy, logger: IsolationSourceStandardizer(
-                policy,
+            lambda config, logger: IsolationSourceStandardizer(
+                config,
                 client=None,
                 llm_settings=LLMSettings(None, None, "test-model"),
                 result_logger=logger,
@@ -430,12 +432,12 @@ def test_isolation_source_outcome_projects_thirteen_columns_in_facet_order(
         if label != "NA"
     )
     term_id_by_label = {
-        term.label: term.term_id for term in isolation_source_policy.ontology.terms.values()
+        term.label: term.term_id for term in isolation_source_config.ontology.terms.values()
     }
     assert tuple(term_id_by_label[label] for label in facet_labels) == tuple(
         built.records[0]["iso_term_ids"].split("||")
     )
-    exact_match_ids = isolation_source_policy.ontology.exact_match_ids
+    exact_match_ids = isolation_source_config.ontology.exact_match_ids
     assert built.records[0]["iso_external_ids"].split("||") == [
         exact_match_ids[term_id]
         for term_id in built.records[0]["iso_term_ids"].split("||")
@@ -468,9 +470,9 @@ def test_equivalent_vocabulary_order_produces_byte_stable_dataset(
                 encoding="utf-8",
             )
 
-        host_policy, taxonomy_path = _minimal_host_components(build_root)
-        isolation_source_policy = replace(
-            _isolation_source_policy(build_root),
+        host_config, taxonomy_path = _minimal_host_components(build_root)
+        isolation_source_config = replace(
+            _isolation_source_config(build_root),
             ontology_directory=ontology_directory,
             ontology=IsolationSourceOntology.load(ontology_directory),
         )
@@ -485,17 +487,17 @@ def test_equivalent_vocabulary_order_produces_byte_stable_dataset(
                 ],
                 (StandardizationTarget.DATE, StandardizationTarget.ISOLATION_SOURCE),
                 name=f"{name}_extracted",
-                host_policy=host_policy,
-                isolation_source_policy=isolation_source_policy,
-                host_standardizer_factory=lambda policy, _logger, taxonomy_path=taxonomy_path: (
+                host_config=host_config,
+                isolation_source_config=isolation_source_config,
+                host_standardizer_factory=lambda config, _logger, taxonomy_path=taxonomy_path: (
                     HostStandardizer(
-                        policy,
+                        config,
                         taxonomy_path,
                     )
                 ),
                 isolation_source_standardizer_factory=(
-                    lambda policy, logger: IsolationSourceStandardizer(
-                        policy,
+                    lambda config, logger: IsolationSourceStandardizer(
+                        config,
                         client=None,
                         llm_settings=LLMSettings(None, None, "test-model"),
                         result_logger=logger,
@@ -539,15 +541,15 @@ def test_failed_isolation_source_classification_skips_record_and_continues(
         return response_model.model_validate(valid_answer)
 
     fake_llm_client.behavior = respond
-    host_policy, taxonomy_path = _minimal_host_components(tmp_path)
-    isolation_source_policy = _isolation_source_policy(tmp_path)
+    host_config, taxonomy_path = _minimal_host_components(tmp_path)
+    isolation_source_config = _isolation_source_config(tmp_path)
 
     def isolation_source_factory(
-        policy: IsolationSourcePromptPolicy,
+        config: IsolationSourceConfig,
         logger: object,
     ) -> IsolationSourceStandardizer:
         standardizer = IsolationSourceStandardizer(
-            policy,
+            config,
             client=None,
             llm_settings=LLMSettings(None, None, "test-model"),
             result_logger=logger,
@@ -569,10 +571,10 @@ def test_failed_isolation_source_classification_skips_record_and_continues(
             ),
         ],
         (StandardizationTarget.DATE, StandardizationTarget.ISOLATION_SOURCE),
-        host_policy=host_policy,
-        isolation_source_policy=isolation_source_policy,
-        host_standardizer_factory=lambda policy, _logger: HostStandardizer(
-            policy,
+        host_config=host_config,
+        isolation_source_config=isolation_source_config,
+        host_standardizer_factory=lambda config, _logger: HostStandardizer(
+            config,
             taxonomy_path,
         ),
         isolation_source_standardizer_factory=isolation_source_factory,
@@ -651,7 +653,7 @@ def test_absent_sublocation_serializes_as_na_not_empty(build_dataset) -> None:
             ),
         ],
         (StandardizationTarget.DATE, StandardizationTarget.LOCATION),
-        location_policy=_location_policy(),
+        location_config=_location_config(),
         location_standardizer_factory=_location_standardizer,
     )
     records = {record["accession"]: record for record in built.records}
@@ -673,7 +675,7 @@ def test_absent_un_region_serializes_as_na_not_empty_for_resolved_country(
             )
         ],
         (StandardizationTarget.DATE, StandardizationTarget.LOCATION),
-        location_policy=_location_policy(),
+        location_config=_location_config(),
         location_standardizer_factory=_location_standardizer,
     )
 
@@ -691,7 +693,7 @@ def test_a_submitted_pair_with_an_empty_value_keeps_its_slot(build_dataset) -> N
             )
         ],
         (StandardizationTarget.DATE, StandardizationTarget.LOCATION),
-        location_policy=_location_policy(),
+        location_config=_location_config(),
         location_standardizer_factory=_location_standardizer,
     )
 
@@ -718,7 +720,7 @@ def test_rejected_locations_publish_evidence_and_diagnostics_with_empty_answer_c
             ),
         ],
         (StandardizationTarget.DATE, StandardizationTarget.LOCATION),
-        location_policy=_location_policy(),
+        location_config=_location_config(),
         location_standardizer_factory=_location_standardizer,
     )
 
@@ -764,7 +766,7 @@ def test_standardized_location_publishes_its_diagnostics_in_the_same_column(
             )
         ],
         (StandardizationTarget.DATE, StandardizationTarget.LOCATION),
-        location_policy=_location_policy(),
+        location_config=_location_config(),
         location_standardizer_factory=_location_standardizer,
     )
 
@@ -787,7 +789,7 @@ def test_standardized_location_reports_a_pair_resolved_outside_the_insdc_list(
             )
         ],
         (StandardizationTarget.DATE, StandardizationTarget.LOCATION),
-        location_policy=_location_policy(),
+        location_config=_location_config(),
         location_standardizer_factory=_location_standardizer,
     )
 
@@ -852,7 +854,7 @@ def test_host_absence_and_non_resolution_share_empty_columns_but_run_report_sepa
     tmp_path: Path,
     build_dataset,
 ) -> None:
-    host_policy, taxonomy_path = _minimal_host_components(tmp_path)
+    host_config, taxonomy_path = _minimal_host_components(tmp_path)
     built = build_dataset(
         [
             _dated_record(
@@ -867,9 +869,9 @@ def test_host_absence_and_non_resolution_share_empty_columns_but_run_report_sepa
             ),
         ],
         (StandardizationTarget.DATE, StandardizationTarget.HOST),
-        host_policy=host_policy,
-        host_standardizer_factory=lambda policy, _logger: HostStandardizer(
-            policy,
+        host_config=host_config,
+        host_standardizer_factory=lambda config, _logger: HostStandardizer(
+            config,
             taxonomy_path,
         ),
     )
@@ -885,9 +887,9 @@ def test_host_absence_and_non_resolution_share_empty_columns_but_run_report_sepa
 
 
 def test_missing_metadata_is_rejected_before_selection_not_serialized_as_absence(
-    selection_policy: SelectionPolicy,
+    selection_config: SelectionConfig,
 ) -> None:
-    decision = selection_policy.evaluate(attribute="host", value="unknown")
+    decision = selection_config.evaluate(attribute="host", value="unknown")
 
     assert decision == SelectionDecision(
         "host",

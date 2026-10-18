@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from baccurate.adapters.policy_yaml import PolicyConfigurationError, load_policy_mapping
+from baccurate.adapters.config_yaml import ConfigError, load_config_mapping
 from baccurate.paths import DEFAULT_TAXIDS_NCBI
 from baccurate.standardization._attribute_value_text import split_pipe_separated
 from baccurate.standardization.supporting_attribute_value_pair import SupportingAttributeValuePair
@@ -117,8 +117,8 @@ def _parse_prefixed_taxid(value: str) -> tuple[str, str] | None:
 
 
 @dataclass(frozen=True, slots=True)
-class CuratedTaxonPolicy:
-    """Validated manual matching policy for one NCBI taxon."""
+class CuratedTaxonConfig:
+    """Validated manual matching config for one NCBI taxon."""
 
     taxid: int
     scientific_name: str
@@ -128,30 +128,30 @@ class CuratedTaxonPolicy:
 
 
 @dataclass(frozen=True, slots=True)
-class HostPolicy:
-    """Validated host-standardization policy compiled from host.yaml."""
+class HostConfig:
+    """Validated host-standardization config compiled from host.yaml."""
 
     schema_version: int
     ignored_substrings: tuple[str, ...]
     isolation_source_keywords: tuple[str, ...]
-    curated_taxa: tuple[CuratedTaxonPolicy, ...]
+    curated_taxa: tuple[CuratedTaxonConfig, ...]
     value_rejection_entries: tuple[str | TaxonHostRejection, ...]
     value_rejections: tuple[str, ...]
 
     @classmethod
-    def load(cls, path: Path | str, taxon_registry: TaxonRegistry) -> HostPolicy:
-        """Strictly load host policy and resolve target-taxon references."""
+    def load(cls, path: Path | str, taxon_registry: TaxonRegistry) -> HostConfig:
+        """Strictly load host config and resolve target-taxon references."""
         source = Path(path)
         try:
-            return _parse_host_policy(
-                load_policy_mapping(source),
+            return _parse_host_config(
+                load_config_mapping(source),
                 source,
                 taxon_registry,
             )
-        except PolicyConfigurationError:
+        except ConfigError:
             raise
         except ValueError as error:
-            raise PolicyConfigurationError(f"{source}: {error}") from error
+            raise ConfigError(f"{source}: {error}") from error
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,16 +185,16 @@ def _reject_unknown_keys(
     unknown = set(config) - allowed
     if unknown:
         name = sorted(str(key) for key in unknown)[0]
-        raise PolicyConfigurationError(f"{config_path}: {label}.{name}: unknown policy key")
+        raise ConfigError(f"{config_path}: {label}.{name}: unknown config key")
 
 
-def _parse_host_policy(
+def _parse_host_config(
     config: Mapping,
     config_path: Path,
     taxon_registry: TaxonRegistry,
-) -> HostPolicy:
+) -> HostConfig:
     if config.get("schema_version") != 3:
-        raise PolicyConfigurationError(f"{config_path}: schema_version: must be 3")
+        raise ConfigError(f"{config_path}: schema_version: must be 3")
     _reject_unknown_keys(
         config,
         {"schema_version", "normalization", "routing", "curated_taxa", "value_rejections"},
@@ -225,7 +225,7 @@ def _parse_host_policy(
     )
 
     curated_taxa = _require_mapping(config.get("curated_taxa"), "curated_taxa")
-    policies: list[CuratedTaxonPolicy] = []
+    configs: list[CuratedTaxonConfig] = []
     curated_term_taxids: dict[str, int] = {}
     for taxid, raw_taxon in curated_taxa.items():
         if not isinstance(taxid, str) or not re.fullmatch(r"[1-9]\d*", taxid):
@@ -269,8 +269,8 @@ def _parse_host_policy(
                     raise ValueError(
                         f"Curated term {normalized!r} maps to taxids {previous_taxid} and {taxid}."
                     )
-        policies.append(
-            CuratedTaxonPolicy(
+        configs.append(
+            CuratedTaxonConfig(
                 taxid=int(taxid),
                 scientific_name=scientific_name,
                 exact_terms=terms_by_mode["exact"],
@@ -292,36 +292,36 @@ def _parse_host_policy(
     rejection_entries: list[str | TaxonHostRejection] = []
     rejection_terms: list[str] = []
     for index, raw_rejection in enumerate(raw_rejections):
-        policy_key = f"value_rejections.exact.{index}"
+        config_key = f"value_rejections.exact.{index}"
         if isinstance(raw_rejection, str):
             if not _normalize_text(raw_rejection):
-                raise ValueError(f"{policy_key} contains an empty normalized value")
+                raise ValueError(f"{config_key} contains an empty normalized value")
             rejection_entries.append(raw_rejection)
             rejection_terms.append(raw_rejection)
             continue
-        rejection = _require_mapping(raw_rejection, policy_key)
-        _reject_unknown_keys(rejection, {"taxon_key"}, config_path, policy_key)
+        rejection = _require_mapping(raw_rejection, config_key)
+        _reject_unknown_keys(rejection, {"taxon_key"}, config_path, config_key)
         taxon_key = rejection.get("taxon_key")
         if not isinstance(taxon_key, str) or not taxon_key.strip():
-            raise ValueError(f"{policy_key}.taxon_key must be a non-empty string")
+            raise ValueError(f"{config_key}.taxon_key must be a non-empty string")
         scientific_name = taxon_registry.scientific_name(taxon_key)
         if not scientific_name:
-            raise PolicyConfigurationError(
-                f"{config_path}: {policy_key}.taxon_key: unknown taxon key {taxon_key!r}"
+            raise ConfigError(
+                f"{config_path}: {config_key}.taxon_key: unknown taxon key {taxon_key!r}"
             )
         rejection_entries.append(TaxonHostRejection(taxon_key))
         rejection_terms.append(scientific_name)
     overlap = set(curated_term_taxids) & {_normalize_text(term) for term in rejection_terms}
     if overlap:
-        raise PolicyConfigurationError(
+        raise ConfigError(
             f"{config_path}: value_rejections.exact: "
             f"{sorted(overlap)[0]!r} is both a curated term and a value rejection"
         )
-    return HostPolicy(
+    return HostConfig(
         schema_version=3,
         ignored_substrings=tuple(ignored_substrings),
         isolation_source_keywords=tuple(isolation_source_keywords),
-        curated_taxa=tuple(policies),
+        curated_taxa=tuple(configs),
         value_rejection_entries=tuple(rejection_entries),
         value_rejections=tuple(rejection_terms),
     )
@@ -473,12 +473,12 @@ class HostOutcome:
 class HostStandardizer:
     def __init__(
         self,
-        policy: HostPolicy,
+        config: HostConfig,
         ncbi_table_path: Path | str = DEFAULT_TAXIDS_NCBI,
         result_logger: logging.Logger | None = None,
     ) -> None:
         self.logger = result_logger or logger
-        self.policy = policy
+        self.config = config
         self._build_lookups(Path(ncbi_table_path))
         self._compile_filters()
 
@@ -569,22 +569,22 @@ class HostStandardizer:
         for normalized_term, exact_info in synonym_entries:
             ncbi_exact_terms.setdefault(normalized_term, exact_info)
 
-        for taxon_policy in self.policy.curated_taxa:
-            info = self.taxid_to_info.get(str(taxon_policy.taxid))
+        for taxon_config in self.config.curated_taxa:
+            info = self.taxid_to_info.get(str(taxon_config.taxid))
             if info is None:
                 raise ValueError(
-                    f"Curated taxid {taxon_policy.taxid} is not present in the NCBI "
+                    f"Curated taxid {taxon_config.taxid} is not present in the NCBI "
                     "taxonomy reference."
                 )
-            if taxon_policy.scientific_name != info.scientific_name:
+            if taxon_config.scientific_name != info.scientific_name:
                 raise ValueError(
-                    f"Curated taxid {taxon_policy.taxid} scientific_name must match NCBI "
-                    f"{info.scientific_name!r}; got {taxon_policy.scientific_name!r}."
+                    f"Curated taxid {taxon_config.taxid} scientific_name must match NCBI "
+                    f"{info.scientific_name!r}; got {taxon_config.scientific_name!r}."
                 )
             terms_by_mode = (
-                ("exact", taxon_policy.exact_terms),
-                ("subset", taxon_policy.subset_terms),
-                ("force", taxon_policy.force_terms),
+                ("exact", taxon_config.exact_terms),
+                ("subset", taxon_config.subset_terms),
+                ("force", taxon_config.force_terms),
             )
             for mode, terms in terms_by_mode:
                 for term in terms:
@@ -598,7 +598,7 @@ class HostStandardizer:
                         raise ValueError(
                             f"Curated term {term!r} conflicts with an NCBI exact term for "
                             f"taxid {ncbi_exact.taxid}; place it under force to map it to "
-                            f"taxid {taxon_policy.taxid}."
+                            f"taxid {taxon_config.taxid}."
                         )
                     if mode != "force":
                         curated_term_entries.append((normalized_term, info, mode == "subset"))
@@ -680,13 +680,13 @@ class HostStandardizer:
 
     def _compile_filters(self) -> None:
         self.ignored_patterns: list[re.Pattern] = [
-            re.compile(re.escape(value), re.IGNORECASE) for value in self.policy.ignored_substrings
+            re.compile(re.escape(value), re.IGNORECASE) for value in self.config.ignored_substrings
         ]
         # Each isolation_source_keyword is stored alongside its normalized word set.
         # Matching is whole-word: all the keyword's words must appear
         # as whole words in the value's normalized word set.
         self.isolation_source_keywords: list[tuple[str, frozenset[str]]] = []
-        for kw in self.policy.isolation_source_keywords:
+        for kw in self.config.isolation_source_keywords:
             words = frozenset(_normalize_text(str(kw)).split())
             if words:
                 self.isolation_source_keywords.append((str(kw), words))
@@ -694,10 +694,10 @@ class HostStandardizer:
         # Preemptive decisions keyed by normalized value: int = force taxid,
         # None = reject as host and preserve as overflow for isolation-source standardization.
         self.preemptive_decisions: dict[str, int | None] = {}
-        for taxon_policy in self.policy.curated_taxa:
-            for raw_value in taxon_policy.force_terms:
-                self.preemptive_decisions[_normalize_text(raw_value)] = taxon_policy.taxid
-        for raw_value in self.policy.value_rejections:
+        for taxon_config in self.config.curated_taxa:
+            for raw_value in taxon_config.force_terms:
+                self.preemptive_decisions[_normalize_text(raw_value)] = taxon_config.taxid
+        for raw_value in self.config.value_rejections:
             self.preemptive_decisions[_normalize_text(raw_value)] = None
         if self.preemptive_decisions:
             self.logger.info(

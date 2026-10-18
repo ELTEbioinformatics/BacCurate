@@ -40,9 +40,9 @@ from baccurate.standardization.collection_date import (
     RecordDateStandardizer,
 )
 from baccurate.standardization.host import (
+    HostConfig,
     HostDiagnostic,
     HostOutcome,
-    HostPolicy,
     HostStandardizer,
 )
 from baccurate.standardization.host_isolation_source import (
@@ -52,19 +52,21 @@ from baccurate.standardization.host_isolation_source import (
 )
 from baccurate.standardization.host_lineage import HostLineage, HostLineageEnricher
 from baccurate.standardization.isolation_source import (
-    FacetConfiguration,
     IsolationSourceDiagnostic,
     IsolationSourceEvidenceLevel,
     IsolationSourceOntologyGapDiagnostic,
     IsolationSourceOutcome,
-    IsolationSourcePromptPolicy,
     IsolationSourceRejection,
     IsolationSourceStandardizer,
 )
+from baccurate.standardization.isolation_source_config import (
+    FacetConfiguration,
+    IsolationSourceConfig,
+)
 from baccurate.standardization.location import (
+    LocationConfig,
     LocationDiagnostic,
     LocationOutcome,
-    LocationPolicy,
     LocationRejection,
     LocationResolutionRoute,
     LocationStandardizer,
@@ -72,9 +74,9 @@ from baccurate.standardization.location import (
 from baccurate.targets import (
     DATASET_COLUMN_ORDER,
     TARGET_SPECS,
-    PolicySlot,
+    ConfigSlot,
     StandardizationTarget,
-    required_policy_slots,
+    required_config_slots,
 )
 from baccurate.taxon_registry.registry import TaxonRegistry
 from baccurate.taxon_registry.species_label_matching import NA
@@ -97,9 +99,9 @@ class DatasetBuildRequest:
     requested_targets: tuple[StandardizationTarget, ...]
     final_destination: Path
     taxon_registry: TaxonRegistry
-    host_policy: HostPolicy | None = None
-    location_policy: LocationPolicy | None = None
-    isolation_source_prompt_policy: IsolationSourcePromptPolicy | None = None
+    host_config: HostConfig | None = None
+    location_config: LocationConfig | None = None
+    isolation_source_config: IsolationSourceConfig | None = None
     isolation_source_reasoning_destination: Path | None = None
     location_review_worklist_destination: Path | None = None
     names_dmp: Path = DEFAULT_NAMES_DMP
@@ -363,28 +365,27 @@ class DatasetBuilder:
     Stream one final dataset for the requested records and standardization targets.
 
     The four optional factories are test seams for the external dependencies:
-    the LLM client (isolation source), the INSDC location list and reviewed policy
+    the LLM client (isolation source), the INSDC location list and reviewed config
     (location), the NCBI Taxonomy table (host), and ``names.dmp``/``nodes.dmp`` (lineage).
     """
 
     def __init__(
         self,
         location_standardizer_factory: (
-            Callable[[LocationPolicy, logging.Logger], LocationStandardizer] | None
+            Callable[[LocationConfig, logging.Logger], LocationStandardizer] | None
         ) = None,
         host_standardizer_factory: (
-            Callable[[HostPolicy, logging.Logger], HostStandardizer] | None
+            Callable[[HostConfig, logging.Logger], HostStandardizer] | None
         ) = None,
         host_lineage_factory: Callable[[Path, Path], HostLineageEnricher] | None = None,
         isolation_source_standardizer_factory: (
-            Callable[[IsolationSourcePromptPolicy, logging.Logger], IsolationSourceStandardizer]
-            | None
+            Callable[[IsolationSourceConfig, logging.Logger], IsolationSourceStandardizer] | None
         ) = None,
     ) -> None:
         self._location_standardizer_factory = location_standardizer_factory
         self._host_standardizer_factory = host_standardizer_factory or (
-            lambda policy, result_logger: HostStandardizer(
-                policy,
+            lambda config, result_logger: HostStandardizer(
+                config,
                 result_logger=result_logger,
             )
         )
@@ -407,9 +408,9 @@ class DatasetBuilder:
             path for path in (destination, reasoning_destination) if path is not None
         )
         isolation_source_facets = (
-            request.isolation_source_prompt_policy.facets
+            request.isolation_source_config.facets
             if StandardizationTarget.ISOLATION_SOURCE in targets
-            and request.isolation_source_prompt_policy is not None
+            and request.isolation_source_config is not None
             else ()
         )
         if not request.overwrite:
@@ -435,8 +436,8 @@ class DatasetBuilder:
                 targets,
                 request.taxon_registry,
                 isolation_source_facets,
-                request.isolation_source_prompt_policy.ontology.exact_match_ids
-                if request.isolation_source_prompt_policy is not None
+                request.isolation_source_config.ontology.exact_match_ids
+                if request.isolation_source_config is not None
                 else None,
             )
             writer = csv.writer(destination_stream, delimiter="\t", lineterminator="\n")
@@ -461,17 +462,17 @@ class DatasetBuilder:
             location_review_worklist = None
             if StandardizationTarget.LOCATION in targets:
                 location_standardizer = (
-                    self._location_standardizer_factory(request.location_policy, request.logger)
+                    self._location_standardizer_factory(request.location_config, request.logger)
                     if self._location_standardizer_factory is not None
                     else LocationStandardizer(
-                        request.location_policy,
+                        request.location_config,
                         result_logger=request.logger,
                     )
                 )
                 if request.location_review_worklist_destination is not None:
                     location_review_worklist = LocationReviewWorklist()
             host_standardizer = (
-                self._host_standardizer_factory(request.host_policy, request.logger)
+                self._host_standardizer_factory(request.host_config, request.logger)
                 if StandardizationTarget.HOST in targets
                 or StandardizationTarget.ISOLATION_SOURCE in targets
                 else None
@@ -480,7 +481,7 @@ class DatasetBuilder:
             if StandardizationTarget.ISOLATION_SOURCE in targets:
                 if self._isolation_source_standardizer_factory is not None:
                     isolation_source_standardizer = self._isolation_source_standardizer_factory(
-                        request.isolation_source_prompt_policy,
+                        request.isolation_source_config,
                         request.logger,
                     )
                 else:
@@ -491,7 +492,7 @@ class DatasetBuilder:
                     if request.skip_llm:
                         isolation_source_options["client"] = None
                     isolation_source_standardizer = IsolationSourceStandardizer(
-                        request.isolation_source_prompt_policy,
+                        request.isolation_source_config,
                         **isolation_source_options,
                     )
             if isolation_source_standardizer is not None:
@@ -600,18 +601,16 @@ class DatasetBuilder:
             raise ValueError("Need at least one standardization attribute")
         if len(set(targets)) != len(targets):
             raise ValueError("Standardization attributes must be unique")
-        required_policies = required_policy_slots(targets)
-        if PolicySlot.HOST in required_policies and request.host_policy is None:
-            raise ValueError("Host or isolation-source standardization requires a host policy")
-        if PolicySlot.LOCATION in required_policies and request.location_policy is None:
-            raise ValueError("Geographic-location standardization requires a location policy")
+        required_configs = required_config_slots(targets)
+        if ConfigSlot.HOST in required_configs and request.host_config is None:
+            raise ValueError("Host or isolation-source standardization requires a host config")
+        if ConfigSlot.LOCATION in required_configs and request.location_config is None:
+            raise ValueError("Geographic-location standardization requires a location config")
         if (
-            PolicySlot.ISOLATION_SOURCE in required_policies
-            and request.isolation_source_prompt_policy is None
+            ConfigSlot.ISOLATION_SOURCE in required_configs
+            and request.isolation_source_config is None
         ):
-            raise ValueError(
-                "Isolation-source standardization requires an isolation-source prompt policy"
-            )
+            raise ValueError("Isolation-source standardization requires an isolation-source config")
         return taxa, targets
 
     @staticmethod

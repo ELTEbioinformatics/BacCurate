@@ -32,7 +32,9 @@ from baccurate.provenance.sha256 import sha256_file
 from baccurate.provenance.snapshot_manifest import SnapshotManifest
 from baccurate.run.outputs import RunOutputs
 from baccurate.run.statistics import DatasetBuildProgress, DatasetBuildStatistics
-from baccurate.standardization.isolation_source import IsolationSourceProvenance
+from baccurate.standardization.isolation_source_config import (
+    IsolationSourceProvenance,
+)
 from baccurate.targets import TARGET_SPECS, StandardizationTarget
 
 # Snapshot manifests of the three bulk reports (SRA, GenBank, RefSeq).

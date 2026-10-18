@@ -25,14 +25,14 @@ def main(
     taxon_registry: TaxonRegistry | None = None,
 ) -> None:
     invocation = resolve_invocation(argv, taxon_registry=taxon_registry)
-    prompt_policy = invocation.effective_policy.isolation_source_prompt_policy
+    prompt_config = invocation.config.isolation_source_config
 
     invocation.outputs.initialize()
     if invocation.outputs.prompt_snapshot is not None:
         write_prompt_snapshot(
             invocation.outputs.prompt_snapshot,
             model_identifiers=invocation.model_identifiers,
-            isolation_source_prompt_policy=prompt_policy,
+            isolation_source_config=prompt_config,
         )
     logging_state = configure_run_logging(invocation.outputs.log, console_debug=invocation.debug)
     run_report = RunReport(
@@ -49,7 +49,7 @@ def main(
             model_identifiers=invocation.model_identifiers,
             trace_llm_calls=invocation.debug,
             isolation_source_provenance=(
-                prompt_policy.provenance if prompt_policy is not None else None
+                prompt_config.provenance if prompt_config is not None else None
             ),
         ),
     )
@@ -63,7 +63,7 @@ def main(
 
     try:
         with progress_context(disable=invocation.disable_progress):
-            if invocation.selection_policy is not None:
+            if invocation.selection_config is not None:
                 run_report.transition(RunPhase.EXTRACTION)
                 run_report.begin_performed_extraction(
                     biosample_input_path=invocation.biosample_input_path,
@@ -80,7 +80,7 @@ def main(
                 )
                 extraction_report = run_extraction(
                     output_path=invocation.extracted_metadata_path,
-                    selection_policy=invocation.selection_policy,
+                    selection_config=invocation.selection_config,
                     index_path=invocation.index_path,
                     names=invocation.extraction_taxon_keys,
                     taxon_registry=invocation.registry,
@@ -110,9 +110,9 @@ def main(
                 requested_targets=invocation.active_targets,
                 final_destination=invocation.outputs.dataset,
                 taxon_registry=invocation.registry,
-                host_policy=invocation.effective_policy.host_policy,
-                location_policy=invocation.effective_policy.location_policy,
-                isolation_source_prompt_policy=prompt_policy,
+                host_config=invocation.config.host_config,
+                location_config=invocation.config.location_config,
+                isolation_source_config=prompt_config,
                 isolation_source_reasoning_destination=invocation.outputs.isolation_source_reasoning,
                 location_review_worklist_destination=invocation.outputs.location_review_worklist,
                 names_dmp=invocation.names_dmp,

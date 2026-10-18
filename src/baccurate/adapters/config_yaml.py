@@ -5,12 +5,12 @@ import yaml
 from yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 
 
-class PolicyConfigurationError(ValueError):
-    """An error in YAML syntax or policy structure."""
+class ConfigError(ValueError):
+    """An error in YAML syntax or config structure."""
 
 
-def _configuration_error(path: Path, policy_key: str, message: str) -> PolicyConfigurationError:
-    return PolicyConfigurationError(f"{path}: {policy_key}: {message}")
+def _configuration_error(path: Path, config_key: str, message: str) -> ConfigError:
+    return ConfigError(f"{path}: {config_key}: {message}")
 
 
 def _reject_duplicate_keys(path: Path, node: Node, key_path: tuple[str, ...] = ()) -> None:
@@ -32,7 +32,7 @@ def _reject_duplicate_keys(path: Path, node: Node, key_path: tuple[str, ...] = (
             _reject_duplicate_keys(path, value_node, (*key_path, str(index)))
 
 
-def load_policy_mapping(path: Path | str) -> Mapping[object, object]:
+def load_config_mapping(path: Path | str) -> Mapping[object, object]:
     """Load one YAML mapping with duplicate-key and source-aware syntax checks."""
     source = Path(path)
     try:
@@ -41,7 +41,7 @@ def load_policy_mapping(path: Path | str) -> Mapping[object, object]:
         if node is not None:
             _reject_duplicate_keys(source, node)
         value = yaml.safe_load(text)
-    except PolicyConfigurationError:
+    except ConfigError:
         raise
     except (OSError, UnicodeError, yaml.YAMLError) as error:
         raise _configuration_error(source, "<yaml>", str(error)) from error

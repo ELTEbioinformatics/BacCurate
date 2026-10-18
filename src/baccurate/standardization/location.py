@@ -25,7 +25,7 @@ from types import MappingProxyType
 import country_converter as coco
 import reverse_geocode
 
-from baccurate.adapters.policy_yaml import PolicyConfigurationError, load_policy_mapping
+from baccurate.adapters.config_yaml import ConfigError, load_config_mapping
 from baccurate.paths import DEFAULT_GEO_LOC_LIST
 from baccurate.standardization._attribute_value_text import split_pipe_separated
 from baccurate.standardization._map_units import containing_map_unit_code
@@ -50,12 +50,12 @@ def normalize_submitted_location_value(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip().lower()
 
 
-# --- Policy ---
+# --- Config ---
 
 
 @dataclass(frozen=True, slots=True)
-class LocationPolicy:
-    """Validated geographic-location standardization policy."""
+class LocationConfig:
+    """Validated geographic-location standardization config."""
 
     schema_version: int
     coordinate_attributes: tuple[str, ...]
@@ -65,14 +65,14 @@ class LocationPolicy:
     geo_loc_list_path: Path
 
     @classmethod
-    def load(cls, path: Path | str) -> "LocationPolicy":
+    def load(cls, path: Path | str) -> "LocationConfig":
         """Load YAML mappings."""
         source = Path(path)
-        return _parse_location_policy(load_policy_mapping(source), source)
+        return _parse_location_config(load_config_mapping(source), source)
 
 
-def _location_policy_error(source: Path, key: str, message: str) -> PolicyConfigurationError:
-    return PolicyConfigurationError(f"{source}: {key}: {message}")
+def _location_config_error(source: Path, key: str, message: str) -> ConfigError:
+    return ConfigError(f"{source}: {key}: {message}")
 
 
 def _require_string_mapping(
@@ -82,13 +82,13 @@ def _require_string_mapping(
 ) -> dict[str, str]:
     raw = config.get(key)
     if not isinstance(raw, Mapping):
-        raise _location_policy_error(source, key, "must be a mapping")
+        raise _location_config_error(source, key, "must be a mapping")
     mapping: dict[str, str] = {}
     for submitted, standardized in raw.items():
         if not isinstance(submitted, str) or not submitted.strip():
-            raise _location_policy_error(source, key, "keys must be non-empty strings")
+            raise _location_config_error(source, key, "keys must be non-empty strings")
         if not isinstance(standardized, str) or not standardized.strip():
-            raise _location_policy_error(
+            raise _location_config_error(
                 source,
                 f"{key}.{submitted}",
                 "must be a non-empty string",
@@ -97,10 +97,10 @@ def _require_string_mapping(
     return mapping
 
 
-def _parse_location_policy(
+def _parse_location_config(
     config: Mapping[object, object],
     source: Path,
-) -> LocationPolicy:
+) -> LocationConfig:
     allowed = {
         "schema_version",
         "coordinate_attributes",
@@ -112,25 +112,25 @@ def _parse_location_policy(
     unknown = set(config) - allowed
     if unknown:
         key = sorted(str(value) for value in unknown)[0]
-        raise _location_policy_error(source, f"top level.{key}", "unknown policy key")
+        raise _location_config_error(source, f"top level.{key}", "unknown config key")
 
     schema_version = config.get("schema_version")
     if type(schema_version) is not int:
-        raise _location_policy_error(source, "schema_version", "must be integer version 2")
+        raise _location_config_error(source, "schema_version", "must be integer version 2")
     if schema_version != 2:
-        raise _location_policy_error(
+        raise _location_config_error(
             source,
             "schema_version",
             f"unsupported schema version {schema_version}; supported schema version is 2; "
-            "migrate this location policy before retrying",
+            "migrate this location config before retrying",
         )
 
     coordinate_attributes = config.get("coordinate_attributes")
     if not isinstance(coordinate_attributes, list):
-        raise _location_policy_error(source, "coordinate_attributes", "must be a list of strings")
+        raise _location_config_error(source, "coordinate_attributes", "must be a list of strings")
     for index, attribute in enumerate(coordinate_attributes):
         if not isinstance(attribute, str) or not attribute.strip():
-            raise _location_policy_error(
+            raise _location_config_error(
                 source,
                 f"coordinate_attributes.{index}",
                 "must be a non-empty string",
@@ -141,10 +141,10 @@ def _parse_location_policy(
 
     reviewed_unmapped = config.get("reviewed_unmapped")
     if not isinstance(reviewed_unmapped, list):
-        raise _location_policy_error(source, "reviewed_unmapped", "must be a list of strings")
+        raise _location_config_error(source, "reviewed_unmapped", "must be a list of strings")
     for index, value in enumerate(reviewed_unmapped):
         if not isinstance(value, str) or not value.strip():
-            raise _location_policy_error(
+            raise _location_config_error(
                 source,
                 f"reviewed_unmapped.{index}",
                 "must be a non-empty string",
@@ -152,19 +152,19 @@ def _parse_location_policy(
 
     geo_loc_list_path = config.get("geo_loc_list_path", str(DEFAULT_GEO_LOC_LIST))
     if not isinstance(geo_loc_list_path, str) or not geo_loc_list_path.strip():
-        raise _location_policy_error(source, "geo_loc_list_path", "must be a non-empty string")
+        raise _location_config_error(source, "geo_loc_list_path", "must be a non-empty string")
     geo_loc_path = Path(geo_loc_list_path)
     try:
         with geo_loc_path.open("r", encoding="utf-8"):
             pass
     except (OSError, UnicodeError) as error:
-        raise _location_policy_error(
+        raise _location_config_error(
             source,
             "geo_loc_list_path",
             f"must select a readable file: {error}",
         ) from error
 
-    return LocationPolicy(
+    return LocationConfig(
         schema_version=2,
         coordinate_attributes=tuple(coordinate_attributes),
         insdc_country_map=MappingProxyType(insdc_map),
@@ -507,20 +507,20 @@ class _RecordResolution:
 class LocationStandardizer:
     def __init__(
         self,
-        policy: LocationPolicy,
+        config: LocationConfig,
         *,
         result_logger: logging.Logger | None = None,
     ) -> None:
         self.logger = result_logger or logger
-        self.policy = policy
-        self.coordinate_attributes = set(policy.coordinate_attributes)
-        self.insdc_map = dict(policy.insdc_country_map)
-        self.insdc_names = self._load_insdc_names(policy.geo_loc_list_path)
+        self.config = config
+        self.coordinate_attributes = set(config.coordinate_attributes)
+        self.insdc_map = dict(config.insdc_country_map)
+        self.insdc_names = self._load_insdc_names(config.geo_loc_list_path)
         self.insdc_by_normalized_name = {
             normalize_submitted_location_value(name): name for name in self.insdc_names
         }
-        self.reviewed_mappings = dict(policy.reviewed_mappings)
-        self.reviewed_unmapped = frozenset(policy.reviewed_unmapped)
+        self.reviewed_mappings = dict(config.reviewed_mappings)
+        self.reviewed_unmapped = frozenset(config.reviewed_unmapped)
 
         self.cc = coco.CountryConverter()
         logging.getLogger("country_converter").setLevel(logging.CRITICAL)
@@ -907,7 +907,7 @@ class LocationStandardizer:
         unmappable_result: bool,
         first_coordinate: tuple[float, float] | None,
     ) -> _RecordResolution:
-        """Apply the reviewed geographic-location policy to every submitted value."""
+        """Apply the reviewed geographic-location config to every submitted value."""
         targets: set[str] = set()
         reviewed_unmapped_present = False
         for _, pair in pairs:

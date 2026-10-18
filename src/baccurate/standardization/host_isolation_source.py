@@ -76,7 +76,7 @@ class HostIsolationSourceResult:
 
 
 class HostIsolationSourceStandardizer:
-    """Standardize one BioSample record through the coordinated host--isolation-source policy."""
+    """Standardize one BioSample record through the coordinated host--isolation-source config."""
 
     def __init__(
         self,

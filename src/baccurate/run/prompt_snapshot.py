@@ -4,7 +4,9 @@ audited or reproduced from its output directory without rerunning it."""
 from collections.abc import Mapping
 from pathlib import Path
 
-from baccurate.standardization.isolation_source import IsolationSourcePromptPolicy
+from baccurate.standardization.isolation_source_config import (
+    IsolationSourceConfig,
+)
 from baccurate.targets import TARGET_SPECS, StandardizationTarget
 
 
@@ -12,7 +14,7 @@ def write_prompt_snapshot(
     destination: Path,
     *,
     model_identifiers: Mapping[str, str | None],
-    isolation_source_prompt_policy: IsolationSourcePromptPolicy | None = None,
+    isolation_source_config: IsolationSourceConfig | None = None,
 ) -> None:
     """Write one section per prompt-backed target to ``destination``.
 
@@ -20,14 +22,14 @@ def write_prompt_snapshot(
     prompt_version, and the exact system/user prompts sent to the LLM.
     """
     sections = []
-    if isolation_source_prompt_policy is not None:
-        prompts = isolation_source_prompt_policy.effective_prompts
+    if isolation_source_config is not None:
+        prompts = isolation_source_config.effective_prompts
         target_spec = TARGET_SPECS[StandardizationTarget.ISOLATION_SOURCE]
         sections.append(
             _section(
                 target_spec.published_key,
                 model_identifiers.get(target_spec.published_key),
-                isolation_source_prompt_policy.prompt_version,
+                isolation_source_config.prompt_version,
                 (
                     ("system_prompt", prompts.system),
                     ("user_prompt_template", prompts.user_template),

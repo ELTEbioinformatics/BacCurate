@@ -17,7 +17,7 @@ from baccurate.run.location_review_worklist import (
     LocationReviewWorklist,
 )
 from baccurate.run.statistics import DatasetBuildStatistics
-from baccurate.standardization.location import LocationPolicy, UnresolvedLocationInput
+from baccurate.standardization.location import LocationConfig, UnresolvedLocationInput
 from baccurate.targets import (
     LOCATION_NAME_MATCH,
     StandardizationTarget,
@@ -125,12 +125,12 @@ def test_worklist_keeps_three_examples_chosen_independently_of_input_order(
 
 
 @pytest.fixture
-def reviewed_location_policy(
+def reviewed_location_config(
     tmp_path: Path,
-    fixture_location_policy: LocationPolicy,
-) -> LocationPolicy:
-    policy_path = tmp_path / "reviewed-location.yaml"
-    policy_path.write_text(
+    fixture_location_config: LocationConfig,
+) -> LocationConfig:
+    config_path = tmp_path / "reviewed-location.yaml"
+    config_path.write_text(
         yaml.safe_dump(
             {
                 "schema_version": 2,
@@ -138,13 +138,13 @@ def reviewed_location_policy(
                 "insdc_country_map": {},
                 "reviewed_mappings": {"uae": "United Arab Emirates"},
                 "reviewed_unmapped": ["ncbs"],
-                "geo_loc_list_path": fixture_location_policy.geo_loc_list_path.as_posix(),
+                "geo_loc_list_path": fixture_location_config.geo_loc_list_path.as_posix(),
             },
             sort_keys=False,
         ),
         encoding="utf-8",
     )
-    return LocationPolicy.load(policy_path)
+    return LocationConfig.load(config_path)
 
 
 def _located_record(accession: str, submitted_value: str, **overrides: str) -> dict[str, str]:
@@ -168,7 +168,7 @@ def _build(
     files,
     *,
     name: str,
-    location_policy: LocationPolicy | None,
+    location_config: LocationConfig | None,
     targets: tuple[StandardizationTarget, ...],
     standardization_fixture_resources,
     fixture_taxon_registry,
@@ -183,7 +183,7 @@ def _build(
             requested_targets=targets,
             final_destination=destination,
             taxon_registry=fixture_taxon_registry,
-            location_policy=location_policy,
+            location_config=location_config,
             location_review_worklist_destination=destination.parent
             / LOCATION_REVIEW_WORKLIST_FILENAME,
             disable_progress=True,
@@ -214,7 +214,7 @@ def worklist_files(make_extracted_metadata_files):
 def test_location_run_writes_the_worklist_and_reports_its_totals(
     tmp_path: Path,
     worklist_files,
-    reviewed_location_policy: LocationPolicy,
+    reviewed_location_config: LocationConfig,
     standardization_fixture_resources,
     fixture_taxon_registry,
 ) -> None:
@@ -222,7 +222,7 @@ def test_location_run_writes_the_worklist_and_reports_its_totals(
         tmp_path,
         worklist_files,
         name="with-worklist",
-        location_policy=reviewed_location_policy,
+        location_config=reviewed_location_config,
         targets=(StandardizationTarget.LOCATION,),
         standardization_fixture_resources=standardization_fixture_resources,
         fixture_taxon_registry=fixture_taxon_registry,
@@ -257,7 +257,7 @@ def test_run_without_the_location_target_writes_no_worklist(
         tmp_path,
         worklist_files,
         name="date-only",
-        location_policy=None,
+        location_config=None,
         targets=(StandardizationTarget.DATE,),
         standardization_fixture_resources=standardization_fixture_resources,
         fixture_taxon_registry=fixture_taxon_registry,
@@ -270,7 +270,7 @@ def test_run_without_the_location_target_writes_no_worklist(
 def test_repeated_location_runs_produce_identical_datasets_and_worklists(
     tmp_path: Path,
     worklist_files,
-    reviewed_location_policy: LocationPolicy,
+    reviewed_location_config: LocationConfig,
     standardization_fixture_resources,
     fixture_taxon_registry,
 ) -> None:
@@ -279,7 +279,7 @@ def test_repeated_location_runs_produce_identical_datasets_and_worklists(
             tmp_path,
             worklist_files,
             name=name,
-            location_policy=reviewed_location_policy,
+            location_config=reviewed_location_config,
             targets=(StandardizationTarget.LOCATION,),
             standardization_fixture_resources=standardization_fixture_resources,
             fixture_taxon_registry=fixture_taxon_registry,

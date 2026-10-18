@@ -15,10 +15,10 @@ from baccurate.standardization.host_lineage import HostLineageEnricher
 
 
 @pytest.fixture(scope="session")
-def standardizer(fixture_host_policy, standardization_fixture_resources) -> HostStandardizer:
+def standardizer(fixture_host_config, standardization_fixture_resources) -> HostStandardizer:
     """Use the compact taxonomy for every detailed host scenario."""
     return HostStandardizer(
-        fixture_host_policy,
+        fixture_host_config,
         standardization_fixture_resources.ncbi_taxonomy_reference_table,
     )
 
@@ -172,7 +172,7 @@ def test_numeric_values_are_gated_by_host_taxid_attribute(
 
 
 def test_numeric_general_host_value_falls_through_to_text_matching(
-    fixture_host_policy,
+    fixture_host_config,
     standardization_fixture_resources,
     tmp_path,
 ) -> None:
@@ -183,7 +183,7 @@ def test_numeric_general_host_value_falls_through_to_text_matching(
         encoding="utf-8",
     )
     numeric_name_standardizer = HostStandardizer(
-        fixture_host_policy,
+        fixture_host_config,
         ncbi_table_path=taxonomy_path,
     )
 

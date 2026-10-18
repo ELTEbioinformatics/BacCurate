@@ -19,13 +19,13 @@ from baccurate.taxon_registry.species_label_matching import (
 )
 
 
-def _write_policy(path: Path, policy: dict[Any, Any]) -> Path:
-    path.write_text(yaml.safe_dump(policy, sort_keys=False), encoding="utf-8")
+def _write_config(path: Path, config: dict[Any, Any]) -> Path:
+    path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     return path
 
 
 @pytest.mark.parametrize(
-    ("policy", "policy_key"),
+    ("config", "config_key"),
     [
         ("alpha: {}\n", "schema_version"),
         ("schema_version: 2\n", "schema_version"),
@@ -33,21 +33,21 @@ def _write_policy(path: Path, policy: dict[Any, Any]) -> Path:
 )
 def test_registry_loader_rejects_missing_and_unsupported_versions(
     tmp_path: Path,
-    policy: str,
-    policy_key: str,
+    config: str,
+    config_key: str,
 ) -> None:
     path = tmp_path / "taxa.yaml"
-    path.write_text(policy, encoding="utf-8")
+    path.write_text(config, encoding="utf-8")
 
     with pytest.raises(TaxonRegistryError) as error:
         load_taxon_registry(path)
 
     assert str(path) in str(error.value)
-    assert policy_key in str(error.value)
+    assert config_key in str(error.value)
 
 
 @pytest.mark.parametrize(
-    ("registry_entries", "policy_key"),
+    ("registry_entries", "config_key"),
     [
         ({"alpha": "not-a-mapping"}, "alpha"),
         ({"alpha": {}}, "alpha"),
@@ -124,12 +124,12 @@ def test_registry_loader_rejects_missing_and_unsupported_versions(
         ),
     ],
 )
-def test_registry_rejects_invalid_taxon_policy(
+def test_registry_rejects_invalid_taxon_config(
     tmp_path: Path,
     registry_entries: dict[str, object],
-    policy_key: str,
+    config_key: str,
 ) -> None:
-    path = _write_policy(
+    path = _write_config(
         tmp_path / "taxa.yaml",
         {"schema_version": 1, **registry_entries},
     )
@@ -138,13 +138,13 @@ def test_registry_rejects_invalid_taxon_policy(
         load_taxon_registry(path)
 
     assert str(path) in str(error.value)
-    assert policy_key in str(error.value)
+    assert config_key in str(error.value)
 
 
 def test_distinct_ancestor_and_descendant_taxa_remain_valid(
     tmp_path: Path,
 ) -> None:
-    path = _write_policy(
+    path = _write_config(
         tmp_path / "taxa.yaml",
         {
             "schema_version": 1,
@@ -166,10 +166,10 @@ def test_distinct_ancestor_and_descendant_taxa_remain_valid(
     assert registry.taxon_keys == ("enterobacter", "ecloacae")
 
 
-def test_container_may_contain_a_taxon_key_that_matches_a_policy_field(
+def test_container_may_contain_a_taxon_key_that_matches_a_config_field(
     tmp_path: Path,
 ) -> None:
-    path = _write_policy(
+    path = _write_config(
         tmp_path / "taxa.yaml",
         {
             "schema_version": 1,

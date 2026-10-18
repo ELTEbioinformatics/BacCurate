@@ -12,7 +12,7 @@ import baccurate.extraction as extraction
 from baccurate import paths
 from baccurate.extraction import (
     ExtractionReport,
-    SelectionPolicy,
+    SelectionConfig,
 )
 from baccurate.provenance.extracted_metadata import (
     provenance_path_for,
@@ -30,10 +30,10 @@ class _PairedSnapshotPaths(Protocol):
 
 
 def run_extraction(**kwargs: Any) -> ExtractionReport:
-    """Call extraction through its injected selection-policy interface."""
+    """Call extraction through its injected selection-config interface."""
     kwargs.setdefault(
-        "selection_policy",
-        SelectionPolicy.load(ROOT / "config" / "selection.yaml"),
+        "selection_config",
+        SelectionConfig.load(ROOT / "config" / "selection.yaml"),
     )
     return extraction.run_extraction(**kwargs)
 
@@ -222,7 +222,7 @@ def test_extraction_report_preserves_production_selection_review_counters(
     report = run_extraction(
         output_path=tmp_path / "extracted.tsv",
         index_path=index,
-        selection_policy=SelectionPolicy.load(ROOT / "config" / "selection.yaml"),
+        selection_config=SelectionConfig.load(ROOT / "config" / "selection.yaml"),
     )
 
     assert report.unreviewed_count == 2
@@ -253,9 +253,9 @@ def test_extraction_report_preserves_production_selection_review_counters(
     ],
 )
 def test_universal_missing_marker_rejects_the_whole_value(value: str) -> None:
-    policy = SelectionPolicy.load(ROOT / "config" / "selection.yaml")
+    config = SelectionConfig.load(ROOT / "config" / "selection.yaml")
 
-    decision = policy.evaluate(attribute="collection_date", value=value)
+    decision = config.evaluate(attribute="collection_date", value=value)
 
     assert decision.matches == ()
     assert decision.events[0].family == "universal_missing"
@@ -270,9 +270,9 @@ def test_universal_missing_marker_rejects_the_whole_value(value: str) -> None:
     ],
 )
 def test_universal_missing_marker_does_not_match_nearby_syntax(value: str) -> None:
-    policy = SelectionPolicy.load(ROOT / "config" / "selection.yaml")
+    config = SelectionConfig.load(ROOT / "config" / "selection.yaml")
 
-    decision = policy.evaluate(attribute="collection_date", value=value)
+    decision = config.evaluate(attribute="collection_date", value=value)
 
     assert [match.target for match in decision.matches] == ["date"]
     assert decision.events == ()
@@ -547,9 +547,9 @@ def test_extraction_flags_how_each_location_pair_matched(
     ],
 )
 def test_coordinate_halves_are_selected_for_location(attribute: str) -> None:
-    policy = SelectionPolicy.load(ROOT / "config" / "selection.yaml")
+    config = SelectionConfig.load(ROOT / "config" / "selection.yaml")
 
-    decision = policy.evaluate(attribute=attribute, value="51.34")
+    decision = config.evaluate(attribute=attribute, value="51.34")
 
     assert [match.target for match in decision.matches] == ["loc"]
 
@@ -559,9 +559,9 @@ def test_coordinate_halves_are_selected_for_location(attribute: str) -> None:
     ["latitude start", "latitude end", "longitude start", "longitude end"],
 )
 def test_transect_endpoints_are_not_selected_for_location(attribute: str) -> None:
-    policy = SelectionPolicy.load(ROOT / "config" / "selection.yaml")
+    config = SelectionConfig.load(ROOT / "config" / "selection.yaml")
 
-    decision = policy.evaluate(attribute=attribute, value="51.34")
+    decision = config.evaluate(attribute=attribute, value="51.34")
 
     assert decision.matches == ()
 
@@ -605,10 +605,10 @@ def test_record_level_dates_are_not_counted_as_submitted_pairs() -> None:
         "<Attribute attribute_name='collection_date'>2020-01-02</Attribute>"
         "</Attributes></BioSample>"
     )
-    policy = SelectionPolicy.load(ROOT / "config" / "selection.yaml")
+    config = SelectionConfig.load(ROOT / "config" / "selection.yaml")
     counters = SelectionCounters()
 
-    decisions = parse_xml(record, policy.evaluate, check_root_attributes=True, counters=counters)
+    decisions = parse_xml(record, config.evaluate, check_root_attributes=True, counters=counters)
 
     assert len(decisions) == 4
     assert counters.inspected == 1

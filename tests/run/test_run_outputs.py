@@ -26,15 +26,15 @@ from baccurate.standardization.collection_date import (
     DatePrecision,
     DateStructure,
 )
-from baccurate.standardization.isolation_source import (
-    IsolationSourcePromptPolicy,
+from baccurate.standardization.isolation_source_config import (
+    IsolationSourceConfig,
 )
 from baccurate.standardization.location import LocationResolutionRoute
 
 ROOT = Path(__file__).parents[2]
 
 
-def _write_prompt_configs(tmp_path: Path) -> IsolationSourcePromptPolicy:
+def _write_prompt_configs(tmp_path: Path) -> IsolationSourceConfig:
     fixture_root = ROOT / "tests" / "fixtures" / "standardization"
     config = yaml.safe_load((fixture_root / "isolation_source.yaml").read_text(encoding="utf-8"))
     config.update(
@@ -45,7 +45,7 @@ def _write_prompt_configs(tmp_path: Path) -> IsolationSourcePromptPolicy:
     )
     isolation_source = tmp_path / "isolation.yaml"
     isolation_source.write_text(yaml.safe_dump(config), encoding="utf-8")
-    return IsolationSourcePromptPolicy.load(isolation_source)
+    return IsolationSourceConfig.load(isolation_source)
 
 
 def test_prompt_snapshot_omits_unselected_pipeline(tmp_path: Path) -> None:
@@ -59,7 +59,7 @@ def test_prompt_snapshot_omits_unselected_pipeline(tmp_path: Path) -> None:
 
 
 def test_prompt_snapshot_uses_loaded_effective_isolation_source_prompts(tmp_path: Path) -> None:
-    isolation_source_policy = _write_prompt_configs(tmp_path)
+    isolation_source_config = _write_prompt_configs(tmp_path)
     source = tmp_path / "isolation.yaml"
     source.write_text("broken: [\n", encoding="utf-8")
     destination = tmp_path / "prompts.txt"
@@ -67,7 +67,7 @@ def test_prompt_snapshot_uses_loaded_effective_isolation_source_prompts(tmp_path
     write_prompt_snapshot(
         destination,
         model_identifiers={"isolation_source": "model"},
-        isolation_source_prompt_policy=isolation_source_policy,
+        isolation_source_config=isolation_source_config,
     )
 
     contents = destination.read_text(encoding="utf-8")

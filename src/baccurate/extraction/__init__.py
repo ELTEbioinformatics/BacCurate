@@ -10,10 +10,10 @@ from baccurate.extraction.io import (
 )
 from baccurate.extraction.metadata_types import TargetMatch
 from baccurate.extraction.selection import (
+    SelectionConfig,
+    SelectionConfigError,
     SelectionDecision,
     SelectionEvent,
-    SelectionPolicy,
-    SelectionPolicyError,
 )
 from baccurate.extraction.tables import COLUMNS
 from baccurate.extraction.xml import SelectionCounters
@@ -23,11 +23,11 @@ __all__ = [
     "SEQUENCE_ACCESSION_COLUMNS",
     "ExtractionReport",
     "InclusionRoute",
+    "SelectionConfig",
+    "SelectionConfigError",
     "SelectionCounters",
     "SelectionDecision",
     "SelectionEvent",
-    "SelectionPolicy",
-    "SelectionPolicyError",
     "TargetMatch",
     "TaxonAssignment",
     "load_taxon_map",

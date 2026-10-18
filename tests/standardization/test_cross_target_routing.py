@@ -12,9 +12,11 @@ from baccurate.paths import CONFIG_DIR
 from baccurate.standardization.host import HostStandardizer
 from baccurate.standardization.host_isolation_source import HostIsolationSourceStandardizer
 from baccurate.standardization.isolation_source import (
-    IsolationSourcePromptPolicy,
     IsolationSourceRejection,
     IsolationSourceStandardizer,
+)
+from baccurate.standardization.isolation_source_config import (
+    IsolationSourceConfig,
 )
 
 HOST_ASSOCIATED = "BACC:0000001"
@@ -30,20 +32,20 @@ HEALTHCARE_FACILITY = "BACC:0000079"
 @contextmanager
 def _coordinator(
     resources,
-    host_policy,
-    isolation_source_policy,
+    host_config,
+    isolation_source_config,
     *,
     client=None,
 ) -> Iterator[HostIsolationSourceStandardizer]:
     isolation_source = IsolationSourceStandardizer(
-        isolation_source_policy,
+        isolation_source_config,
         client=None,
     )
     isolation_source.pipeline.client = client
     lineage_memberships = {(9606, 9606), (9606, 33208), (9031, 33208), (3702, 33090)}
     try:
         yield HostIsolationSourceStandardizer(
-            HostStandardizer(host_policy, resources.ncbi_taxonomy_reference_table),
+            HostStandardizer(host_config, resources.ncbi_taxonomy_reference_table),
             isolation_source,
             SimpleNamespace(
                 is_descendant_or_self=lambda taxid, root: (taxid, root) in lineage_memberships
@@ -59,8 +61,8 @@ def _coordinator(
 )
 def test_metazoa_lineage_refines_generic_or_conflicting_host_source_type(
     standardization_fixture_resources,
-    fixture_host_policy,
-    fixture_isolation_source_prompt_policy,
+    fixture_host_config,
+    fixture_isolation_source_config,
     model_source_type: str,
     host: str,
     host_source_type: str,
@@ -69,8 +71,8 @@ def test_metazoa_lineage_refines_generic_or_conflicting_host_source_type(
     fake_llm_client.respond_with_facets(source_type=model_source_type, evidence_level="sample")
     with _coordinator(
         standardization_fixture_resources,
-        fixture_host_policy,
-        fixture_isolation_source_prompt_policy,
+        fixture_host_config,
+        fixture_isolation_source_config,
         client=fake_llm_client,
     ) as coordinator:
         result = coordinator.standardize(
@@ -95,15 +97,15 @@ def test_metazoa_lineage_refines_generic_or_conflicting_host_source_type(
 
 def test_host_only_metazoa_lineage_is_deterministic_without_classification(
     standardization_fixture_resources,
-    fixture_host_policy,
-    fixture_isolation_source_prompt_policy,
+    fixture_host_config,
+    fixture_isolation_source_config,
     fake_llm_client,
 ) -> None:
     fake_llm_client.respond_with_facets(source_type="environmental", evidence_level="sample")
     with _coordinator(
         standardization_fixture_resources,
-        fixture_host_policy,
-        fixture_isolation_source_prompt_policy,
+        fixture_host_config,
+        fixture_isolation_source_config,
         client=fake_llm_client,
     ) as coordinator:
         result = coordinator.standardize(
@@ -123,8 +125,8 @@ def test_host_only_metazoa_lineage_is_deterministic_without_classification(
 
 def test_host_lineage_refinement_applies_after_cache_hit(
     standardization_fixture_resources,
-    fixture_host_policy,
-    fixture_isolation_source_prompt_policy,
+    fixture_host_config,
+    fixture_isolation_source_config,
     fake_llm_client,
 ) -> None:
     fake_llm_client.respond_with_facets(source_type="host-associated", evidence_level="sample")
@@ -136,8 +138,8 @@ def test_host_lineage_refinement_applies_after_cache_hit(
     }
     with _coordinator(
         standardization_fixture_resources,
-        fixture_host_policy,
-        fixture_isolation_source_prompt_policy,
+        fixture_host_config,
+        fixture_isolation_source_config,
         client=fake_llm_client,
     ) as coordinator:
         first = coordinator.standardize({"accession": "CACHE_FIRST", **record})
@@ -155,14 +157,14 @@ def test_host_lineage_refinement_applies_after_cache_hit(
 
 def test_recovered_host_lineage_preserves_food_source(
     standardization_fixture_resources,
-    fixture_host_policy,
-    fixture_isolation_source_prompt_policy,
+    fixture_host_config,
+    fixture_isolation_source_config,
     fake_llm_client,
 ) -> None:
     with _coordinator(
         standardization_fixture_resources,
-        fixture_host_policy,
-        fixture_isolation_source_prompt_policy,
+        fixture_host_config,
+        fixture_isolation_source_config,
     ) as host_coordinator:
         host_result = host_coordinator.standardize(
             {
@@ -175,8 +177,8 @@ def test_recovered_host_lineage_preserves_food_source(
     fake_llm_client.respond_with_facets(food_type=["meat product"], evidence_level="sample")
     with _coordinator(
         standardization_fixture_resources,
-        fixture_host_policy,
-        fixture_isolation_source_prompt_policy,
+        fixture_host_config,
+        fixture_isolation_source_config,
         client=fake_llm_client,
     ) as food_coordinator:
         food_result = food_coordinator.standardize(
@@ -199,15 +201,15 @@ def test_recovered_host_lineage_preserves_food_source(
 
 def test_host_lineage_adds_the_host_source_type_to_a_non_source_value(
     standardization_fixture_resources,
-    fixture_host_policy,
-    fixture_isolation_source_prompt_policy,
+    fixture_host_config,
+    fixture_isolation_source_config,
     fake_llm_client,
 ) -> None:
     fake_llm_client.respond_with_facets(source_type="laboratory strain", evidence_level="sample")
     with _coordinator(
         standardization_fixture_resources,
-        fixture_host_policy,
-        fixture_isolation_source_prompt_policy,
+        fixture_host_config,
+        fixture_isolation_source_config,
         client=fake_llm_client,
     ) as coordinator:
         result = coordinator.standardize(
@@ -229,15 +231,15 @@ def test_host_lineage_adds_the_host_source_type_to_a_non_source_value(
 
 def test_host_lineage_adds_no_host_source_type_to_food(
     standardization_fixture_resources,
-    fixture_host_policy,
-    fixture_isolation_source_prompt_policy,
+    fixture_host_config,
+    fixture_isolation_source_config,
     fake_llm_client,
 ) -> None:
     fake_llm_client.respond_with_facets(food_type=["meat product"], evidence_level="sample")
     with _coordinator(
         standardization_fixture_resources,
-        fixture_host_policy,
-        fixture_isolation_source_prompt_policy,
+        fixture_host_config,
+        fixture_isolation_source_config,
         client=fake_llm_client,
     ) as coordinator:
         result = coordinator.standardize(
@@ -258,15 +260,15 @@ def test_host_lineage_adds_no_host_source_type_to_food(
 
 def test_laboratory_strain_in_organism_name_adds_laboratory(
     standardization_fixture_resources,
-    fixture_host_policy,
-    fixture_isolation_source_prompt_policy,
+    fixture_host_config,
+    fixture_isolation_source_config,
     fake_llm_client,
 ) -> None:
     fake_llm_client.respond_with_facets(evidence_level="sample")
     with _coordinator(
         standardization_fixture_resources,
-        fixture_host_policy,
-        fixture_isolation_source_prompt_policy,
+        fixture_host_config,
+        fixture_isolation_source_config,
         client=fake_llm_client,
     ) as coordinator:
         result = coordinator.standardize(
@@ -288,8 +290,8 @@ def test_laboratory_strain_in_organism_name_adds_laboratory(
 )
 def test_laboratory_strain_needs_no_isolation_source_value(
     standardization_fixture_resources,
-    fixture_host_policy,
-    fixture_isolation_source_prompt_policy,
+    fixture_host_config,
+    fixture_isolation_source_config,
     host: str,
     expected: set[str],
     fake_llm_client,
@@ -297,8 +299,8 @@ def test_laboratory_strain_needs_no_isolation_source_value(
     fake_llm_client.respond_with_facets(source_type="environmental", evidence_level="sample")
     with _coordinator(
         standardization_fixture_resources,
-        fixture_host_policy,
-        fixture_isolation_source_prompt_policy,
+        fixture_host_config,
+        fixture_isolation_source_config,
         client=fake_llm_client,
     ) as coordinator:
         result = coordinator.standardize(
@@ -318,13 +320,13 @@ def test_laboratory_strain_needs_no_isolation_source_value(
 
 def test_other_strain_gets_no_laboratory(
     standardization_fixture_resources,
-    fixture_host_policy,
-    fixture_isolation_source_prompt_policy,
+    fixture_host_config,
+    fixture_isolation_source_config,
 ) -> None:
     with _coordinator(
         standardization_fixture_resources,
-        fixture_host_policy,
-        fixture_isolation_source_prompt_policy,
+        fixture_host_config,
+        fixture_isolation_source_config,
     ) as coordinator:
         result = coordinator.standardize(
             {"accession": "ATCC_STRAIN", "ncbi_organism": "Escherichia coli ATCC 25922"}
@@ -345,16 +347,16 @@ def test_other_strain_gets_no_laboratory(
 )
 def test_laboratory_strain_in_strain_attribute(
     standardization_fixture_resources,
-    fixture_host_policy,
-    fixture_isolation_source_prompt_policy,
+    fixture_host_config,
+    fixture_isolation_source_config,
     organism: str,
     strain: str,
     expected: set[str] | None,
 ) -> None:
     with _coordinator(
         standardization_fixture_resources,
-        fixture_host_policy,
-        fixture_isolation_source_prompt_policy,
+        fixture_host_config,
+        fixture_isolation_source_config,
     ) as coordinator:
         result = coordinator.standardize(
             {"accession": "STRAIN", "ncbi_organism": organism, "strain": strain}
@@ -367,8 +369,8 @@ def test_laboratory_strain_in_strain_attribute(
 
 
 def test_configured_laboratory_strain_names_match_spelling_variants() -> None:
-    policy = IsolationSourcePromptPolicy.load(CONFIG_DIR / "isolation_source.yaml")
-    patterns = dict(policy.laboratory_strain_patterns)
+    config = IsolationSourceConfig.load(CONFIG_DIR / "isolation_source.yaml")
+    patterns = dict(config.laboratory_strain_patterns)
     laboratory_strains = {
         "Escherichia coli": ["K12 MG1655", "OneShot Top10", "B (REL606)", "dh10b", "DH5alpha"],
         "Pseudomonas aeruginosa": ["UCBPP-PA14", "mPAO1"],
@@ -387,12 +389,12 @@ def test_configured_laboratory_strain_names_match_spelling_variants() -> None:
 
 
 def test_configured_laboratory_strain_names_match_organism_names_by_species() -> None:
-    policy = IsolationSourcePromptPolicy.load(CONFIG_DIR / "isolation_source.yaml")
+    config = IsolationSourceConfig.load(CONFIG_DIR / "isolation_source.yaml")
 
     def names_laboratory_strain(organism: str) -> bool:
         return any(
             organism.startswith(species) and pattern.search(organism[len(species) :].casefold())
-            for species, pattern in policy.laboratory_strain_patterns
+            for species, pattern in config.laboratory_strain_patterns
         )
 
     laboratory_strains = [
