@@ -1,8 +1,8 @@
 """Write the files to be published on BacCurate.
 
 Takes a run directory under output/ and writes 3 files named
-baccurate_metadata_v<version>.<format>: TSV, JSONL, and Parquet, plus a
-gzip copy of the two text formats. Output is in the same directory.
+baccurate_metadata_v<version>.<format>: gzip TSV, gzip JSONL, and Parquet.
+Output is in the same directory.
 
 Usage:
     uv run python scripts/publish_dataset.py output/<run_dir>
@@ -117,22 +117,15 @@ def _git(*arguments: str) -> str:
 # --- Outputs ---
 
 
-def _copy_with_published_header(source: Path, destination: Path) -> None:
-    """Copy the run dataset byte for byte, renaming the columns of its header line."""
+def _compress_with_published_header(source: Path, destination: Path) -> None:
+    """Compress the run dataset byte for byte, renaming the columns of its header line."""
     renamed = {name.encode(): published.encode() for name, published in PUBLISHED_NAMES.items()}
-    with source.open("rb") as raw, destination.open("wb") as published:
+    with source.open("rb") as raw, gzip.open(destination, "wb") as published:
         header = raw.readline()
         terminator = b"\r\n" if header.endswith(b"\r\n") else b"\n"
         columns = header.rstrip(b"\r\n").split(b"\t")
         published.write(b"\t".join(renamed.get(column, column) for column in columns) + terminator)
         shutil.copyfileobj(raw, published, length=1024 * 1024)
-
-
-def _compress(source: Path) -> Path:
-    destination = source.with_suffix(source.suffix + ".gz")
-    with source.open("rb") as raw, gzip.open(destination, "wb") as compressed:
-        shutil.copyfileobj(raw, compressed, length=1024 * 1024)
-    return destination
 
 
 def _report(path: Path) -> None:
@@ -156,7 +149,7 @@ def publish(run_dir: Path) -> None:
     version = package_version("baccurate")
     stem = f"baccurate_metadata_v{version}"
     tsv, jsonl, parquet = (
-        run_dir / f"{stem}.{extension}" for extension in ("tsv", "jsonl", "parquet")
+        run_dir / f"{stem}.{extension}" for extension in ("tsv.gz", "jsonl.gz", "parquet")
     )
 
     log.info("published at %s", datetime.now(UTC).isoformat(timespec="seconds"))
@@ -174,12 +167,12 @@ def publish(run_dir: Path) -> None:
     log.info("%d rows, %d columns", rows, len(columns))
     _log_lossy_casts(connection)
 
-    _copy_with_published_header(dataset, tsv)
-    connection.execute(f"COPY published TO '{jsonl}' (FORMAT json)")
+    _compress_with_published_header(dataset, tsv)
+    connection.execute(f"COPY published TO '{jsonl}' (FORMAT json, COMPRESSION gzip)")
     connection.execute(f"COPY published TO '{parquet}' (FORMAT parquet, COMPRESSION zstd)")
     connection.close()
 
-    for path in (tsv, _compress(tsv), jsonl, _compress(jsonl), parquet):
+    for path in (tsv, jsonl, parquet):
         _report(path)
 
 

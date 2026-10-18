@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import gzip
 import importlib.util
+import logging
 from pathlib import Path
 from types import ModuleType
 
@@ -22,9 +24,10 @@ def publish_dataset() -> ModuleType:
     return module
 
 
-def test_publish_writes_the_five_release_files(
+def test_publish_writes_and_logs_only_the_served_files(
     publish_dataset: ModuleType,
     tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     run_dir = tmp_path / "run"
     run_dir.mkdir()
@@ -48,20 +51,21 @@ def test_publish_writes_the_five_release_files(
         encoding="utf-8",
     )
 
-    publish_dataset.publish(run_dir)
+    with caplog.at_level(logging.INFO, logger="publish_dataset"):
+        publish_dataset.publish(run_dir)
 
     stem = f"baccurate_metadata_v{publish_dataset.package_version('baccurate')}"
-    for name in (f"{stem}.tsv", f"{stem}.tsv.gz", f"{stem}.jsonl", f"{stem}.jsonl.gz"):
-        assert (run_dir / name).is_file()
+    served = {f"{stem}.tsv.gz", f"{stem}.jsonl.gz", f"{stem}.parquet"}
+    assert {path.name for path in run_dir.iterdir()} == {"run.tsv", *served}
+    assert served <= {message.split()[0] for message in caplog.messages}
     parquet = run_dir / f"{stem}.parquet"
-    assert parquet.is_file()
     schema = duckdb.sql(f"DESCRIBE SELECT * FROM '{parquet.as_posix()}'").fetchall()
     types = {row[0]: row[1] for row in schema}
     assert {column: types[column] for column in publish_dataset.SCALAR_TYPES} == dict(
         publish_dataset.SCALAR_TYPES
     )
 
-    jsonl = (run_dir / f"{stem}.jsonl").read_text(encoding="utf-8").splitlines()
+    jsonl = gzip.decompress((run_dir / f"{stem}.jsonl.gz").read_bytes()).decode().splitlines()
     assert '"iso_val_orig":["blood","serum"]' in jsonl[0].replace(" ", "")
     assert '"iso_val_orig":[]' in jsonl[1].replace(" ", "")
     assert '"text":"Homosapiens"' in jsonl[0].replace(" ", "")
@@ -89,11 +93,12 @@ def test_publish_renames_the_source_database_columns_in_every_format(
     publish_dataset.publish(run_dir)
 
     stem = f"baccurate_metadata_v{publish_dataset.package_version('baccurate')}"
-    header, *records = (run_dir / f"{stem}.tsv").read_text(encoding="utf-8").splitlines()
+    tsv = gzip.decompress((run_dir / f"{stem}.tsv.gz").read_bytes()).decode()
+    header, *records = tsv.splitlines()
     assert header.split("\t")[:3] == ["biosample_accession", "bioproject_accessions", "text"]
     assert records[0].split("\t")[:3] == ["SAMN1", "PRJNA1||PRJNA2", "kept"]
 
-    jsonl = (run_dir / f"{stem}.jsonl").read_text(encoding="utf-8").splitlines()
+    jsonl = gzip.decompress((run_dir / f"{stem}.jsonl.gz").read_bytes()).decode().splitlines()
     assert '"biosample_accession":"SAMN1"' in jsonl[0].replace(" ", "")
     assert '"bioproject_accessions":["PRJNA1","PRJNA2"]' in jsonl[0].replace(" ", "")
     assert '"bioproject_accessions":["PRJNA3"]' in jsonl[1].replace(" ", "")
