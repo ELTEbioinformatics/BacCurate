@@ -1,11 +1,28 @@
-"""Standardization targets and the routing facts associated with them."""
+"""Standardization targets, the policy files they need, their columns and the extraction flags."""
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
 
-from baccurate.standardization_target.policy_slot import PolicySlot
+
+class PolicySlot(StrEnum):
+    """A policy file with the rules for one pipeline step, for example `host.yaml`."""
+
+    SELECTION = "selection"
+    HOST = "host"
+    LOCATION = "location"
+    ISOLATION_SOURCE = "isolation_source"
+
+
+POLICY_FILENAMES: Mapping[PolicySlot, str] = MappingProxyType(
+    {
+        PolicySlot.SELECTION: "selection.yaml",
+        PolicySlot.HOST: "host.yaml",
+        PolicySlot.LOCATION: "location.yaml",
+        PolicySlot.ISOLATION_SOURCE: "isolation_source.yaml",
+    }
+)
 
 COLLECTION_DATE_CATEGORY = "c"
 FALLBACK_DATE_CATEGORY = "f"
@@ -25,7 +42,7 @@ class StandardizationTarget(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class TargetSpec:
-    """Routing facts owned by one standardization target."""
+    """The fixed facts about one target: its output key, LLM use, policy files and columns."""
 
     published_key: str
     uses_llm: bool
@@ -35,7 +52,7 @@ class TargetSpec:
 
     @property
     def model_identifier_key(self) -> str | None:
-        """Return the published key for LLM-backed targets."""
+        """Return the key for the LLM model name, or None for a target without an LLM."""
         return self.published_key if self.uses_llm else None
 
 
@@ -119,12 +136,7 @@ DATASET_COLUMN_ORDER = (
 def required_policy_slots(
     targets: Iterable[StandardizationTarget],
 ) -> frozenset[PolicySlot]:
-    """
-    Return the policy slots required by the union of ``targets``.
-
-    The frozenset supports membership testing and must not be used where order
-    matters.
-    """
+    """Return the policy files that at least one of ``targets`` needs."""
     return frozenset(
         policy_slot for target in targets for policy_slot in TARGET_SPECS[target].required_policies
     )
@@ -135,7 +147,7 @@ def run_policy_slots(
     *,
     extraction_required: bool,
 ) -> tuple[PolicySlot, ...]:
-    """Return the policy slots one run loads, in run-report order."""
+    """Return the policy files that one run loads, in run-report order."""
     required = required_policy_slots(targets)
     if extraction_required:
         required |= {PolicySlot.SELECTION}

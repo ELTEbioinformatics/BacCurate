@@ -51,7 +51,7 @@ from baccurate.standardization.isolation_source_ontology import (
     _ancestor_ids,
 )
 from baccurate.standardization.supporting_attribute_value_pair import SupportingAttributeValuePair
-from baccurate.standardization_target.specifications import TARGET_SPECS, StandardizationTarget
+from baccurate.targets import TARGET_SPECS, StandardizationTarget
 
 logger = logging.getLogger(__name__)
 

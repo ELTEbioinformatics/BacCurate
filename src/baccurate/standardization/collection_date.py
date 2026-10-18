@@ -15,7 +15,7 @@ from baccurate.standardization._collection_date_interpreter import (
     least_precise_date_precision,
 )
 from baccurate.standardization.supporting_attribute_value_pair import SupportingAttributeValuePair
-from baccurate.standardization_target.specifications import (
+from baccurate.targets import (
     COLLECTION_DATE_CATEGORY,
     FALLBACK_DATE_CATEGORY,
 )

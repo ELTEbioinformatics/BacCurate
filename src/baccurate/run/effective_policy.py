@@ -7,8 +7,9 @@ from baccurate.extraction import SelectionPolicy
 from baccurate.standardization.host import HostPolicy
 from baccurate.standardization.isolation_source import IsolationSourcePromptPolicy
 from baccurate.standardization.location import LocationPolicy
-from baccurate.standardization_target.policy_slot import POLICY_FILENAMES, PolicySlot
-from baccurate.standardization_target.specifications import (
+from baccurate.targets import (
+    POLICY_FILENAMES,
+    PolicySlot,
     StandardizationTarget,
     run_policy_slots,
 )

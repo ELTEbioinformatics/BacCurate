@@ -30,7 +30,7 @@ from baccurate.paths import DEFAULT_GEO_LOC_LIST
 from baccurate.standardization._attribute_value_text import split_pipe_separated
 from baccurate.standardization._map_units import containing_map_unit_code
 from baccurate.standardization.supporting_attribute_value_pair import SupportingAttributeValuePair
-from baccurate.standardization_target.specifications import LOCATION_VALUE_MATCH
+from baccurate.targets import LOCATION_VALUE_MATCH
 
 logger = logging.getLogger(__name__)
 

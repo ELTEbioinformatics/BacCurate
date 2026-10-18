@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from baccurate.standardization.isolation_source import IsolationSourcePromptPolicy
-from baccurate.standardization_target.specifications import TARGET_SPECS, StandardizationTarget
+from baccurate.targets import TARGET_SPECS, StandardizationTarget
 
 
 def write_prompt_snapshot(

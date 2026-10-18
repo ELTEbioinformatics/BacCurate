@@ -25,8 +25,8 @@ from baccurate.paths import (
 )
 from baccurate.run.effective_policy import EffectivePolicy, load_effective_policy
 from baccurate.run.outputs import RunOutputs
-from baccurate.standardization_target.policy_slot import POLICY_FILENAMES
-from baccurate.standardization_target.specifications import (
+from baccurate.targets import (
+    POLICY_FILENAMES,
     TARGET_SPECS,
     StandardizationTarget,
     run_policy_slots,

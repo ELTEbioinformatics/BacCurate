@@ -39,7 +39,7 @@ from baccurate.standardization.location import (
     LocationPolicy,
     LocationStandardizer,
 )
-from baccurate.standardization_target.specifications import (
+from baccurate.targets import (
     LOCATION_NAME_MATCH,
     StandardizationTarget,
 )

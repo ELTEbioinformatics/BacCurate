@@ -18,7 +18,7 @@ from baccurate.run.location_review_worklist import (
 )
 from baccurate.run.statistics import DatasetBuildStatistics
 from baccurate.standardization.location import LocationPolicy, UnresolvedLocationInput
-from baccurate.standardization_target.specifications import (
+from baccurate.targets import (
     LOCATION_NAME_MATCH,
     StandardizationTarget,
 )

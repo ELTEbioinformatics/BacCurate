@@ -69,10 +69,10 @@ from baccurate.standardization.location import (
     LocationResolutionRoute,
     LocationStandardizer,
 )
-from baccurate.standardization_target import specifications as target_specifications
-from baccurate.standardization_target.policy_slot import PolicySlot
-from baccurate.standardization_target.specifications import (
+from baccurate.targets import (
     DATASET_COLUMN_ORDER,
+    TARGET_SPECS,
+    PolicySlot,
     StandardizationTarget,
     required_policy_slots,
 )
@@ -218,7 +218,7 @@ class _FinalRowAssembler:
                         "iso_external_ids",
                     )
                 else:
-                    self.columns += target_specifications.TARGET_SPECS[target].output_columns
+                    self.columns += TARGET_SPECS[target].output_columns
 
     def assemble(
         self,
@@ -262,9 +262,7 @@ class _FinalRowAssembler:
         )
         if StandardizationTarget.DATE in self._selected_targets:
             if final_row.date is None:
-                values += ("",) * len(
-                    target_specifications.TARGET_SPECS[StandardizationTarget.DATE].output_columns
-                )
+                values += ("",) * len(TARGET_SPECS[StandardizationTarget.DATE].output_columns)
             else:
                 collection = final_row.date.collection
                 record = final_row.date.record
@@ -340,9 +338,7 @@ class _FinalRowAssembler:
                 )
         if StandardizationTarget.HOST in self._selected_targets:
             if final_row.host is None or final_row.host.standardized is None:
-                values += ("",) * len(
-                    target_specifications.TARGET_SPECS[StandardizationTarget.HOST].output_columns
-                )
+                values += ("",) * len(TARGET_SPECS[StandardizationTarget.HOST].output_columns)
             else:
                 pairs = final_row.host.supporting_pairs
                 lineage = final_row.host_lineage
@@ -1032,7 +1028,7 @@ def _require_columns(
         *SEQUENCE_ACCESSION_COLUMNS,
     }
     for target in targets:
-        required.update(target_specifications.TARGET_SPECS[target].input_columns)
+        required.update(TARGET_SPECS[target].input_columns)
     available = set(fieldnames or ())
     missing = sorted(required - available)
     if missing:

@@ -33,7 +33,7 @@ from baccurate.provenance.snapshot_manifest import SnapshotManifest
 from baccurate.run.outputs import RunOutputs
 from baccurate.run.statistics import DatasetBuildProgress, DatasetBuildStatistics
 from baccurate.standardization.isolation_source import IsolationSourceProvenance
-from baccurate.standardization_target.specifications import TARGET_SPECS, StandardizationTarget
+from baccurate.targets import TARGET_SPECS, StandardizationTarget
 
 # Snapshot manifests of the three bulk reports (SRA, GenBank, RefSeq).
 SEQUENCE_ACCESSION_MANIFEST_PATHS: Mapping[str, Path] = {

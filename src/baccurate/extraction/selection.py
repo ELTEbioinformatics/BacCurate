@@ -12,7 +12,7 @@ from typing import Self, cast
 
 from baccurate.adapters.policy_yaml import PolicyConfigurationError, load_policy_mapping
 from baccurate.extraction.metadata_types import EXTRACTION_TARGET_ORDER, TargetMatch
-from baccurate.standardization_target.specifications import (
+from baccurate.targets import (
     COLLECTION_DATE_CATEGORY,
     FALLBACK_DATE_CATEGORY,
 )

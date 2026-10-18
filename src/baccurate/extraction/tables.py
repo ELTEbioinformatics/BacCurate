@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from baccurate.extraction.io import SEQUENCE_ACCESSION_COLUMNS, TaxonAssignment
 from baccurate.extraction.metadata_types import EXTRACTION_TARGET_ORDER
 from baccurate.extraction.selection import SelectionDecision
-from baccurate.standardization_target.specifications import (
+from baccurate.targets import (
     LOCATION_NAME_MATCH,
     LOCATION_VALUE_MATCH,
 )

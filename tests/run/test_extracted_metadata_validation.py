@@ -6,7 +6,7 @@ import pytest
 
 from baccurate.provenance.extracted_metadata import ExtractedMetadataError
 from baccurate.run.dataset_builder import DatasetBuilder, DatasetBuildRequest
-from baccurate.standardization_target.specifications import StandardizationTarget
+from baccurate.targets import StandardizationTarget
 
 
 def test_dataset_builder_rejects_changed_extracted_metadata_before_streaming(

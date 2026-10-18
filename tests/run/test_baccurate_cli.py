@@ -375,7 +375,7 @@ def test_isolation_source_only_run_report_changes_when_borrowed_host_policy_chan
 
 
 @pytest.mark.parametrize(
-    ("standardization_target", "skip_llm", "expects_snapshot", "expected_model_keys"),
+    ("target", "skip_llm", "expects_snapshot", "expected_model_keys"),
     [
         ("loc", False, False, set()),
         ("loc", True, False, set()),
@@ -388,7 +388,7 @@ def test_pipeline_cli_scopes_prompt_snapshot_to_active_llm_standardization_targe
     monkeypatch: pytest.MonkeyPatch,
     fixture_dataset_builder_factory,
     standardization_fixture_resources,
-    standardization_target: str,
+    target: str,
     skip_llm: bool,
     expects_snapshot: bool,
     expected_model_keys: set[str],
@@ -402,7 +402,7 @@ def test_pipeline_cli_scopes_prompt_snapshot_to_active_llm_standardization_targe
     arguments = [
         "ecoli",
         "--standardize",
-        standardization_target,
+        target,
         "--config-dir",
         str(config_dir),
         "--extracted-metadata",
