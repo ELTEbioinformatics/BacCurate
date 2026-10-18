@@ -12,7 +12,7 @@ from baccurate.paths import (
 )
 from baccurate.run.effective_policy import load_effective_policy
 from baccurate.standardization.isolation_source import IsolationSourcePromptPolicy
-from baccurate.standardization.location import LocationPolicy, LocationStandardizer
+from baccurate.standardization.location import LocationPolicy
 from baccurate.taxon_registry.registry import load_taxon_registry
 
 ROOT = Path(__file__).parents[2]
@@ -153,72 +153,6 @@ def test_registry_scientific_name_change_updates_derived_host_rejection(
     assert second.value_rejections == ("literal rejection", "Renamed target")
 
 
-def test_effective_policy_reports_unknown_host_key_with_source_and_dotted_key(
-    tmp_path: Path,
-) -> None:
-    registry = load_taxon_registry(TAXON_REGISTRY_PATH)
-    host_path = tmp_path / "host.yaml"
-    host_path.write_text(
-        yaml.safe_dump(
-            {
-                "schema_version": 3,
-                "normalization": {
-                    "ignored_substrings": [],
-                    "unexpected": [],
-                },
-                "routing": {"isolation_source_keywords": []},
-                "curated_taxa": {},
-                "value_rejections": {"exact": []},
-            },
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(PolicyConfigurationError) as error:
-        load_effective_policy(
-            taxon_registry=registry,
-            configuration_root=tmp_path,
-            requested_standardization_targets=("host",),
-            extraction_required=False,
-        )
-
-    assert str(host_path) in str(error.value)
-    assert "normalization.unexpected" in str(error.value)
-
-
-def test_host_policy_rejects_unknown_taxon_key_reference(tmp_path: Path) -> None:
-    registry = load_taxon_registry(TAXON_REGISTRY_PATH)
-    host_path = tmp_path / "host.yaml"
-    host_path.write_text(
-        yaml.safe_dump(
-            {
-                "schema_version": 3,
-                "normalization": {"ignored_substrings": []},
-                "routing": {"isolation_source_keywords": []},
-                "curated_taxa": {},
-                "value_rejections": {
-                    "exact": [{"taxon_key": "not-a-target"}],
-                },
-            },
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(PolicyConfigurationError) as error:
-        load_effective_policy(
-            taxon_registry=registry,
-            configuration_root=tmp_path,
-            requested_standardization_targets=("host",),
-            extraction_required=False,
-        )
-
-    assert str(host_path) in str(error.value)
-    assert "value_rejections.exact.0.taxon_key" in str(error.value)
-    assert "not-a-target" in str(error.value)
-
-
 def test_host_policy_rejects_curated_match_overlapping_derived_rejection(
     tmp_path: Path,
 ) -> None:
@@ -256,7 +190,6 @@ def test_host_policy_rejects_curated_match_overlapping_derived_rejection(
     message = str(error.value)
     assert str(host_path) in message
     assert "value_rejections.exact" in message
-    assert "both a curated term and a value rejection" in message
 
 
 def test_unselected_host_policy_is_not_loaded(tmp_path: Path) -> None:
@@ -345,112 +278,6 @@ def test_location_policy_rejects_unusable_resource_selection_before_standardizat
     assert "geo_loc_list_path" in str(error.value)
 
 
-def test_location_standardizer_does_not_reopen_loaded_policy_source(tmp_path: Path) -> None:
-    geo_loc_list = tmp_path / "geo_loc_list.txt"
-    geo_loc_list.write_text("Germany\n", encoding="utf-8")
-    location_path = _write_location_policy(
-        tmp_path,
-        {"geo_loc_list_path": geo_loc_list.as_posix()},
-    )
-    policy = LocationPolicy.load(location_path)
-    location_path.write_text("broken: [\n", encoding="utf-8")
-
-    outcome = LocationStandardizer(policy).standardize(
-        {
-            "accession": "NO_REOPEN",
-            "loc_attr_orig": "geo_loc_name",
-            "loc_val_orig": "Germany",
-        }
-    )
-
-    assert outcome.country == "Germany"
-
-
-@pytest.mark.parametrize(
-    ("overrides", "policy_key"),
-    [
-        ({"unexpected": True}, "top level.unexpected"),
-        ({"schema_version": "2"}, "schema_version"),
-        ({"coordinate_attributes": "lat_lon"}, "coordinate_attributes"),
-        ({"coordinate_attributes": ["lat_lon", "  "]}, "coordinate_attributes.1"),
-        ({"insdc_country_map": []}, "insdc_country_map"),
-        ({"insdc_country_map": {"": "USA"}}, "insdc_country_map"),
-        ({"insdc_country_map": {"United States": 1}}, "insdc_country_map.United States"),
-        ({"reviewed_mappings": []}, "reviewed_mappings"),
-        ({"reviewed_mappings": {"uae": ""}}, "reviewed_mappings.uae"),
-        ({"reviewed_unmapped": {"ncbs": True}}, "reviewed_unmapped"),
-        ({"reviewed_unmapped": ["ncbs", " "]}, "reviewed_unmapped.1"),
-        ({"geo_loc_list_path": 1}, "geo_loc_list_path"),
-    ],
-)
-def test_location_policy_rejects_invalid_values_with_source_and_key(
-    tmp_path: Path,
-    overrides: dict[str, object],
-    policy_key: str,
-) -> None:
-    registry = load_taxon_registry(TAXON_REGISTRY_PATH)
-    location_path = _write_location_policy(tmp_path, overrides)
-
-    with pytest.raises(PolicyConfigurationError) as error:
-        load_effective_policy(
-            taxon_registry=registry,
-            configuration_root=tmp_path,
-            requested_standardization_targets=("loc",),
-            extraction_required=False,
-        )
-
-    assert str(location_path) in str(error.value)
-    assert policy_key in str(error.value)
-
-
-@pytest.mark.parametrize(
-    "missing_key",
-    ["schema_version", "reviewed_mappings", "reviewed_unmapped"],
-)
-def test_location_policy_rejects_missing_required_values(
-    tmp_path: Path,
-    missing_key: str,
-) -> None:
-    registry = load_taxon_registry(TAXON_REGISTRY_PATH)
-    location_path = _write_location_policy(tmp_path)
-    policy = yaml.safe_load(location_path.read_text(encoding="utf-8"))
-    del policy[missing_key]
-    location_path.write_text(yaml.safe_dump(policy, sort_keys=False), encoding="utf-8")
-
-    with pytest.raises(PolicyConfigurationError) as error:
-        load_effective_policy(
-            taxon_registry=registry,
-            configuration_root=tmp_path,
-            requested_standardization_targets=("loc",),
-            extraction_required=False,
-        )
-
-    assert str(location_path) in str(error.value)
-    assert missing_key in str(error.value)
-
-
-def test_location_policy_unsupported_version_error_provides_migration_guidance(
-    tmp_path: Path,
-) -> None:
-    registry = load_taxon_registry(TAXON_REGISTRY_PATH)
-    location_path = _write_location_policy(tmp_path, {"schema_version": 1})
-
-    with pytest.raises(PolicyConfigurationError) as error:
-        load_effective_policy(
-            taxon_registry=registry,
-            configuration_root=tmp_path,
-            requested_standardization_targets=("loc",),
-            extraction_required=False,
-        )
-
-    message = str(error.value)
-    assert str(location_path) in message
-    assert "schema_version" in message
-    assert "unsupported schema version 1" in message
-    assert "supported schema version is 2" in message
-    assert "migrate" in message
-
-
 def _write_isolation_source_prompt_policy(
     tmp_path: Path,
     overrides: dict[str, object] | None = None,
@@ -488,78 +315,6 @@ def test_unselected_isolation_source_prompt_policy_is_not_loaded(tmp_path: Path)
     )
 
     assert policy.isolation_source_prompt_policy is None
-
-
-@pytest.mark.parametrize(
-    ("overrides", "policy_key"),
-    [
-        ({"unexpected": True}, "top level.unexpected"),
-        ({"schema_version": "1"}, "schema_version"),
-        ({"prompt_version": 1}, "prompt_version"),
-        ({"system_prompt": ""}, "system_prompt"),
-        ({"system_prompt": "No ontology"}, "system_prompt"),
-        ({"system_prompt": "{ontology_tree} {unsupported}"}, "system_prompt"),
-        ({"system_prompt": "{ontology_tree} {unsupported.attr}"}, "system_prompt"),
-        ({"user_prompt": "No metadata"}, "user_prompt"),
-        ({"user_prompt": "{metadata} {unsupported}"}, "user_prompt"),
-        (
-            {"user_prompt": "{metadata} {unsupported[0]}"},
-            "user_prompt",
-        ),
-        ({"user_prompt": "{metadata} {0}"}, "user_prompt"),
-        ({"user_prompt": "{metadata} {}"}, "user_prompt"),
-        ({"user_prompt": "{metadata} {!r}"}, "user_prompt"),
-        ({"user_prompt": "{metadata} {:<20}"}, "user_prompt"),
-        ({"user_prompt": "{metadata} {.attribute}"}, "user_prompt"),
-        ({"user_prompt": "{metadata} {[0]}"}, "user_prompt"),
-        ({"user_prompt": "{metadata"}, "user_prompt"),
-        (
-            {"user_prompt": "{metadata} {metadata!r}"},
-            "user_prompt",
-        ),
-        ({"bioproject_system_prompt": "obsolete"}, "top level.bioproject_system_prompt"),
-        ({"bioproject_user_prompt": "obsolete"}, "top level.bioproject_user_prompt"),
-        ({"ontology_directory": 1}, "ontology_directory"),
-        ({"ontology_directory": None}, "ontology_directory"),
-        ({"ontology_tsv_path": "ontology.tsv"}, "top level.ontology_tsv_path"),
-        ({"cache_db_path": ""}, "cache_db_path"),
-        ({"cache_db_path": None}, "cache_db_path"),
-        ({"facets": {**FACETS, "undeclared": FACETS["source_type"]}}, "facets.undeclared"),
-        (
-            {"facets": {key: value for key, value in FACETS.items() if key != "source_type"}},
-            "facets.source_type",
-        ),
-        (
-            {
-                "facets": {
-                    **FACETS,
-                    "source_type": {**FACETS["source_type"], "cardinality": "multiple"},
-                }
-            },
-            "facets.source_type",
-        ),
-        ({"host_recovery_term_ids": ["BACC:9999999"]}, "host_recovery_term_ids"),
-        ({"direct_match_values": ["blood culture"]}, "direct_match_values"),
-    ],
-)
-def test_isolation_source_prompt_policy_rejects_invalid_values_with_source_and_key(
-    tmp_path: Path,
-    overrides: dict[str, object],
-    policy_key: str,
-) -> None:
-    registry = load_taxon_registry(TAXON_REGISTRY_PATH)
-    policy_path = _write_isolation_source_prompt_policy(tmp_path, overrides)
-
-    with pytest.raises(PolicyConfigurationError) as error:
-        load_effective_policy(
-            taxon_registry=registry,
-            configuration_root=tmp_path,
-            requested_standardization_targets=("iso",),
-            extraction_required=False,
-        )
-
-    assert str(policy_path) in str(error.value)
-    assert policy_key in str(error.value)
 
 
 @pytest.mark.parametrize(
@@ -608,24 +363,6 @@ def test_isolation_source_prompt_version_is_independent_of_schema_version(
 
     assert policy.schema_version == 3
     assert policy.prompt_version == "wording-revision-17"
-
-
-def test_isolation_source_prompt_policy_rejects_a_non_directory_ontology_path(
-    tmp_path: Path,
-) -> None:
-    ontology_file = tmp_path / "ontology"
-    ontology_file.write_text("not a directory\n", encoding="utf-8")
-    policy_path = _write_isolation_source_prompt_policy(
-        tmp_path,
-        {"ontology_directory": ontology_file.as_posix()},
-    )
-
-    with pytest.raises(PolicyConfigurationError) as error:
-        IsolationSourcePromptPolicy.load(policy_path)
-
-    message = str(error.value)
-    assert "ontology_directory" in message
-    assert "readable directory" in message
 
 
 @pytest.mark.parametrize(

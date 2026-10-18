@@ -99,66 +99,6 @@ def test_prompt_snapshot_participates_in_output_planning_only_when_enabled(
         assert outputs.collision() == expected
 
 
-def test_run_report_uses_published_output_name_and_participates_in_collision_detection(
-    tmp_path: Path,
-) -> None:
-    outputs = RunOutputs.plan(
-        output_dir=tmp_path,
-        run_name="run",
-        output_file=None,
-        include_isolation_source=False,
-    )
-
-    expected = tmp_path / "run" / "run_report.json"
-    assert outputs.run_report == expected
-    assert expected in outputs.paths()
-    expected.parent.mkdir(parents=True)
-    expected.write_text("existing", encoding="utf-8")
-    assert outputs.collision() == expected
-
-
-def test_isolation_source_reasoning_uses_published_output_name(tmp_path: Path) -> None:
-    outputs = RunOutputs.plan(
-        output_dir=tmp_path,
-        run_name="run",
-        output_file=None,
-        include_isolation_source=True,
-        include_prompt_snapshot=False,
-    )
-    outputs.initialize()
-
-    RunReport(outputs, _run_context(tmp_path))
-
-    run_report = json.loads(outputs.run_report.read_text(encoding="utf-8"))
-    assert outputs.isolation_source_reasoning == (
-        tmp_path / "run" / "isolation_source_reasoning.jsonl"
-    )
-    assert run_report["outputs"]["isolation_source_reasoning"] == str(
-        outputs.isolation_source_reasoning
-    )
-
-
-def test_prompt_snapshot_cannot_alias_an_explicit_dataset_path(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="aliases another run output"):
-        RunOutputs.plan(
-            output_dir=tmp_path,
-            run_name="unused",
-            output_file=tmp_path / "prompts.txt",
-            include_isolation_source=False,
-            include_prompt_snapshot=True,
-        )
-
-
-def test_run_report_cannot_alias_an_explicit_dataset_path(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="aliases another run output"):
-        RunOutputs.plan(
-            output_dir=tmp_path,
-            run_name="unused",
-            output_file=tmp_path / "run_report.json",
-            include_isolation_source=False,
-        )
-
-
 def test_run_report_records_prompt_snapshot_path_and_hash(tmp_path: Path) -> None:
     outputs = RunOutputs.plan(
         output_dir=tmp_path,

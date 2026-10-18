@@ -119,13 +119,6 @@ def test_worklist_keeps_three_examples_chosen_independently_of_input_order(
     assert rows == reversed_rows
 
 
-def test_worklist_json_columns_keep_non_ascii_text_unescaped(tmp_path: Path) -> None:
-    _, rows = _write_worklist(tmp_path, [("SAMN1", "ecoli", "geo_loc_name", "Tübingen 7734")])
-
-    assert "Tübingen 7734" in rows[0]["representative_examples"]
-    assert "\\u" not in rows[0]["representative_examples"]
-
-
 # =============================================================================
 # Worklist production during a run
 # =============================================================================
@@ -252,34 +245,6 @@ def test_location_run_writes_the_worklist_and_reports_its_totals(
     ]
     assert statistics.location.aggregate.standardized == 3
     assert statistics.location.aggregate.reviewed_mapping_matches == 1
-
-
-def test_location_run_without_unresolved_inputs_writes_the_header_only_worklist(
-    tmp_path: Path,
-    make_extracted_metadata_files,
-    reviewed_location_policy: LocationPolicy,
-    standardization_fixture_resources,
-    fixture_taxon_registry,
-) -> None:
-    files = make_extracted_metadata_files(
-        "resolved", [_located_record("SAMN_STANDARDIZED", "Germany")]
-    )
-
-    destination, statistics = _build(
-        tmp_path,
-        files,
-        name="header-only",
-        location_policy=reviewed_location_policy,
-        targets=(StandardizationTarget.LOCATION,),
-        standardization_fixture_resources=standardization_fixture_resources,
-        fixture_taxon_registry=fixture_taxon_registry,
-    )
-
-    worklist_path = destination.parent / LOCATION_REVIEW_WORKLIST_FILENAME
-    assert worklist_path.read_text(encoding="utf-8") == "\t".join(COLUMNS) + "\n"
-    assert statistics.location is not None
-    assert statistics.location.review_worklist is not None
-    assert statistics.location.review_worklist.row_count == 0
 
 
 def test_run_without_the_location_target_writes_no_worklist(

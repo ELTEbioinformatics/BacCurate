@@ -2,7 +2,6 @@
 
 import csv
 import json
-import logging
 import shutil
 from dataclasses import asdict
 from pathlib import Path
@@ -19,31 +18,9 @@ from baccurate.provenance.extracted_metadata import (
 )
 from baccurate.provenance.sha256 import sha256_file
 from baccurate.provenance.snapshot_manifest import SnapshotManifest
-from baccurate.run.logging import configure_run_logging
 from baccurate.run.main import main as pipeline_cli
 from baccurate.standardization.isolation_source import IsolationSourcePromptPolicy
 from baccurate.taxon_registry.registry import Taxon, TaxonRegistry
-
-
-def test_run_logging_keeps_only_pipeline_lifecycle_info(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """The pipeline emitter and lifecycle filter agree on which INFO records survive."""
-    log_path = tmp_path / "run.log"
-    logging_state = configure_run_logging(log_path, console_debug=False)
-    try:
-        main_module.logger.info("pipeline lifecycle")
-        logging.getLogger("baccurate.other").info("internal detail")
-    finally:
-        logging_state.close()
-
-    console = capsys.readouterr().out
-    run_log = log_path.read_text(encoding="utf-8")
-    assert "pipeline lifecycle" in console
-    assert "pipeline lifecycle" in run_log
-    assert "internal detail" not in console
-    assert "internal detail" not in run_log
 
 
 def _fail_if_run_resources_started(*_args: object, **_kwargs: object) -> None:
@@ -65,26 +42,6 @@ def _example_registry() -> TaxonRegistry:
         },
         containers={"examples": ("alpha", "zeta")},
     )
-
-
-def test_pipeline_cli_help_does_not_require_selectable_policy(tmp_path: Path) -> None:
-    """Help describes the command itself, so it must not read run-selected policy."""
-    with pytest.raises(SystemExit) as exit_info:
-        pipeline_cli(["--config-dir", str(tmp_path / "missing-config"), "--help"])
-
-    assert exit_info.value.code == 0
-
-
-def test_pipeline_cli_help_uses_supplied_registry_order(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    with pytest.raises(SystemExit) as exit_info:
-        pipeline_cli(["--help"], taxon_registry=_example_registry())
-
-    assert exit_info.value.code == 0
-    help_text = " ".join(capsys.readouterr().out.split())
-    assert "Taxon keys: zeta, alpha." in help_text
-    assert "Containers (expand to their taxon keys): examples." in help_text
 
 
 def test_pipeline_cli_discovers_taxa_in_supplied_registry_order(

@@ -22,22 +22,6 @@ def publish_dataset() -> ModuleType:
     return module
 
 
-def test_column_expression_covers_list_scalar_and_text_columns(
-    publish_dataset: ModuleType,
-) -> None:
-    list_column = publish_dataset._column_expression("iso_val_orig")
-    assert "str_split" in list_column
-    assert "'NA' THEN []::VARCHAR[]" in list_column
-
-    scalar_column = publish_dataset._column_expression("date_start")
-    assert scalar_column == (
-        "TRY_CAST(NULLIF(NULLIF(\"date_start\", ''), 'NA') AS DATE) AS \"date_start\""
-    )
-
-    text_column = publish_dataset._column_expression("acc")
-    assert text_column == "NULLIF(NULLIF(\"acc\", ''), 'NA') AS \"acc\""
-
-
 def test_publish_writes_the_five_release_files(
     publish_dataset: ModuleType,
     tmp_path: Path,

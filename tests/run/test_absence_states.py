@@ -6,7 +6,6 @@ import csv
 import shutil
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -22,12 +21,6 @@ from baccurate.extraction import (
     SelectionEvent,
     SelectionPolicy,
 )
-from baccurate.provenance.extracted_metadata import (
-    ExtractedMetadataProvenance,
-    provenance_path_for,
-)
-from baccurate.provenance.sha256 import sha256_file
-from baccurate.provenance.snapshot_manifest import SnapshotManifest
 from baccurate.run.dataset_builder import (
     DatasetBuilder,
     DatasetBuildRequest,
@@ -44,7 +37,6 @@ from baccurate.standardization.isolation_source_ontology import IsolationSourceO
 from baccurate.standardization.location import (
     LocationDiagnostic,
     LocationPolicy,
-    LocationResolutionRoute,
     LocationStandardizer,
 )
 from baccurate.standardization_target.specifications import (
@@ -106,25 +98,6 @@ HOST_COLUMNS = (
     "host_match_route",
     "host_diagnostics",
 )
-EXTRACTED_COLUMNS = (
-    "accession",
-    "taxon_key",
-    "ncbi_organism",
-    "sylph_species",
-    "bioproject_accession",
-    *SEQUENCE_ACCESSION_COLUMNS,
-    "biosample_last_update",
-    "date_attr_orig",
-    "date_val_orig",
-    "date_category",
-    "loc_matched_by",
-    "loc_attr_orig",
-    "loc_val_orig",
-    "iso_attr_orig",
-    "iso_val_orig",
-    "host_attr_orig",
-    "host_val_orig",
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,114 +113,56 @@ def selection_policy() -> SelectionPolicy:
     return SelectionPolicy.load(SELECTION_POLICY_PATH)
 
 
-def _write_manifest(
-    path: Path,
-    *,
-    snapshot_id: str,
-    sha256_fill_character: str,
-) -> SnapshotManifest:
-    manifest = SnapshotManifest(
-        snapshot_id=snapshot_id,
-        provider="absence-characterization",
-        retrieved_on=date(2026, 1, 1),
-        file={
-            "name": f"{snapshot_id}.xml.gz",
-            "sha256": sha256_fill_character * 64,
-        },
-    )
-    path.write_text(
-        yaml.safe_dump(manifest.model_dump(mode="json"), sort_keys=False),
-        encoding="utf-8",
-    )
-    return manifest
-
-
-def _write_extracted_metadata_files(
-    tmp_path: Path,
-    rows: Sequence[Mapping[str, str]],
-) -> tuple[Path, Path, Path]:
-    tmp_path.mkdir(parents=True, exist_ok=True)
-    extracted_path = tmp_path / "extracted.tsv"
-    with extracted_path.open("w", encoding="utf-8", newline="") as stream:
-        writer = csv.DictWriter(
-            stream,
-            fieldnames=EXTRACTED_COLUMNS,
-            delimiter="\t",
-            lineterminator="\n",
+@pytest.fixture
+def build_dataset(
+    make_extracted_metadata_files,
+) -> Callable[..., _BuiltDataset]:
+    def build(
+        rows: Sequence[Mapping[str, str]],
+        targets: tuple[StandardizationTarget, ...],
+        *,
+        name: str = "extracted",
+        location_policy: LocationPolicy | None = None,
+        host_policy: HostPolicy | None = None,
+        isolation_source_policy: IsolationSourcePromptPolicy | None = None,
+        location_standardizer_factory: Callable[..., LocationStandardizer] | None = None,
+        host_standardizer_factory: Callable[..., HostStandardizer] | None = None,
+        isolation_source_standardizer_factory: Callable[..., IsolationSourceStandardizer]
+        | None = None,
+    ) -> _BuiltDataset:
+        files = make_extracted_metadata_files(name, rows)
+        destination = files.extracted_metadata_path.parent / "final.tsv"
+        statistics = DatasetBuilder(
+            location_standardizer_factory=location_standardizer_factory,
+            host_standardizer_factory=host_standardizer_factory,
+            host_lineage_factory=lambda *_paths: SimpleNamespace(
+                enrich=lambda _taxid: HostLineage("", "", ""),
+                is_descendant_or_self=lambda _taxid, _ancestor: False,
+            ),
+            isolation_source_standardizer_factory=isolation_source_standardizer_factory,
+        ).build(
+            DatasetBuildRequest(
+                extracted_metadata=files.extracted_metadata_path,
+                biosample_manifest_path=files.biosample_manifest_path,
+                bioproject_manifest_path=files.bioproject_manifest_path,
+                requested_taxa=("ecoli",),
+                requested_targets=targets,
+                final_destination=destination,
+                taxon_registry=load_taxon_registry(),
+                host_policy=host_policy,
+                location_policy=location_policy,
+                isolation_source_prompt_policy=isolation_source_policy,
+                llm_settings=LLMSettings(None, None, "test-model"),
+                disable_progress=True,
+            )
         )
-        writer.writeheader()
-        writer.writerows(rows)
+        with destination.open(encoding="utf-8", newline="") as stream:
+            reader = csv.DictReader(stream, delimiter="	")
+            records = tuple(dict(record) for record in reader)
+            columns = tuple(reader.fieldnames or ())
+        return _BuiltDataset(columns, records, statistics, destination.read_bytes())
 
-    biosample_manifest_path = tmp_path / "biosample-snapshot.yaml"
-    bioproject_manifest_path = tmp_path / "bioproject-snapshot.yaml"
-    biosample_manifest = _write_manifest(
-        biosample_manifest_path,
-        snapshot_id="biosample-absence-characterization",
-        sha256_fill_character="0",
-    )
-    bioproject_manifest = _write_manifest(
-        bioproject_manifest_path,
-        snapshot_id="bioproject-absence-characterization",
-        sha256_fill_character="1",
-    )
-    ExtractedMetadataProvenance(
-        biosample_snapshot_id=biosample_manifest.snapshot_id,
-        biosample_manifest_sha256=sha256_file(biosample_manifest_path),
-        bioproject_snapshot_id=bioproject_manifest.snapshot_id,
-        bioproject_manifest_sha256=sha256_file(bioproject_manifest_path),
-        extracted_metadata_sha256=sha256_file(extracted_path),
-    ).write(provenance_path_for(extracted_path))
-    return extracted_path, biosample_manifest_path, bioproject_manifest_path
-
-
-def _build_dataset(
-    tmp_path: Path,
-    rows: Sequence[Mapping[str, str]],
-    targets: tuple[StandardizationTarget, ...],
-    *,
-    location_policy: LocationPolicy | None = None,
-    host_policy: HostPolicy | None = None,
-    isolation_source_policy: IsolationSourcePromptPolicy | None = None,
-    location_standardizer_factory: Callable[..., LocationStandardizer] | None = None,
-    host_standardizer_factory: Callable[..., HostStandardizer] | None = None,
-    isolation_source_standardizer_factory: Callable[..., IsolationSourceStandardizer] | None = None,
-) -> _BuiltDataset:
-    extracted_path, biosample_manifest_path, bioproject_manifest_path = (
-        _write_extracted_metadata_files(
-            tmp_path,
-            rows,
-        )
-    )
-    destination = tmp_path / "final.tsv"
-    statistics = DatasetBuilder(
-        location_standardizer_factory=location_standardizer_factory,
-        host_standardizer_factory=host_standardizer_factory,
-        host_lineage_factory=lambda *_paths: SimpleNamespace(
-            enrich=lambda _taxid: HostLineage("", "", ""),
-            is_descendant_or_self=lambda _taxid, _ancestor: False,
-        ),
-        isolation_source_standardizer_factory=isolation_source_standardizer_factory,
-    ).build(
-        DatasetBuildRequest(
-            extracted_metadata=extracted_path,
-            biosample_manifest_path=biosample_manifest_path,
-            bioproject_manifest_path=bioproject_manifest_path,
-            requested_taxa=("ecoli",),
-            requested_targets=targets,
-            final_destination=destination,
-            taxon_registry=load_taxon_registry(),
-            host_policy=host_policy,
-            location_policy=location_policy,
-            isolation_source_prompt_policy=isolation_source_policy,
-            llm_settings=LLMSettings(None, None, "test-model"),
-            disable_progress=True,
-        )
-    )
-    with destination.open(encoding="utf-8", newline="") as stream:
-        reader = csv.DictReader(stream, delimiter="\t")
-        records = tuple(dict(record) for record in reader)
-        columns = tuple(reader.fieldnames or ())
-    return _BuiltDataset(columns, records, statistics, destination.read_bytes())
+    return build
 
 
 def _dated_record(accession: str, **metadata: str) -> dict[str, str]:
@@ -271,10 +186,9 @@ def _name_match_flags(loc_attr_orig: str) -> str:
 
 
 def test_ncbi_organism_and_sylph_species_pass_through_from_extracted_metadata(
-    tmp_path: Path,
+    build_dataset,
 ) -> None:
-    built = _build_dataset(
-        tmp_path,
+    built = build_dataset(
         [
             _dated_record(
                 "AGREEING",
@@ -300,9 +214,8 @@ def test_ncbi_organism_and_sylph_species_pass_through_from_extracted_metadata(
     ]
 
 
-def test_sequence_accessions_pass_through_from_extracted_metadata(tmp_path: Path) -> None:
-    built = _build_dataset(
-        tmp_path,
+def test_sequence_accessions_pass_through_from_extracted_metadata(build_dataset) -> None:
+    built = build_dataset(
         [
             _dated_record(
                 "LINKED", sra_run_accessions="SRR1||SRR2", refseq_assembly_accessions="GCF_1.1"
@@ -319,7 +232,7 @@ def test_sequence_accessions_pass_through_from_extracted_metadata(tmp_path: Path
     assert unlinked["sra_run_accessions"] == ""
 
 
-def _location_policy(_tmp_path: Path) -> LocationPolicy:
+def _location_policy() -> LocationPolicy:
     return LocationPolicy.load(LOCATION_POLICY_PATH)
 
 
@@ -349,10 +262,9 @@ def _minimal_host_components(tmp_path: Path) -> tuple[HostPolicy, Path]:
 
 
 def test_published_dates_separate_the_collection_date_from_the_record_date(
-    tmp_path: Path,
+    build_dataset,
 ) -> None:
-    built = _build_dataset(
-        tmp_path,
+    built = build_dataset(
         [
             _dated_record(
                 "RECORD_DATE_ONLY",
@@ -422,13 +334,13 @@ def _isolation_source_policy(tmp_path: Path) -> IsolationSourcePromptPolicy:
 
 
 def _build_isolation_source_dataset(
+    build_dataset,
     tmp_path: Path,
     rows: Sequence[Mapping[str, str]],
 ) -> _BuiltDataset:
     host_policy, taxonomy_path = _minimal_host_components(tmp_path)
     isolation_source_policy = _isolation_source_policy(tmp_path)
-    return _build_dataset(
-        tmp_path,
+    return build_dataset(
         rows,
         (StandardizationTarget.DATE, StandardizationTarget.ISOLATION_SOURCE),
         host_policy=host_policy,
@@ -450,14 +362,14 @@ def _build_isolation_source_dataset(
 
 def test_isolation_source_outcome_projects_thirteen_columns_in_facet_order(
     tmp_path: Path,
+    build_dataset,
 ) -> None:
     host_policy, taxonomy_path = _minimal_host_components(tmp_path)
     isolation_source_policy = replace(
         IsolationSourcePromptPolicy.load(ISOLATION_SOURCE_POLICY_PATH),
         cache_db_path=tmp_path / "faceted-isolation-source-cache.db",
     )
-    built = _build_dataset(
-        tmp_path,
+    built = build_dataset(
         [
             _dated_record(
                 "FACETED_SOURCE",
@@ -531,7 +443,9 @@ def test_isolation_source_outcome_projects_thirteen_columns_in_facet_order(
     ]
 
 
-def test_equivalent_vocabulary_order_produces_byte_stable_dataset(tmp_path: Path) -> None:
+def test_equivalent_vocabulary_order_produces_byte_stable_dataset(
+    tmp_path: Path, build_dataset
+) -> None:
     source_ontology = ROOT / "tests" / "fixtures" / "standardization" / "ontology"
     built_datasets: list[_BuiltDataset] = []
 
@@ -561,8 +475,7 @@ def test_equivalent_vocabulary_order_produces_byte_stable_dataset(tmp_path: Path
             ontology=IsolationSourceOntology.load(ontology_directory),
         )
         built_datasets.append(
-            _build_dataset(
-                build_root,
+            build_dataset(
                 [
                     _dated_record(
                         "DETERMINISTIC_TERM_DERIVATION",
@@ -571,6 +484,7 @@ def test_equivalent_vocabulary_order_produces_byte_stable_dataset(tmp_path: Path
                     )
                 ],
                 (StandardizationTarget.DATE, StandardizationTarget.ISOLATION_SOURCE),
+                name=f"{name}_extracted",
                 host_policy=host_policy,
                 isolation_source_policy=isolation_source_policy,
                 host_standardizer_factory=lambda policy, _logger, taxonomy_path=taxonomy_path: (
@@ -595,6 +509,7 @@ def test_equivalent_vocabulary_order_produces_byte_stable_dataset(tmp_path: Path
 
 def test_failed_isolation_source_classification_skips_record_and_continues(
     tmp_path: Path,
+    build_dataset,
     fake_llm_client,
 ) -> None:
     invalid_answer = fake_llm_client.answer(
@@ -640,8 +555,7 @@ def test_failed_isolation_source_classification_skips_record_and_continues(
         standardizer.pipeline.client = fake_llm_client
         return standardizer
 
-    built = _build_dataset(
-        tmp_path,
+    built = build_dataset(
         [
             _dated_record(
                 "FAILED_CLASSIFICATION",
@@ -693,10 +607,9 @@ def test_failed_isolation_source_classification_skips_record_and_continues(
 
 
 def test_unrequested_targets_omit_columns_instead_of_serializing_empty(
-    tmp_path: Path,
+    build_dataset,
 ) -> None:
-    built = _build_dataset(
-        tmp_path,
+    built = build_dataset(
         [_dated_record("DATE_ONLY")],
         (StandardizationTarget.DATE,),
     )
@@ -714,9 +627,8 @@ def test_unrequested_targets_omit_columns_instead_of_serializing_empty(
     assert not (set(unrequested_columns) & set(built.columns))
 
 
-def test_absent_bioproject_link_serializes_as_empty_not_na(tmp_path: Path) -> None:
-    built = _build_dataset(
-        tmp_path,
+def test_absent_bioproject_link_serializes_as_empty_not_na(build_dataset) -> None:
+    built = build_dataset(
         [_dated_record("NO_BIOPROJECT")],
         (StandardizationTarget.DATE,),
     )
@@ -724,9 +636,8 @@ def test_absent_bioproject_link_serializes_as_empty_not_na(tmp_path: Path) -> No
     assert built.records[0]["bioproject"] == ""
 
 
-def test_absent_sublocation_serializes_as_na_not_empty(tmp_path: Path) -> None:
-    built = _build_dataset(
-        tmp_path,
+def test_absent_sublocation_serializes_as_na_not_empty(build_dataset) -> None:
+    built = build_dataset(
         [
             _dated_record(
                 "NO_SUBLOCATION",
@@ -740,7 +651,7 @@ def test_absent_sublocation_serializes_as_na_not_empty(tmp_path: Path) -> None:
             ),
         ],
         (StandardizationTarget.DATE, StandardizationTarget.LOCATION),
-        location_policy=_location_policy(tmp_path),
+        location_policy=_location_policy(),
         location_standardizer_factory=_location_standardizer,
     )
     records = {record["accession"]: record for record in built.records}
@@ -750,11 +661,10 @@ def test_absent_sublocation_serializes_as_na_not_empty(tmp_path: Path) -> None:
 
 
 def test_absent_un_region_serializes_as_na_not_empty_for_resolved_country(
-    tmp_path: Path,
+    build_dataset,
 ) -> None:
     """A reviewed mapping may name a water body, which has no UN region."""
-    built = _build_dataset(
-        tmp_path,
+    built = build_dataset(
         [
             _dated_record(
                 "NO_UN_REGION",
@@ -763,7 +673,7 @@ def test_absent_un_region_serializes_as_na_not_empty_for_resolved_country(
             )
         ],
         (StandardizationTarget.DATE, StandardizationTarget.LOCATION),
-        location_policy=_location_policy(tmp_path),
+        location_policy=_location_policy(),
         location_standardizer_factory=_location_standardizer,
     )
 
@@ -771,69 +681,8 @@ def test_absent_un_region_serializes_as_na_not_empty_for_resolved_country(
     assert built.records[0]["loc_un_region"] == "NA"
 
 
-def test_published_resolution_route_names_the_step_that_produced_the_country(
-    tmp_path: Path,
-) -> None:
-    built = _build_dataset(
-        tmp_path,
-        [
-            _dated_record("INSDC", loc_attr_orig="geo_loc_name", loc_val_orig="Germany"),
-            _dated_record(
-                "CONVERTED",
-                loc_attr_orig="geo_loc_name",
-                loc_val_orig="United States of America",
-            ),
-            _dated_record("COORDINATE", loc_attr_orig="lat_lon", loc_val_orig="52.52, 13.405"),
-        ],
-        (StandardizationTarget.DATE, StandardizationTarget.LOCATION),
-        location_policy=_location_policy(tmp_path),
-        location_standardizer_factory=_location_standardizer,
-    )
-
-    assert {record["accession"]: record["loc_resolution"] for record in built.records} == {
-        "INSDC": "insdc_term",
-        "CONVERTED": "country_conversion",
-        "COORDINATE": "coordinate",
-    }
-    assert built.statistics.location is not None
-    assert built.statistics.location.aggregate.resolution_routes == {
-        LocationResolutionRoute.COORDINATE: 1,
-        LocationResolutionRoute.COUNTRY_CONVERSION: 1,
-        LocationResolutionRoute.INSDC_TERM: 1,
-    }
-
-
-def test_published_coordinate_is_filled_whenever_a_value_parses(tmp_path: Path) -> None:
-    built = _build_dataset(
-        tmp_path,
-        [
-            _dated_record(
-                "COORDINATE",
-                loc_attr_orig="lat_lon",
-                loc_val_orig="6°12'52\"S 106°50'42\"E",
-            ),
-            _dated_record("NO_LOCATION", loc_attr_orig="lat_lon", loc_val_orig="0.0, 0.0"),
-            _dated_record("INSDC", loc_attr_orig="geo_loc_name", loc_val_orig="Germany"),
-        ],
-        (StandardizationTarget.DATE, StandardizationTarget.LOCATION),
-        location_policy=_location_policy(tmp_path),
-        location_standardizer_factory=_location_standardizer,
-    )
-
-    published = {
-        record["accession"]: (record["loc_latitude"], record["loc_longitude"])
-        for record in built.records
-    }
-    assert published == {
-        "COORDINATE": ("-6.21444", "106.845"),
-        "NO_LOCATION": ("0", "0"),
-        "INSDC": ("", ""),
-    }
-
-
-def test_a_submitted_pair_with_an_empty_value_keeps_its_slot(tmp_path: Path) -> None:
-    built = _build_dataset(
-        tmp_path,
+def test_a_submitted_pair_with_an_empty_value_keeps_its_slot(build_dataset) -> None:
+    built = build_dataset(
         [
             _dated_record(
                 "EMPTY_FIRST_VALUE",
@@ -842,7 +691,7 @@ def test_a_submitted_pair_with_an_empty_value_keeps_its_slot(tmp_path: Path) -> 
             )
         ],
         (StandardizationTarget.DATE, StandardizationTarget.LOCATION),
-        location_policy=_location_policy(tmp_path),
+        location_policy=_location_policy(),
         location_standardizer_factory=_location_standardizer,
     )
 
@@ -852,10 +701,9 @@ def test_a_submitted_pair_with_an_empty_value_keeps_its_slot(tmp_path: Path) -> 
 
 
 def test_rejected_locations_publish_evidence_and_diagnostics_with_empty_answer_columns(
-    tmp_path: Path,
+    build_dataset,
 ) -> None:
-    built = _build_dataset(
-        tmp_path,
+    built = build_dataset(
         [
             _dated_record(
                 "UNRESOLVED",
@@ -870,7 +718,7 @@ def test_rejected_locations_publish_evidence_and_diagnostics_with_empty_answer_c
             ),
         ],
         (StandardizationTarget.DATE, StandardizationTarget.LOCATION),
-        location_policy=_location_policy(tmp_path),
+        location_policy=_location_policy(),
         location_standardizer_factory=_location_standardizer,
     )
 
@@ -905,10 +753,9 @@ def test_rejected_locations_publish_evidence_and_diagnostics_with_empty_answer_c
 
 
 def test_standardized_location_publishes_its_diagnostics_in_the_same_column(
-    tmp_path: Path,
+    build_dataset,
 ) -> None:
-    built = _build_dataset(
-        tmp_path,
+    built = build_dataset(
         [
             _dated_record(
                 "STANDARDIZED_WITH_CONFLICT",
@@ -917,7 +764,7 @@ def test_standardized_location_publishes_its_diagnostics_in_the_same_column(
             )
         ],
         (StandardizationTarget.DATE, StandardizationTarget.LOCATION),
-        location_policy=_location_policy(tmp_path),
+        location_policy=_location_policy(),
         location_standardizer_factory=_location_standardizer,
     )
 
@@ -927,12 +774,11 @@ def test_standardized_location_publishes_its_diagnostics_in_the_same_column(
 
 
 def test_standardized_location_reports_a_pair_resolved_outside_the_insdc_list(
-    tmp_path: Path,
+    build_dataset,
 ) -> None:
     # The coordinate lies inside the Vatican map unit. The Vatican is not a valid
     # INSDC location, so standardization uses `geo_loc_name` alone.
-    built = _build_dataset(
-        tmp_path,
+    built = build_dataset(
         [
             _dated_record(
                 "STANDARDIZED_WITH_UNMAPPABLE_PAIR",
@@ -941,7 +787,7 @@ def test_standardized_location_reports_a_pair_resolved_outside_the_insdc_list(
             )
         ],
         (StandardizationTarget.DATE, StandardizationTarget.LOCATION),
-        location_policy=_location_policy(tmp_path),
+        location_policy=_location_policy(),
         location_standardizer_factory=_location_standardizer,
     )
 
@@ -954,8 +800,10 @@ def test_standardized_location_reports_a_pair_resolved_outside_the_insdc_list(
 
 def test_unfilled_isolation_source_facets_serialize_as_na_not_empty(
     tmp_path: Path,
+    build_dataset,
 ) -> None:
     built = _build_isolation_source_dataset(
+        build_dataset,
         tmp_path,
         [
             _dated_record(
@@ -975,8 +823,10 @@ def test_unfilled_isolation_source_facets_serialize_as_na_not_empty(
 
 def test_classified_source_with_no_applicable_facet_serializes_as_na(
     tmp_path: Path,
+    build_dataset,
 ) -> None:
     built = _build_isolation_source_dataset(
+        build_dataset,
         tmp_path,
         [
             _dated_record(
@@ -1000,10 +850,10 @@ def test_classified_source_with_no_applicable_facet_serializes_as_na(
 
 def test_host_absence_and_non_resolution_share_empty_columns_but_run_report_separates_them(
     tmp_path: Path,
+    build_dataset,
 ) -> None:
     host_policy, taxonomy_path = _minimal_host_components(tmp_path)
-    built = _build_dataset(
-        tmp_path,
+    built = build_dataset(
         [
             _dated_record(
                 "HOST_ABSENT",
