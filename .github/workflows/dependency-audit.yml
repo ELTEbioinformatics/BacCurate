@@ -1,23 +1,6 @@
 name: Dependency audit
 
 on:
-  pull_request:
-    paths:
-      - "pyproject.toml"
-      - "uv.lock"
-      - ".github/workflows/dependency-audit.yml"
-
-  push:
-    branches:
-      - main
-    paths:
-      - "pyproject.toml"
-      - "uv.lock"
-      - ".github/workflows/dependency-audit.yml"
-
-  schedule:
-    - cron: "14 5 * * *"
-
   workflow_dispatch:
 
 permissions:
