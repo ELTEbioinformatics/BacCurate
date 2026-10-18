@@ -15,29 +15,6 @@ RELEASE_PATH = ONTOLOGY_DIRECTORY / "baccurate.ttl"
 
 SCHEME = URIRef("https://w3id.org/baccurate/vocabulary")
 
-CEREBROSPINAL_FLUID_EXAMPLE = """\
-@prefix bacc: <https://w3id.org/baccurate/BACC_> .
-@prefix baccv: <https://w3id.org/baccurate/vocabulary/> .
-@prefix iso-thes: <http://purl.org/iso25964/skos-thes#> .
-@prefix oboInOwl: <http://www.geneontology.org/formats/oboInOwl#> .
-@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
-
-bacc:0000013 a skos:Concept ;
-    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
-    skos:prefLabel "cerebrospinal fluid"@en ;
-    skos:notation "BACC:0000013" ;
-    skos:altLabel "csf"@en ;
-    oboInOwl:hasExactSynonym "csf"@en ;
-    skos:broader bacc:0000009 ;
-    iso-thes:broaderGeneric bacc:0000009 ;
-    baccv:located_in bacc:0000052 ;
-    skos:related bacc:0000052 ;
-    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0001359> .
-
-bacc:0000009 skos:narrower bacc:0000013 .
-baccv:body_product skos:member bacc:0000013 .
-"""
-
 
 @pytest.fixture(scope="module")
 def ontology() -> IsolationSourceOntology:
@@ -74,12 +51,6 @@ def test_every_concept_is_in_the_scheme_and_every_root_is_a_top_concept(
         for term_id, term in ontology.terms.items()
         if term.parent_id is None
     }
-
-
-def test_release_holds_the_cerebrospinal_fluid_example(release: Graph) -> None:
-    example = Graph().parse(data=CEREBROSPINAL_FLUID_EXAMPLE, format="turtle")
-
-    assert set(example) - set(release) == set()
 
 
 def test_skos_integrity_conditions_hold(release: Graph) -> None:

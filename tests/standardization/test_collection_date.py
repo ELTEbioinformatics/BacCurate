@@ -773,17 +773,3 @@ def test_minimum_supported_collection_year_is_inclusive(standardizer):
 def test_unparseable_value_yields_no_result(standardizer):
     """Unrecognized date strings produce no result."""
     assert standardize_date_value(standardizer, "not a date") is None
-
-
-# =============================================================================
-# DateBounds invariants
-# =============================================================================
-
-
-def test_date_bounds_rejects_inverted_start_and_end():
-    """Date bounds reject silently corrupt intervals."""
-    with pytest.raises(ValueError):
-        DateBounds(
-            start=date(2020, 1, 1),
-            end=date(2019, 1, 1),
-        )

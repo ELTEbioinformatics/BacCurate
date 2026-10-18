@@ -363,26 +363,14 @@ def fixture_dataset_builder_factory(
         def is_descendant_or_self(taxid: int, ancestor_taxid: int) -> bool:
             return (taxid, ancestor_taxid) in {(9606, 9606), (9606, 33208), (9031, 33208)}
 
-    def build(
-        *,
-        host_standardizer_factory=None,
-        host_lineage_factory=None,
-        isolation_source_standardizer_factory=None,
-    ) -> DatasetBuilder:
+    def build() -> DatasetBuilder:
         return DatasetBuilder(
-            host_standardizer_factory=host_standardizer_factory
-            or (
-                lambda policy, result_logger: HostStandardizer(
-                    policy,
-                    ncbi_table_path=(
-                        standardization_fixture_resources.ncbi_taxonomy_reference_table
-                    ),
-                    result_logger=result_logger,
-                )
+            host_standardizer_factory=lambda policy, result_logger: HostStandardizer(
+                policy,
+                ncbi_table_path=standardization_fixture_resources.ncbi_taxonomy_reference_table,
+                result_logger=result_logger,
             ),
-            host_lineage_factory=host_lineage_factory
-            or (lambda _names, _nodes: FixtureHostLineageEnricher()),
-            isolation_source_standardizer_factory=isolation_source_standardizer_factory,
+            host_lineage_factory=lambda _names, _nodes: FixtureHostLineageEnricher(),
         )
 
     return build

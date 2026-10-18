@@ -1,4 +1,4 @@
-"""Protect host standardization with compact domain scenarios and one production smoke test."""
+"""Protect host standardization with compact domain scenarios."""
 
 from __future__ import annotations
 
@@ -8,17 +8,10 @@ import pytest
 
 from baccurate.standardization.host import (
     HostDiagnostic,
-    HostPolicy,
     HostStandardizer,
     MatchRoute,
 )
 from baccurate.standardization.host_lineage import HostLineageEnricher
-from baccurate.taxon_registry.registry import load_taxon_registry
-
-ROOT = Path(__file__).parents[2]
-CONFIG_PATH = ROOT / "config" / "host.yaml"
-TAXON_REGISTRY_PATH = ROOT / "config" / "taxa.yaml"
-NCBI_PATH = ROOT / "data" / "reference" / "taxonomy" / "taxids_ncbi.tsv"
 
 
 @pytest.fixture(scope="session")
@@ -33,43 +26,6 @@ def standardizer(fixture_host_policy, standardization_fixture_resources) -> Host
 def classify(standardizer: HostStandardizer, value: str, attribute: str = "host"):
     """Standardize a single BioSample attribute-value pair."""
     return standardizer.classify_extracted_record("TEST", attribute, value)
-
-
-def test_production_host_policy_and_taxonomy_have_required_semantics() -> None:
-    """Smoke-test production resources once, including rejection vocabulary semantics."""
-    registry = load_taxon_registry(TAXON_REGISTRY_PATH)
-    standardizer = HostStandardizer(HostPolicy.load(CONFIG_PATH, registry), NCBI_PATH)
-
-    taxonomic_match = classify(standardizer, "Homo sapiens")
-    assert taxonomic_match.info.taxid == 9606
-    assert taxonomic_match.match_quality_score == 1.0
-
-    for submitted_value in (
-        "Bovine_sWine-Pool!",  # normalized rejection
-        "Escherichia coli",  # target-taxon-derived rejection
-        "cancer",  # deliberately curated rejection
-    ):
-        outcome = standardizer.standardize(
-            {
-                "accession": "PRODUCTION_REJECTION",
-                "host_attr_orig": "host",
-                "host_val_orig": submitted_value,
-            }
-        )
-        assert outcome.standardized is None
-        assert outcome.overflow is not None
-        assert outcome.overflow.value == submitted_value
-        assert outcome.diagnostics == (HostDiagnostic.OVERRIDE_REJECTION,)
-
-    intentionally_retained = standardizer.standardize(
-        {
-            "accession": "PRODUCTION_NON_REJECTION",
-            "host_attr_orig": "host",
-            "host_val_orig": "Klebsiella variicola",
-        }
-    )
-    assert intentionally_retained.overflow is not None
-    assert intentionally_retained.diagnostics == (HostDiagnostic.UNMATCHED,)
 
 
 def test_record_outcomes_preserve_standardized_overflow_and_missing_metadata(

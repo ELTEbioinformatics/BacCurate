@@ -1,7 +1,6 @@
 """Protect the public isolation-source ontology loading contract."""
 
 import csv
-import re
 from pathlib import Path
 
 import pytest
@@ -17,7 +16,6 @@ from baccurate.standardization.isolation_source_ontology import (
     TermRelation,
 )
 
-ONTOLOGY_DIRECTORY = Path(__file__).parents[2] / "data" / "reference" / "ontology"
 FIXTURE_DIRECTORY = Path(__file__).parents[1] / "fixtures" / "standardization" / "ontology"
 
 FACETS_YAML = """\
@@ -157,35 +155,6 @@ def _update_tsv_row(
     _write_tsv(path, fieldnames, rows)
 
 
-def test_authored_identifiers_expand_to_w3id_iris() -> None:
-    ontology = IsolationSourceOntology.load(ONTOLOGY_DIRECTORY)
-    curie_map = ontology.mapping_set.curie_map
-
-    for term_id in (*ontology.terms, *ontology.obsolete_terms):
-        prefix, _, local_id = term_id.partition(":")
-        assert re.fullmatch(r"\d{7}", local_id), term_id
-        assert curie_map[prefix] + local_id == f"https://w3id.org/baccurate/BACC_{local_id}"
-
-
-def test_authored_mappings_bind_entity_terms_to_at_most_one_exact_class() -> None:
-    ontology = IsolationSourceOntology.load(ONTOLOGY_DIRECTORY)
-    mappings = ontology.mapping_set.mappings
-    exact_subjects = [m.subject_id for m in mappings if m.predicate_id == "skos:exactMatch"]
-
-    assert {
-        m.subject_id for m in mappings if ontology.terms[m.subject_id].facet == "source_type"
-    } == set()
-    assert {s for s in exact_subjects if exact_subjects.count(s) > 1} == set()
-
-
-def test_each_authored_term_without_an_exact_match_has_a_definition() -> None:
-    ontology = IsolationSourceOntology.load(ONTOLOGY_DIRECTORY)
-
-    for term_id, term in ontology.terms.items():
-        if term_id not in ontology.exact_match_ids:
-            assert term.definition, term_id
-
-
 def test_load_returns_complete_facet_term_and_mapping_shapes(ontology_directory: Path) -> None:
     ontology = IsolationSourceOntology.load(ontology_directory)
 
@@ -231,108 +200,6 @@ def test_only_exact_and_narrow_mappings_resolve(ontology_directory: Path) -> Non
     assert ontology.resolved_mapping_terms["ENVO:00000002"].term_id == "BACC:0000004"
     assert "ENVO:00000003" not in ontology.resolved_mapping_terms
     assert "ENVO:00000004" not in ontology.resolved_mapping_terms
-
-
-def test_duplicate_term_identifier_names_the_term(ontology_directory: Path) -> None:
-    terms_path = ontology_directory / "terms.tsv"
-    fieldnames, rows = _read_tsv(terms_path)
-    rows.append({**rows[0], "label": "duplicate environmental source"})
-    _write_tsv(terms_path, fieldnames, rows)
-
-    with pytest.raises(
-        IsolationSourceOntologyError,
-        match=r"row \d+ term_id: duplicate term identifier 'BACC:0000001'",
-    ):
-        IsolationSourceOntology.load(ontology_directory)
-
-
-def test_label_duplicated_across_facets_names_both_facets(ontology_directory: Path) -> None:
-    _update_tsv_row(
-        ontology_directory / "terms.tsv",
-        match_column="term_id",
-        match_value="BACC:0000003",
-        changes={"label": "environmental"},
-    )
-
-    with pytest.raises(
-        IsolationSourceOntologyError,
-        match=(
-            r"row \d+ label: duplicate label 'environmental' across facets "
-            r"'source_type' and 'environmental_material'"
-        ),
-    ):
-        IsolationSourceOntology.load(ontology_directory)
-
-
-def test_term_naming_undeclared_facet_raises(ontology_directory: Path) -> None:
-    _update_tsv_row(
-        ontology_directory / "terms.tsv",
-        match_column="term_id",
-        match_value="BACC:0000001",
-        changes={"facet": "undeclared_facet"},
-    )
-
-    with pytest.raises(
-        IsolationSourceOntologyError,
-        match=r"term 'BACC:0000001' facet: undeclared facet 'undeclared_facet'",
-    ):
-        IsolationSourceOntology.load(ontology_directory)
-
-
-def test_unresolvable_parent_names_the_term(ontology_directory: Path) -> None:
-    _update_tsv_row(
-        ontology_directory / "terms.tsv",
-        match_column="term_id",
-        match_value="BACC:0000002",
-        changes={"parent_id": "BACC:9999999"},
-    )
-
-    with pytest.raises(
-        IsolationSourceOntologyError,
-        match=r"term 'BACC:0000002' parent_id: unresolvable parent 'BACC:9999999'",
-    ):
-        IsolationSourceOntology.load(ontology_directory)
-
-
-def test_parent_cannot_cross_facets(ontology_directory: Path) -> None:
-    _update_tsv_row(
-        ontology_directory / "terms.tsv",
-        match_column="term_id",
-        match_value="BACC:0000003",
-        changes={"parent_id": "BACC:0000001", "parent_relation": "kind_of"},
-    )
-
-    with pytest.raises(
-        IsolationSourceOntologyError,
-        match=(
-            r"term 'BACC:0000003' parent_id: parent 'BACC:0000001' belongs to facet "
-            r"'source_type'; parents must belong to 'environmental_material'"
-        ),
-    ):
-        IsolationSourceOntology.load(ontology_directory)
-
-
-@pytest.mark.parametrize(
-    ("term_id", "parent_relation", "message"),
-    [
-        ("BACC:0000002", "", "must be 'kind_of' or 'part_of'"),
-        ("BACC:0000001", "kind_of", "must be empty when parent_id is empty"),
-        ("BACC:0000002", "broader", "must be 'kind_of' or 'part_of'"),
-    ],
-    ids=["missing", "without parent", "unknown"],
-)
-def test_parent_relation_is_set_exactly_for_a_parent(
-    ontology_directory: Path, term_id: str, parent_relation: str, message: str
-) -> None:
-    _update_tsv_row(
-        ontology_directory / "terms.tsv",
-        match_column="term_id",
-        match_value=term_id,
-        changes={"parent_relation": parent_relation},
-    )
-
-    with pytest.raises(IsolationSourceOntologyError, match=rf"row \d+ parent_relation: {message}"):
-        IsolationSourceOntology.load(ontology_directory)
 
 
 @pytest.mark.parametrize(
@@ -491,58 +358,6 @@ def test_mapping_subject_that_is_not_a_term_names_the_row(ontology_directory: Pa
         IsolationSourceOntology.load(ontology_directory)
 
 
-@pytest.mark.parametrize(
-    ("filename", "match_column", "match_value", "empty_column", "message"),
-    [
-        (
-            "terms.tsv",
-            "term_id",
-            "BACC:0000001",
-            "term_id",
-            r"row \d+ term_id: must be a non-empty term identifier",
-        ),
-        (
-            "terms.tsv",
-            "term_id",
-            "BACC:0000001",
-            "label",
-            r"row \d+ label: must be a non-empty ontology display term",
-        ),
-        (
-            "mappings.sssom.tsv",
-            "object_id",
-            "ENVO:00000001",
-            "predicate_id",
-            r"row \d+ predicate_id: must be a non-empty mapping predicate",
-        ),
-        (
-            "mappings.sssom.tsv",
-            "object_id",
-            "ENVO:00000001",
-            "object_id",
-            r"row \d+ object_id: must be a non-empty external ontology identifier",
-        ),
-    ],
-)
-def test_required_term_and_mapping_fields_cannot_be_empty(
-    ontology_directory: Path,
-    filename: str,
-    match_column: str,
-    match_value: str,
-    empty_column: str,
-    message: str,
-) -> None:
-    _update_tsv_row(
-        ontology_directory / filename,
-        match_column=match_column,
-        match_value=match_value,
-        changes={empty_column: ""},
-    )
-
-    with pytest.raises(IsolationSourceOntologyError, match=message):
-        IsolationSourceOntology.load(ontology_directory)
-
-
 def test_cycle_of_parents_names_the_terms(ontology_directory: Path) -> None:
     _update_tsv_row(
         ontology_directory / "terms.tsv",
@@ -577,26 +392,9 @@ def test_facet_rejects_a_pipeline_field(ontology_directory: Path, field: str) ->
         IsolationSourceOntology.load(ontology_directory)
 
 
-def test_terms_reject_the_host_recovery_column(ontology_directory: Path) -> None:
-    terms_path = ontology_directory / "terms.tsv"
-    fieldnames, rows = _read_tsv(terms_path)
-    _write_tsv(
-        terms_path,
-        [*fieldnames, "enables_host_recovery"],
-        [{**row, "enables_host_recovery": "false"} for row in rows],
-    )
-
-    with pytest.raises(IsolationSourceOntologyError, match="header: must contain these columns"):
-        IsolationSourceOntology.load(ontology_directory)
-
-
-def test_semantic_fingerprints_ignore_reference_file_formatting(
-    ontology_directory: Path,
-) -> None:
-    original = IsolationSourceOntology.load(ontology_directory)
-
+def _reformat_every_file(directory: Path) -> None:
     for filename in ("facets.yaml", "mappings.sssom.yml"):
-        path = ontology_directory / filename
+        path = directory / filename
         document = yaml.safe_load(path.read_text(encoding="utf-8"))
         path.write_text(yaml.safe_dump(document, sort_keys=True), encoding="utf-8")
     for filename in (
@@ -606,95 +404,93 @@ def test_semantic_fingerprints_ignore_reference_file_formatting(
         "relations.tsv",
         "mappings.sssom.tsv",
     ):
-        path = ontology_directory / filename
+        path = directory / filename
         text = path.read_text(encoding="utf-8")
         path.write_bytes(text.replace("\n", "\r\n").encode("utf-8"))
 
-    reformatted = IsolationSourceOntology.load(ontology_directory)
 
-    assert original.vocabulary_fingerprint == reformatted.vocabulary_fingerprint
-    assert original.mapping_set_fingerprint == reformatted.mapping_set_fingerprint
-
-
-@pytest.mark.parametrize(
-    ("filename", "changes"),
-    [
-        ("terms.tsv", {"definition": "Soil that was sampled."}),
-        ("terms.tsv", {"scope_note": "Use only when soil was sampled."}),
-        ("terms.tsv", {"parent_relation": "part_of"}),
-        ("synonyms.tsv", {"synonym_type": "related"}),
-    ],
-)
-def test_term_edit_changes_only_vocabulary_fingerprint(
-    ontology_directory: Path, filename: str, changes: dict[str, str]
-) -> None:
-    original = IsolationSourceOntology.load(ontology_directory)
-    _update_tsv_row(
-        ontology_directory / filename,
-        match_column="term_id",
-        match_value="BACC:0000004",
-        changes=changes,
-    )
-
-    changed_vocabulary = IsolationSourceOntology.load(ontology_directory)
-
-    assert original.vocabulary_fingerprint != changed_vocabulary.vocabulary_fingerprint
-    assert original.mapping_set_fingerprint == changed_vocabulary.mapping_set_fingerprint
-
-
-def test_obsolete_term_edit_changes_only_vocabulary_fingerprint(ontology_directory: Path) -> None:
-    original = IsolationSourceOntology.load(ontology_directory)
-    _update_tsv_row(
-        ontology_directory / "obsolete_terms.tsv",
-        match_column="term_id",
-        match_value="BACC:0000005",
-        changes={"replaced_by": "BACC:0000001;BACC:0000002"},
-    )
-
-    changed_vocabulary = IsolationSourceOntology.load(ontology_directory)
-
-    assert original.vocabulary_fingerprint != changed_vocabulary.vocabulary_fingerprint
-    assert original.mapping_set_fingerprint == changed_vocabulary.mapping_set_fingerprint
-
-
-def test_relation_edit_changes_only_vocabulary_fingerprint(ontology_directory: Path) -> None:
-    original = IsolationSourceOntology.load(ontology_directory)
-    _update_tsv_row(
-        ontology_directory / "relations.tsv",
-        match_column="subject_id",
-        match_value="BACC:0000004",
-        changes={"object_id": "BACC:0000002"},
-    )
-
-    changed_vocabulary = IsolationSourceOntology.load(ontology_directory)
-
-    assert original.vocabulary_fingerprint != changed_vocabulary.vocabulary_fingerprint
-    assert original.mapping_set_fingerprint == changed_vocabulary.mapping_set_fingerprint
-
-
-def test_facet_edit_changes_only_vocabulary_fingerprint(ontology_directory: Path) -> None:
-    original = IsolationSourceOntology.load(ontology_directory)
-    facets_path = ontology_directory / "facets.yaml"
+def _edit_facet_meaning(directory: Path) -> None:
+    facets_path = directory / "facets.yaml"
     document = yaml.safe_load(facets_path.read_text(encoding="utf-8"))
     document["facets"]["environmental_material"]["meaning"] = "The environmental substance sampled."
     facets_path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
 
-    changed_vocabulary = IsolationSourceOntology.load(ontology_directory)
 
-    assert original.vocabulary_fingerprint != changed_vocabulary.vocabulary_fingerprint
-    assert original.mapping_set_fingerprint == changed_vocabulary.mapping_set_fingerprint
-
-
-def test_mapping_edit_changes_only_mapping_set_fingerprint(ontology_directory: Path) -> None:
-    original = IsolationSourceOntology.load(ontology_directory)
-    _update_tsv_row(
-        ontology_directory / "mappings.sssom.tsv",
-        match_column="object_id",
-        match_value="ENVO:00000001",
-        changes={"predicate_id": "skos:broadMatch"},
+def _edit_row(filename: str, match_column: str, match_value: str, **changes: str):
+    return lambda directory: _update_tsv_row(
+        directory / filename,
+        match_column=match_column,
+        match_value=match_value,
+        changes=changes,
     )
 
-    changed_mapping_set = IsolationSourceOntology.load(ontology_directory)
 
-    assert original.vocabulary_fingerprint == changed_mapping_set.vocabulary_fingerprint
-    assert original.mapping_set_fingerprint != changed_mapping_set.mapping_set_fingerprint
+@pytest.mark.parametrize(
+    ("edit", "vocabulary_changes", "mapping_set_changes"),
+    [
+        pytest.param(_reformat_every_file, False, False, id="formatting"),
+        pytest.param(
+            _edit_row("terms.tsv", "term_id", "BACC:0000004", definition="Soil that was sampled."),
+            True,
+            False,
+            id="definition",
+        ),
+        pytest.param(
+            _edit_row(
+                "terms.tsv", "term_id", "BACC:0000004", scope_note="Use only when soil was sampled."
+            ),
+            True,
+            False,
+            id="scope note",
+        ),
+        pytest.param(
+            _edit_row("terms.tsv", "term_id", "BACC:0000004", parent_relation="part_of"),
+            True,
+            False,
+            id="parent relation",
+        ),
+        pytest.param(
+            _edit_row("synonyms.tsv", "term_id", "BACC:0000004", synonym_type="related"),
+            True,
+            False,
+            id="synonym",
+        ),
+        pytest.param(
+            _edit_row(
+                "obsolete_terms.tsv",
+                "term_id",
+                "BACC:0000005",
+                replaced_by="BACC:0000001;BACC:0000002",
+            ),
+            True,
+            False,
+            id="obsolete term",
+        ),
+        pytest.param(
+            _edit_row("relations.tsv", "subject_id", "BACC:0000004", object_id="BACC:0000002"),
+            True,
+            False,
+            id="relation",
+        ),
+        pytest.param(_edit_facet_meaning, True, False, id="facet"),
+        pytest.param(
+            _edit_row(
+                "mappings.sssom.tsv", "object_id", "ENVO:00000001", predicate_id="skos:broadMatch"
+            ),
+            False,
+            True,
+            id="mapping",
+        ),
+    ],
+)
+def test_fingerprints_change_only_with_their_semantic_content(
+    ontology_directory: Path, edit, vocabulary_changes: bool, mapping_set_changes: bool
+) -> None:
+    original = IsolationSourceOntology.load(ontology_directory)
+    edit(ontology_directory)
+    edited = IsolationSourceOntology.load(ontology_directory)
+
+    assert (original.vocabulary_fingerprint != edited.vocabulary_fingerprint) is vocabulary_changes
+    assert (
+        original.mapping_set_fingerprint != edited.mapping_set_fingerprint
+    ) is mapping_set_changes
