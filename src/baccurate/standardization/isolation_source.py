@@ -473,13 +473,11 @@ class LLMClassifier:
         result_logger: logging.Logger | None = None,
         client: object = _LOAD_CONFIGURED_CLIENT,
         llm_settings: LLMSettings | None = None,
-        read_cache: bool = True,
     ) -> None:
         self.logger = result_logger or logger
         self.config = config
         self.ont = ontology
         self.cache = cache_manager
-        self.read_cache = read_cache
         self.stats = {"cache_hits": 0, "exact_matches": 0, "llm_calls": 0}
 
         settings = llm_settings or load_llm_settings()
@@ -949,17 +947,16 @@ class LLMClassifier:
                 [_strip_digits(value) for value in request_vals],
                 response_schema_id,
             ).fingerprint
-            if self.read_cache:
-                cached_answer = self.cache.get(cache_fingerprint)
-                if cached_answer:
-                    self.stats["cache_hits"] += 1
-                    return self._standardize_classifier_answer(
-                        cached_answer,
-                        direct_term_ids=direct_term_ids,
-                        identifier_disagreement=identifier_disagreement,
-                        request_fingerprint=cache_fingerprint,
-                        values=valid_vals,
-                    )
+            cached_answer = self.cache.get(cache_fingerprint)
+            if cached_answer:
+                self.stats["cache_hits"] += 1
+                return self._standardize_classifier_answer(
+                    cached_answer,
+                    direct_term_ids=direct_term_ids,
+                    identifier_disagreement=identifier_disagreement,
+                    request_fingerprint=cache_fingerprint,
+                    values=valid_vals,
+                )
 
             if self.client is None:
                 selected_term_ids |= direct_term_ids
@@ -1052,7 +1049,6 @@ class IsolationSourceStandardizer:
         result_logger: logging.Logger | None = None,
         client: object = _LOAD_CONFIGURED_CLIENT,
         llm_settings: LLMSettings | None = None,
-        read_llm_cache: bool = True,
     ) -> None:
         self.logger = result_logger or logger
         self.config = config
@@ -1067,7 +1063,6 @@ class IsolationSourceStandardizer:
                 result_logger=self.logger,
                 client=client,
                 llm_settings=llm_settings,
-                read_cache=read_llm_cache,
             )
         except BaseException:
             self.cache.close()
