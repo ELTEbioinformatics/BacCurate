@@ -25,82 +25,65 @@ def main(
     taxon_registry: TaxonRegistry | None = None,
 ) -> None:
     invocation = resolve_invocation(argv, taxon_registry=taxon_registry)
-    args = invocation
-    registry = invocation.registry
-    active_targets = invocation.active_targets
-    extracted_metadata_path = invocation.extracted_metadata_path
-    effective_policy = invocation.effective_policy
-    selection_policy = invocation.selection_policy
-    outputs = invocation.outputs
-    biosample_input_path = invocation.biosample_input_path
-    index_path = invocation.index_path
-    names = invocation.taxon_keys
-    extraction_names = invocation.extraction_taxon_keys
-    disable_progress = invocation.disable_progress
-    configuration_paths = invocation.configuration_paths
-    normalized_options = invocation.normalized_options
-    llm_settings = invocation.llm_settings
-    model_identifiers = invocation.model_identifiers
-    DEFAULT_BIOSAMPLE_MANIFEST_PATH = invocation.biosample_manifest_path
-    DEFAULT_BIOPROJECT_MANIFEST_PATH = invocation.bioproject_manifest_path
+    prompt_policy = invocation.effective_policy.isolation_source_prompt_policy
 
-    outputs.initialize()
-    if outputs.prompt_snapshot is not None:
+    invocation.outputs.initialize()
+    if invocation.outputs.prompt_snapshot is not None:
         write_prompt_snapshot(
-            outputs.prompt_snapshot,
-            model_identifiers=model_identifiers,
-            isolation_source_prompt_policy=effective_policy.isolation_source_prompt_policy,
+            invocation.outputs.prompt_snapshot,
+            model_identifiers=invocation.model_identifiers,
+            isolation_source_prompt_policy=prompt_policy,
         )
-    logging_state = configure_run_logging(outputs.log, console_debug=args.debug)
+    logging_state = configure_run_logging(invocation.outputs.log, console_debug=invocation.debug)
     run_report = RunReport(
-        outputs,
+        invocation.outputs,
         RunContext(
-            requested_taxa=tuple(names),
-            requested_standardization_targets=tuple(target.value for target in active_targets),
-            extracted_metadata=extracted_metadata_path,
-            options=normalized_options,
-            configuration_paths=tuple(configuration_paths),
-            skip_llm=args.skip_llm,
-            model_identifiers=model_identifiers,
-            trace_llm_calls=args.debug,
+            requested_taxa=tuple(invocation.taxon_keys),
+            requested_standardization_targets=tuple(
+                target.value for target in invocation.active_targets
+            ),
+            extracted_metadata=invocation.extracted_metadata_path,
+            options=invocation.normalized_options,
+            configuration_paths=tuple(invocation.configuration_paths),
+            skip_llm=invocation.skip_llm,
+            model_identifiers=invocation.model_identifiers,
+            trace_llm_calls=invocation.debug,
             isolation_source_provenance=(
-                effective_policy.isolation_source_prompt_policy.provenance
-                if effective_policy.isolation_source_prompt_policy is not None
-                else None
+                prompt_policy.provenance if prompt_policy is not None else None
             ),
         ),
     )
     started = monotonic()
     logger.info(
         "Run started: taxa=%s standardization_targets=%s",
-        ",".join(names),
-        ",".join(target.value for target in active_targets),
+        ",".join(invocation.taxon_keys),
+        ",".join(target.value for target in invocation.active_targets),
     )
     build_progress = DatasetBuildProgress()
 
     try:
-        with progress_context(disable=disable_progress):
-            if selection_policy is not None:
+        with progress_context(disable=invocation.disable_progress):
+            if invocation.selection_policy is not None:
                 run_report.transition(RunPhase.EXTRACTION)
                 run_report.begin_performed_extraction(
-                    biosample_input_path=biosample_input_path,
+                    biosample_input_path=invocation.biosample_input_path,
                     bioproject_input_path=DEFAULT_BIOPROJECT_SNAPSHOT_PATH,
-                    extracted_metadata_path=extracted_metadata_path,
-                    biosample_manifest_path=DEFAULT_BIOSAMPLE_MANIFEST_PATH,
-                    bioproject_manifest_path=DEFAULT_BIOPROJECT_MANIFEST_PATH,
+                    extracted_metadata_path=invocation.extracted_metadata_path,
+                    biosample_manifest_path=invocation.biosample_manifest_path,
+                    bioproject_manifest_path=invocation.bioproject_manifest_path,
                 )
                 extraction_started = monotonic()
                 logger.info(
                     "Extraction started: input=%s output=%s",
-                    biosample_input_path,
-                    extracted_metadata_path,
+                    invocation.biosample_input_path,
+                    invocation.extracted_metadata_path,
                 )
                 extraction_report = run_extraction(
-                    output_path=extracted_metadata_path,
-                    selection_policy=selection_policy,
-                    index_path=index_path,
-                    names=extraction_names,
-                    taxon_registry=registry,
+                    output_path=invocation.extracted_metadata_path,
+                    selection_policy=invocation.selection_policy,
+                    index_path=invocation.index_path,
+                    names=invocation.extraction_taxon_keys,
+                    taxon_registry=invocation.registry,
                 )
                 extraction_elapsed = monotonic() - extraction_started
                 run_report.record_performed_extraction(
@@ -111,34 +94,34 @@ def main(
                 logger.info("Extraction finished: elapsed=%.2fs", extraction_elapsed)
             else:
                 run_report.record_reused_extraction(
-                    extracted_metadata_path=extracted_metadata_path,
-                    biosample_manifest_path=DEFAULT_BIOSAMPLE_MANIFEST_PATH,
-                    bioproject_manifest_path=DEFAULT_BIOPROJECT_MANIFEST_PATH,
+                    extracted_metadata_path=invocation.extracted_metadata_path,
+                    biosample_manifest_path=invocation.biosample_manifest_path,
+                    bioproject_manifest_path=invocation.bioproject_manifest_path,
                 )
                 run_report.transition(RunPhase.DATASET_STREAMING)
-                logger.info("Using extracted metadata from: %s", extracted_metadata_path)
+                logger.info("Using extracted metadata from: %s", invocation.extracted_metadata_path)
 
             logger.info("Streaming started")
             request = DatasetBuildRequest(
-                extracted_metadata=extracted_metadata_path,
-                biosample_manifest_path=DEFAULT_BIOSAMPLE_MANIFEST_PATH,
-                bioproject_manifest_path=DEFAULT_BIOPROJECT_MANIFEST_PATH,
-                requested_taxa=tuple(names),
-                requested_targets=active_targets,
-                final_destination=outputs.dataset,
-                taxon_registry=registry,
-                host_policy=effective_policy.host_policy,
-                location_policy=effective_policy.location_policy,
-                isolation_source_prompt_policy=effective_policy.isolation_source_prompt_policy,
-                isolation_source_reasoning_destination=outputs.isolation_source_reasoning,
-                location_review_worklist_destination=outputs.location_review_worklist,
-                names_dmp=args.names_dmp,
-                nodes_dmp=args.nodes_dmp,
+                extracted_metadata=invocation.extracted_metadata_path,
+                biosample_manifest_path=invocation.biosample_manifest_path,
+                bioproject_manifest_path=invocation.bioproject_manifest_path,
+                requested_taxa=tuple(invocation.taxon_keys),
+                requested_targets=invocation.active_targets,
+                final_destination=invocation.outputs.dataset,
+                taxon_registry=invocation.registry,
+                host_policy=invocation.effective_policy.host_policy,
+                location_policy=invocation.effective_policy.location_policy,
+                isolation_source_prompt_policy=prompt_policy,
+                isolation_source_reasoning_destination=invocation.outputs.isolation_source_reasoning,
+                location_review_worklist_destination=invocation.outputs.location_review_worklist,
+                names_dmp=invocation.names_dmp,
+                nodes_dmp=invocation.nodes_dmp,
                 overwrite=True,
-                skip_llm=args.skip_llm,
-                llm_settings=llm_settings,
+                skip_llm=invocation.skip_llm,
+                llm_settings=invocation.llm_settings,
                 logger=pipeline_logger,
-                disable_progress=disable_progress,
+                disable_progress=invocation.disable_progress,
                 progress=build_progress,
             )
             statistics = DatasetBuilder().build(request)
@@ -154,12 +137,12 @@ def main(
             progress=build_progress,
             statistics=statistics,
         )
-        logger.info("Run report finalized: %s", outputs.run_report)
+        logger.info("Run report finalized: %s", invocation.outputs.run_report)
         logger.info(
             "Run completed: elapsed=%.2fs rows=%d outputs=%s",
             monotonic() - started,
             statistics.rows_written,
-            ",".join(str(path) for path in outputs.paths()),
+            ",".join(str(path) for path in invocation.outputs.paths()),
         )
     except KeyboardInterrupt as exc:
         run_report.finish(
