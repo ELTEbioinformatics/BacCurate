@@ -7,7 +7,6 @@ import shutil
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -84,152 +83,24 @@ DISEASE = "BACC:0000128"
 CYSTIC_FIBROSIS = "BACC:0000149"
 URINARY_TRACT_INFECTION = "BACC:0000134"
 
-FACET_BY_LABEL = {
-    "host-associated": "source_type",
-    "animal host": "source_type",
-    "environmental": "source_type",
-    "blood": "body_product",
-    "feces": "body_product",
-    "wound": "lesion",
-    "soil": "environmental_material",
-    "meat product": "food_type",
-}
-
-# =============================================================================
-# Fake LLM client
-# =============================================================================
-
-
-def _classifier_answer(
-    *,
-    reasoning: str = "because",
-    source_type: str | list[str] | None = None,
-    body_product: list[str] | None = None,
-    body_site: list[str] | None = None,
-    lesion: list[str] | None = None,
-    environmental_material: list[str] | None = None,
-    facility: list[str] | None = None,
-    sampled_object: list[str] | None = None,
-    food_type: list[str] | None = None,
-    host_disease: list[str] | None = None,
-) -> dict[str, object]:
-    return {
-        "source_type": [source_type] if isinstance(source_type, str) else source_type or [],
-        "body_product": body_product or [],
-        "body_site": body_site or [],
-        "lesion": lesion or [],
-        "environmental_material": environmental_material or [],
-        "facility": facility or [],
-        "sampled_object": sampled_object or [],
-        "food_type": food_type or [],
-        "host_disease": host_disease or [],
-        "reasoning": reasoning,
-    }
-
-
-class _FakeCompletions:
-    def __init__(self, parent: FakeClient) -> None:
-        self._parent = parent
-
-    def create(self, **kwargs):
-        self._parent.calls.append(kwargs)
-        behavior = self._parent.behavior
-        if behavior is None:
-            raise AssertionError("LLM create() was called unexpectedly")
-        if isinstance(behavior, Exception):
-            raise behavior
-        if isinstance(behavior, dict):
-            return kwargs["response_model"].model_validate(behavior)
-        if callable(behavior):
-            return behavior(kwargs["response_model"])
-        return behavior
-
-
-class FakeClient:
-    def __init__(self) -> None:
-        self.calls: list[dict] = []
-        self.behavior: object | None = None
-        self.chat = SimpleNamespace(completions=_FakeCompletions(self))
-
-    def respond_with(
-        self,
-        terms,
-        reasoning: str = "because",
-    ) -> None:
-        terms = list(terms)
-        facets: dict[str, object] = {
-            "source_type": [],
-            "body_product": [],
-            "body_site": [],
-            "lesion": [],
-            "environmental_material": [],
-            "facility": [],
-            "sampled_object": [],
-            "food_type": [],
-            "host_disease": [],
-        }
-        for term in terms:
-            facet = FACET_BY_LABEL[term]
-            if facet == "source_type":
-                facets[facet].append(term)
-            else:
-                facets[facet].append(term)
-        self.respond_with_facets(
-            reasoning=reasoning,
-            **facets,
-        )
-
-    def fail_with(self, exc: Exception) -> None:
-        self.behavior = exc
-
-    def respond_with_facets(
-        self,
-        *,
-        reasoning: str = "because",
-        source_type: str | list[str] | None = None,
-        body_product: list[str] | None = None,
-        body_site: list[str] | None = None,
-        lesion: list[str] | None = None,
-        environmental_material: list[str] | None = None,
-        facility: list[str] | None = None,
-        sampled_object: list[str] | None = None,
-        food_type: list[str] | None = None,
-        host_disease: list[str] | None = None,
-    ) -> None:
-        self.behavior = _classifier_answer(
-            reasoning=reasoning,
-            source_type=source_type,
-            body_product=body_product,
-            body_site=body_site,
-            lesion=lesion,
-            environmental_material=environmental_material,
-            facility=facility,
-            sampled_object=sampled_object,
-            food_type=food_type,
-            host_disease=host_disease,
-        )
-
-    def close(self) -> None:
-        pass
-
 
 def test_classifier_requests_endpoint_enforced_json_schema_mode(
     fixture_isolation_source_prompt_policy: IsolationSourcePromptPolicy,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    fake_llm_client,
 ) -> None:
-    fake_client = FakeClient()
-    from_openai = Mock(return_value=fake_client)
+    from_openai = Mock(return_value=fake_llm_client)
     monkeypatch.setattr(isolation_source_module.instructor, "from_openai", from_openai)
     standardizer = IsolationSourceStandardizer(
         fixture_isolation_source_prompt_policy,
-        client=fake_client,
+        client=fake_llm_client,
         llm_settings=LLMSettings(None, "https://model.example/v1", "test-model"),
     )
 
     standardizer.close()
 
-    from_openai.assert_called_once_with(fake_client, mode=Mode.JSON_SCHEMA)
+    from_openai.assert_called_once_with(fake_llm_client, mode=Mode.JSON_SCHEMA)
 
 
 # =============================================================================
@@ -255,7 +126,7 @@ def _standardize_fixture_record(
     *,
     values: str,
     attributes: str = "isolation_source",
-    fake: FakeClient | None = None,
+    fake=None,
     monkeypatch: pytest.MonkeyPatch | None = None,
     accession: str = "PUBLIC_CLASSIFICATION",
     overflow: HostOverflowContext | None = None,
@@ -639,15 +510,15 @@ def test_input_that_needs_a_site_or_context_reaches_classifier(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     submitted_value: str,
+    fake_llm_client,
 ) -> None:
-    fake = FakeClient()
-    fake.respond_with_facets()
+    fake_llm_client.respond_with_facets()
 
     result = _classify_fixture_record(
         _repository_policy(tmp_path),
         tmp_path,
         values=submitted_value,
-        fake=fake,
+        fake=fake_llm_client,
         monkeypatch=monkeypatch,
     )
 
@@ -696,17 +567,17 @@ def test_model_answer_labels_derive_the_same_terms_as_derive(
     submitted_value: str,
     model_labels: list[str],
     expected_labels: set[str],
+    fake_llm_client,
 ) -> None:
     policy = _repository_policy(tmp_path)
     terms_by_label = {term.label: term for term in policy.ontology.terms.values()}
     answer: dict[str, list[str]] = {}
     for label in model_labels:
         answer.setdefault(terms_by_label[label].facet, []).append(label)
-    fake = FakeClient()
-    fake.respond_with_facets(**answer)
+    fake_llm_client.respond_with_facets(**answer)
 
     result = _classify_fixture_record(
-        policy, tmp_path, values=submitted_value, fake=fake, monkeypatch=monkeypatch
+        policy, tmp_path, values=submitted_value, fake=fake_llm_client, monkeypatch=monkeypatch
     )
 
     selected = [term for term in result.selected_terms if term.facet != "source_type"]
@@ -760,13 +631,16 @@ def test_each_label_synonym_and_direct_match_value_resolves_to_its_term(tmp_path
 
 @pytest.mark.parametrize("value", ["cell culture", "Nickels Lab"])
 def test_cell_culture_and_a_laboratory_name_go_to_the_model(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, value: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, value: str, fake_llm_client
 ) -> None:
-    fake = FakeClient()
-    fake.respond_with_facets()
+    fake_llm_client.respond_with_facets()
 
     result = _classify_fixture_record(
-        _repository_policy(tmp_path), tmp_path, values=value, fake=fake, monkeypatch=monkeypatch
+        _repository_policy(tmp_path),
+        tmp_path,
+        values=value,
+        fake=fake_llm_client,
+        monkeypatch=monkeypatch,
     )
 
     assert result.llm_calls == 1
@@ -829,21 +703,21 @@ def test_identifier_outside_a_recognized_whole_value_shape_reaches_classifier_un
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     submitted_value: str,
+    fake_llm_client,
 ) -> None:
-    fake = FakeClient()
-    fake.respond_with(["blood"], reasoning="The whole submitted value was classified.")
+    fake_llm_client.respond_with(["blood"], reasoning="The whole submitted value was classified.")
 
     result = _classify_fixture_record(
         fixture_isolation_source_prompt_policy,
         tmp_path,
         values=submitted_value,
-        fake=fake,
+        fake=fake_llm_client,
         monkeypatch=monkeypatch,
     )
 
     assert result.exact_matches == 0
     assert result.llm_calls == 1
-    assert fake.calls[0]["messages"][1]["content"].count(submitted_value) == 1
+    assert fake_llm_client.calls[0]["messages"][1]["content"].count(submitted_value) == 1
 
 
 @pytest.mark.parametrize(
@@ -861,57 +735,57 @@ def test_identifier_whole_value_shapes_resolve_without_classifier_call(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     submitted_value: str,
+    fake_llm_client,
 ) -> None:
-    fake = FakeClient()
 
     result = _classify_fixture_record(
         fixture_isolation_source_prompt_policy,
         tmp_path,
         values=submitted_value,
-        fake=fake,
+        fake=fake_llm_client,
         monkeypatch=monkeypatch,
     )
 
     assert SelectedTerm(BLOOD, "body_product", "blood") in result.selected_terms
     assert result.exact_matches == 1
     assert result.llm_calls == 0
-    assert fake.calls == []
+    assert fake_llm_client.calls == []
 
 
 def test_disagreeing_paired_label_and_identifier_reports_diagnostic(
     fixture_isolation_source_prompt_policy: IsolationSourcePromptPolicy,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    fake_llm_client,
 ) -> None:
-    fake = FakeClient()
-    fake.respond_with(["blood"], reasoning="The conflicting annotation was classified as blood.")
+    fake_llm_client.respond_with(
+        ["blood"], reasoning="The conflicting annotation was classified as blood."
+    )
 
     result = _classify_fixture_record(
         fixture_isolation_source_prompt_policy,
         tmp_path,
         values="blood [ENVO:00002003]",
-        fake=fake,
+        fake=fake_llm_client,
         monkeypatch=monkeypatch,
     )
 
     assert result.exact_matches == 0
     assert result.llm_calls == 1
     assert IsolationSourceDiagnostic.IDENTIFIER_DISAGREEMENT in result.diagnostics
-    assert "blood [ENVO:00002003]" in fake.calls[0]["messages"][1]["content"]
+    assert "blood [ENVO:00002003]" in fake_llm_client.calls[0]["messages"][1]["content"]
 
 
 def test_disagreeing_pair_reports_diagnostic_when_classifier_validation_fails(
     fixture_isolation_source_prompt_policy: IsolationSourcePromptPolicy,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    fake_llm_client,
 ) -> None:
-    fake = FakeClient()
-    fake.fail_with(
-        InstructorRetryException(
-            "invalid response",
-            n_attempts=3,
-            total_usage=0,
-        )
+    fake_llm_client.behavior = InstructorRetryException(
+        "invalid response",
+        n_attempts=3,
+        total_usage=0,
     )
     monkeypatch.setattr(
         isolation_source_module.instructor,
@@ -920,7 +794,7 @@ def test_disagreeing_pair_reports_diagnostic_when_classifier_validation_fails(
     )
     standardizer = IsolationSourceStandardizer(
         fixture_isolation_source_prompt_policy,
-        client=fake,
+        client=fake_llm_client,
         llm_settings=LLMSettings(None, None, "test-model"),
     )
     try:
@@ -945,21 +819,21 @@ def test_repeated_identifier_prefix_is_collapsed(
     fixture_isolation_source_prompt_policy: IsolationSourcePromptPolicy,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    fake_llm_client,
 ) -> None:
-    fake = FakeClient()
 
     result = _classify_fixture_record(
         fixture_isolation_source_prompt_policy,
         tmp_path,
         values="blood [ENVO:ENVO:02000020]",
-        fake=fake,
+        fake=fake_llm_client,
         monkeypatch=monkeypatch,
     )
 
     assert result.selected_terms[-1] == SelectedTerm(BLOOD, "body_product", "blood")
     assert result.exact_matches == 1
     assert result.llm_calls == 0
-    assert fake.calls == []
+    assert fake_llm_client.calls == []
 
 
 @pytest.mark.parametrize(
@@ -975,20 +849,22 @@ def test_mapping_predicate_controls_identifier_resolution(
     monkeypatch: pytest.MonkeyPatch,
     submitted_value: str,
     resolves: bool,
+    fake_llm_client,
 ) -> None:
     policy = replace(
         IsolationSourcePromptPolicy.load(CONFIG_PATH),
         cache_db_path=tmp_path / "isolation-source-cache.db",
     )
-    fake = FakeClient()
     if not resolves:
-        fake.respond_with(["blood"], reasoning="The non-resolving mapping was classified.")
+        fake_llm_client.respond_with(
+            ["blood"], reasoning="The non-resolving mapping was classified."
+        )
 
     result = _classify_fixture_record(
         policy,
         tmp_path,
         values=submitted_value,
-        fake=fake,
+        fake=fake_llm_client,
         monkeypatch=monkeypatch,
     )
 
@@ -1079,6 +955,7 @@ def test_repository_ontology_resolves_soft_tissue_to_a_body_site(tmp_path: Path)
 def test_skin_and_soft_tissue_are_disjoint_body_sites(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    fake_llm_client,
 ) -> None:
     """Both labels must survive together, because neither one stands for the other.
 
@@ -1090,8 +967,7 @@ def test_skin_and_soft_tissue_are_disjoint_body_sites(
         IsolationSourcePromptPolicy.load(CONFIG_PATH),
         cache_db_path=tmp_path / "skin-and-soft-tissue-cache.db",
     )
-    fake = FakeClient()
-    fake.respond_with_facets(
+    fake_llm_client.respond_with_facets(
         body_site=["skin", "soft tissue"],
         reasoning="The value names both body sites.",
     )
@@ -1100,7 +976,7 @@ def test_skin_and_soft_tissue_are_disjoint_body_sites(
         policy,
         tmp_path,
         values="skin and subcutaneous tissue biopsy",
-        fake=fake,
+        fake=fake_llm_client,
         monkeypatch=monkeypatch,
     )
 
@@ -1116,14 +992,14 @@ def test_explicit_non_source_value_does_not_call_model(
     fixture_isolation_source_prompt_policy: IsolationSourcePromptPolicy,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    fake_llm_client,
 ) -> None:
-    fake = FakeClient()
 
     result = _classify_fixture_record(
         fixture_isolation_source_prompt_policy,
         tmp_path,
         values="no host",
-        fake=fake,
+        fake=fake_llm_client,
         monkeypatch=monkeypatch,
     )
 
@@ -1131,27 +1007,27 @@ def test_explicit_non_source_value_does_not_call_model(
     assert result.evidence_level is IsolationSourceEvidenceLevel.NONE
     assert result.llm_calls == 0
     assert result.diagnostics == (IsolationSourceDiagnostic.UNSPECIFIED,)
-    assert fake.calls == []
+    assert fake_llm_client.calls == []
 
 
 def test_non_source_value_next_to_a_source_value_never_reaches_the_model(
     fixture_isolation_source_prompt_policy: IsolationSourcePromptPolicy,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    fake_llm_client,
 ) -> None:
-    fake = FakeClient()
-    fake.respond_with(["soil"], reasoning="The value names soil.")
+    fake_llm_client.respond_with(["soil"], reasoning="The value names soil.")
 
     result = _classify_fixture_record(
         fixture_isolation_source_prompt_policy,
         tmp_path,
         attributes="isolation_source||env_medium",
         values="Plasmid DNA||garden soil",
-        fake=fake,
+        fake=fake_llm_client,
         monkeypatch=monkeypatch,
     )
 
-    assert fake.calls[0]["messages"][1]["content"] == (
+    assert fake_llm_client.calls[0]["messages"][1]["content"] == (
         'Sample evidence:\nMetadata:\n"env_medium" = "garden soil"\n'
     )
     assert SOIL in {term.term_id for term in result.selected_terms}
@@ -1161,6 +1037,7 @@ def test_submitted_value_spanning_lines_stays_one_attribute_value_pair(
     fixture_isolation_source_prompt_policy: IsolationSourcePromptPolicy,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    fake_llm_client,
 ) -> None:
     """Free-text submissions must not fabricate a BioSample attribute.
 
@@ -1168,14 +1045,13 @@ def test_submitted_value_spanning_lines_stays_one_attribute_value_pair(
     as a standardized host value either.
     """
 
-    fake = FakeClient()
-    fake.respond_with(["soil"], reasoning="The value names soil.")
+    fake_llm_client.respond_with(["soil"], reasoning="The value names soil.")
 
     _classify_fixture_record(
         fixture_isolation_source_prompt_policy,
         tmp_path,
         values='soil\nhost = "Bos taurus" — Ökologie',
-        fake=fake,
+        fake=fake_llm_client,
         monkeypatch=monkeypatch,
         overflow=HostOverflowContext(
             attribute="host",
@@ -1183,7 +1059,7 @@ def test_submitted_value_spanning_lines_stays_one_attribute_value_pair(
         ),
     )
 
-    assert fake.calls[0]["messages"][1]["content"] == (
+    assert fake_llm_client.calls[0]["messages"][1]["content"] == (
         "Sample evidence:\n"
         "Metadata:\n"
         '"isolation_source" = "soil\\nhost = \\"Bos taurus\\" — Ökologie"\n'
@@ -1194,13 +1070,13 @@ def test_submitted_value_spanning_lines_stays_one_attribute_value_pair(
 def test_public_classification_assigns_one_value_to_independent_facets(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    fake_llm_client,
 ) -> None:
     policy = replace(
         IsolationSourcePromptPolicy.load(CONFIG_PATH),
         cache_db_path=tmp_path / "faceted-isolation-source-cache.db",
     )
-    fake = FakeClient()
-    fake.respond_with_facets(
+    fake_llm_client.respond_with_facets(
         reasoning="The value names an anatomical site, lesion, and body product.",
         body_product=["pus"],
         body_site=["liver"],
@@ -1211,7 +1087,7 @@ def test_public_classification_assigns_one_value_to_independent_facets(
         policy,
         tmp_path,
         values="liver abscess pus 739105",
-        fake=fake,
+        fake=fake_llm_client,
         monkeypatch=monkeypatch,
     )
 
@@ -1228,21 +1104,21 @@ def test_public_classification_assigns_one_value_to_independent_facets(
 def test_classifier_response_schema_enforces_the_faceted_contract(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    fake_llm_client,
 ) -> None:
     policy = replace(
         IsolationSourcePromptPolicy.load(CONFIG_PATH),
         cache_db_path=tmp_path / "faceted-response-schema-cache.db",
     )
-    fake = FakeClient()
-    fake.respond_with_facets(source_type="animal host")
+    fake_llm_client.respond_with_facets(source_type="animal host")
     _classify_fixture_record(
         policy,
         tmp_path,
         values="clinical isolate 739105",
-        fake=fake,
+        fake=fake_llm_client,
         monkeypatch=monkeypatch,
     )
-    response_model = fake.calls[0]["response_model"]
+    response_model = fake_llm_client.calls[0]["response_model"]
     empty_answer = {
         "source_type": [],
         "body_product": [],
@@ -1339,7 +1215,7 @@ def test_classifier_response_schema_enforces_the_faceted_contract(
     )
     assert pruned.body_site == ["rectum"]
 
-    assert fake.calls[0]["max_retries"] == 3
+    assert fake_llm_client.calls[0]["max_retries"] == 3
 
 
 @pytest.mark.parametrize(
@@ -1367,14 +1243,14 @@ def test_only_the_sampled_entity_determines_the_broad_source_kind(
     monkeypatch: pytest.MonkeyPatch,
     sampled_object: list[str],
     expected_terms: tuple[SelectedTerm, ...],
+    fake_llm_client,
 ) -> None:
     """The facility is the collection setting, so it implies no broad source kind.
 
     A hospital holds both patients and built surfaces. Only the named material,
     object, food, or host tells us which one was sampled.
     """
-    fake = FakeClient()
-    fake.respond_with_facets(
+    fake_llm_client.respond_with_facets(
         facility=["healthcare facility"],
         sampled_object=sampled_object,
         reasoning="The value names the hospital.",
@@ -1384,7 +1260,7 @@ def test_only_the_sampled_entity_determines_the_broad_source_kind(
         fixture_isolation_source_prompt_policy,
         tmp_path,
         values="Bundang Hospital ward 4821",
-        fake=fake,
+        fake=fake_llm_client,
         monkeypatch=monkeypatch,
     )
 
@@ -1395,15 +1271,15 @@ def test_empty_model_result_remains_a_typed_outcome(
     fixture_isolation_source_prompt_policy: IsolationSourcePromptPolicy,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    fake_llm_client,
 ) -> None:
-    fake = FakeClient()
-    fake.respond_with([], reasoning="No specific source is supported.")
+    fake_llm_client.respond_with([], reasoning="No specific source is supported.")
 
     result = _classify_fixture_record(
         fixture_isolation_source_prompt_policy,
         tmp_path,
         values="GENOMIC",
-        fake=fake,
+        fake=fake_llm_client,
         monkeypatch=monkeypatch,
     )
 
@@ -1418,7 +1294,7 @@ def test_empty_model_result_remains_a_typed_outcome(
         fixture_isolation_source_prompt_policy,
         tmp_path,
         values="GENOMIC",
-        fake=fake,
+        fake=fake_llm_client,
         monkeypatch=monkeypatch,
     )
 
@@ -1428,7 +1304,7 @@ def test_empty_model_result_remains_a_typed_outcome(
         IsolationSourceDiagnostic.CACHE_HIT,
         IsolationSourceDiagnostic.UNSPECIFIED,
     )
-    assert len(fake.calls) == 1
+    assert len(fake_llm_client.calls) == 1
 
 
 def test_partial_deterministic_result_uses_sample_evidence_when_llm_is_disabled(
@@ -1460,20 +1336,19 @@ def test_partial_deterministic_result_uses_sample_evidence_when_llm_is_disabled(
     assert result.evidence_level is IsolationSourceEvidenceLevel.SAMPLE
 
 
-def test_warm_cache_uses_current_relations(tmp_path: Path) -> None:
+def test_warm_cache_uses_current_relations(tmp_path: Path, fake_llm_client) -> None:
     ontology_directory = tmp_path / "ontology"
     shutil.copytree(FIXTURE_ROOT / "ontology", ontology_directory)
     config_path = _isolation_source_config(
         tmp_path,
         overrides={"ontology_directory": ontology_directory.as_posix()},
     )
-    fake = FakeClient()
-    fake.respond_with_facets(
+    fake_llm_client.respond_with_facets(
         lesion=["abscess"],
         reasoning="The submitted material is from an abscess.",
     )
 
-    first = _standardize_model_isolation_source(config_path, fake)
+    first = _standardize_model_isolation_source(config_path, fake_llm_client)
     relations_path = ontology_directory / "relations.tsv"
     relations_path.write_text(
         relations_path.read_text(encoding="utf-8").replace(
@@ -1482,7 +1357,7 @@ def test_warm_cache_uses_current_relations(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
-    second = _standardize_model_isolation_source(config_path, fake)
+    second = _standardize_model_isolation_source(config_path, fake_llm_client)
 
     assert SelectedTerm(PUS, "body_product", "pus") in first.selected_terms
     assert SelectedTerm(BLOOD, "body_product", "blood") in second.selected_terms
@@ -1490,21 +1365,18 @@ def test_warm_cache_uses_current_relations(tmp_path: Path) -> None:
     assert second.diagnostics == (IsolationSourceDiagnostic.CACHE_HIT,)
 
 
-def test_response_that_failed_validation_is_not_cached(tmp_path: Path) -> None:
-    fake = FakeClient()
-    fake.fail_with(
-        InstructorRetryException(
-            "invalid response",
-            n_attempts=3,
-            total_usage=0,
-        )
+def test_response_that_failed_validation_is_not_cached(tmp_path: Path, fake_llm_client) -> None:
+    fake_llm_client.behavior = InstructorRetryException(
+        "invalid response",
+        n_attempts=3,
+        total_usage=0,
     )
     standardizer = IsolationSourceStandardizer(
         IsolationSourcePromptPolicy.load(_isolation_source_config(tmp_path)),
         client=None,
         llm_settings=LLMSettings(None, None, "test-model"),
     )
-    standardizer.pipeline.client = fake
+    standardizer.pipeline.client = fake_llm_client
     record = {
         "accession": "INVALID_THEN_VALID",
         "iso_attr_orig": "isolation_source",
@@ -1512,7 +1384,7 @@ def test_response_that_failed_validation_is_not_cached(tmp_path: Path) -> None:
     }
     try:
         failed = standardizer.standardize(record)
-        fake.respond_with_facets(
+        fake_llm_client.respond_with_facets(
             lesion=["wound"],
         )
         retried = standardizer.standardize(record)
@@ -1529,8 +1401,9 @@ def test_invented_label_is_preserved_when_validation_retry_recovers(
     fixture_isolation_source_prompt_policy: IsolationSourcePromptPolicy,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    fake_llm_client,
 ) -> None:
-    invalid_answer = _classifier_answer(
+    invalid_answer = fake_llm_client.answer(
         reasoning="The sample names an unsupported anatomical site.",
         body_site=["nasal cavity", "nasal cavity"],
     )
@@ -1541,13 +1414,12 @@ def test_invented_label_is_preserved_when_validation_retry_recovers(
             response_model.model_validate(invalid_answer)
         return response_model.model_validate(valid_answer)
 
-    fake = FakeClient()
-    fake.behavior = respond
+    fake_llm_client.behavior = respond
     result = _standardize_fixture_record(
         fixture_isolation_source_prompt_policy,
         tmp_path,
         values="nasal aspirate 78143",
-        fake=fake,
+        fake=fake_llm_client,
         monkeypatch=monkeypatch,
         accession="INVENTED_THEN_VALID",
     )
@@ -1566,8 +1438,9 @@ def test_each_invented_label_is_preserved_when_validation_retries_are_exhausted(
     fixture_isolation_source_prompt_policy: IsolationSourcePromptPolicy,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    fake_llm_client,
 ) -> None:
-    invalid_answer = _classifier_answer(
+    invalid_answer = fake_llm_client.answer(
         reasoning="The sample names an unsupported anatomical site.",
         body_site=["nasal cavity"],
     )
@@ -1578,13 +1451,12 @@ def test_each_invented_label_is_preserved_when_validation_retries_are_exhausted(
                 response_model.model_validate(invalid_answer)
         raise InstructorRetryException("invalid response", n_attempts=3, total_usage=0)
 
-    fake = FakeClient()
-    fake.behavior = respond
+    fake_llm_client.behavior = respond
     result = _standardize_fixture_record(
         fixture_isolation_source_prompt_policy,
         tmp_path,
         values="nasal aspirate 61512",
-        fake=fake,
+        fake=fake_llm_client,
         monkeypatch=monkeypatch,
         accession="INVENTED_FAILURE",
     )
@@ -1603,25 +1475,23 @@ def test_an_ancestor_beside_its_descendant_costs_no_extra_model_call(
     fixture_isolation_source_prompt_policy: IsolationSourcePromptPolicy,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    fake_llm_client,
 ) -> None:
-    answer = _classifier_answer(
+    fake_llm_client.respond_with_facets(
         reasoning="The response selects an ancestor and descendant.",
         body_site=["digestive tract", "rectum"],
     )
-
-    fake = FakeClient()
-    fake.behavior = lambda response_model: response_model.model_validate(answer)
     result = _standardize_fixture_record(
         fixture_isolation_source_prompt_policy,
         tmp_path,
         values="rectal sample 49115",
-        fake=fake,
+        fake=fake_llm_client,
         monkeypatch=monkeypatch,
         accession="ANCESTOR_WITH_DESCENDANT",
     )
 
     assert isinstance(result, IsolationSourceOutcome)
-    assert len(fake.calls) == 1
+    assert len(fake_llm_client.calls) == 1
     assert result.ontology_gap_diagnostics == ()
     labels = {term.label for term in result.selected_terms}
     assert {"digestive tract", "rectum"} <= labels
@@ -1661,9 +1531,9 @@ def test_direct_matches_receive_derived_source_kind_ancestors_and_preorder(
 
 def test_relation_derives_source_kind_without_classifier_disagreement(
     tmp_path: Path,
+    fake_llm_client,
 ) -> None:
-    fake = FakeClient()
-    fake.respond_with_facets(
+    fake_llm_client.respond_with_facets(
         environmental_material=["rhizosphere soil"],
     )
     standardizer = IsolationSourceStandardizer(
@@ -1671,7 +1541,7 @@ def test_relation_derives_source_kind_without_classifier_disagreement(
         client=None,
         llm_settings=LLMSettings(None, None, "test-model"),
     )
-    standardizer.pipeline.client = fake
+    standardizer.pipeline.client = fake_llm_client
     try:
         outcome = standardizer.standardize(
             {
@@ -1716,9 +1586,8 @@ def test_direct_relation_conflict_does_not_report_classifier_disagreement(
     assert outcome.diagnostics == (IsolationSourceDiagnostic.EXACT_MATCH,)
 
 
-def test_derived_source_kinds_preserve_supported_contexts(tmp_path: Path) -> None:
-    fake = FakeClient()
-    fake.respond_with_facets(
+def test_derived_source_kinds_preserve_supported_contexts(tmp_path: Path, fake_llm_client) -> None:
+    fake_llm_client.respond_with_facets(
         body_product=["blood"],
         environmental_material=["soil"],
     )
@@ -1727,7 +1596,7 @@ def test_derived_source_kinds_preserve_supported_contexts(tmp_path: Path) -> Non
         client=None,
         llm_settings=LLMSettings(None, None, "test-model"),
     )
-    standardizer.pipeline.client = fake
+    standardizer.pipeline.client = fake_llm_client
     try:
         outcome = standardizer.standardize(
             {
@@ -1772,19 +1641,19 @@ def test_classifier_source_type_stands_when_no_narrower_facet_applies(
     monkeypatch: pytest.MonkeyPatch,
     source_type: str,
     expected_terms: tuple[SelectedTerm, ...],
+    fake_llm_client,
 ) -> None:
     policy = replace(
         IsolationSourcePromptPolicy.load(CONFIG_PATH),
         cache_db_path=tmp_path / "source-type-only-cache.db",
     )
-    fake = FakeClient()
-    fake.respond_with_facets(source_type=source_type)
+    fake_llm_client.respond_with_facets(source_type=source_type)
 
     outcome = _classify_fixture_record(
         policy,
         tmp_path,
         values=f"source type 7291 {source_type}",
-        fake=fake,
+        fake=fake_llm_client,
         monkeypatch=monkeypatch,
     )
 
@@ -1811,16 +1680,16 @@ def test_source_kind_stands_when_no_other_facet_implies_one(
     record: dict[str, str],
     answer: str | None,
     expected_terms: tuple[SelectedTerm, ...],
+    fake_llm_client,
 ) -> None:
-    fake = FakeClient()
     if answer is not None:
-        fake.respond_with([answer])
+        fake_llm_client.respond_with([answer])
     standardizer = IsolationSourceStandardizer(
         IsolationSourcePromptPolicy.load(_isolation_source_config(tmp_path)),
         client=None,
         llm_settings=LLMSettings(None, None, "test-model"),
     )
-    standardizer.pipeline.client = fake
+    standardizer.pipeline.client = fake_llm_client
     try:
         outcome = standardizer.standardize(record)
     finally:
@@ -1979,7 +1848,7 @@ def test_prompt_policy_rejects_invalid_non_source_values(
 
 def _standardize_model_isolation_source(
     config_path: Path,
-    fake: FakeClient,
+    fake,
     *,
     model: str = "test-model",
     value: str = "wound patient 739105",
@@ -2006,13 +1875,13 @@ def _standardize_model_isolation_source(
 
 def test_isolation_source_llm_observability_uses_the_published_target_key(
     tmp_path: Path,
+    fake_llm_client,
 ) -> None:
-    fake = FakeClient()
-    fake.respond_with(["wound"])
+    fake_llm_client.respond_with(["wound"])
     observability = LLMObservability({"isolation_source": "test-model"})
     observability.start()
     try:
-        _standardize_model_isolation_source(_isolation_source_config(tmp_path), fake)
+        _standardize_model_isolation_source(_isolation_source_config(tmp_path), fake_llm_client)
         snapshot = observability.snapshot()
     finally:
         observability.close()
@@ -2049,24 +1918,25 @@ def test_isolation_source_standardizer_does_not_reopen_loaded_policy_source(tmp_
 
 def test_isolation_source_cache_reuses_identical_request_when_only_prompt_metadata_changes(
     tmp_path,
+    fake_llm_client,
 ):
-    fake = FakeClient()
-    fake.respond_with(["wound"], reasoning="clinical wound")
+    fake_llm_client.respond_with(["wound"], reasoning="clinical wound")
     first_config = _isolation_source_config(tmp_path, overrides={"prompt_version": "first"})
     second_config = _isolation_source_config(tmp_path, overrides={"prompt_version": "second"})
 
-    first = _standardize_model_isolation_source(first_config, fake)
-    second = _standardize_model_isolation_source(second_config, fake)
+    first = _standardize_model_isolation_source(first_config, fake_llm_client)
+    second = _standardize_model_isolation_source(second_config, fake_llm_client)
 
     assert first.diagnostics == (IsolationSourceDiagnostic.LLM_CALL,)
     assert second.diagnostics == (IsolationSourceDiagnostic.CACHE_HIT,)
     assert second.reasoning == first.reasoning
-    assert len(fake.calls) == 1
+    assert len(fake_llm_client.calls) == 1
 
 
-def test_isolation_source_request_uses_rendered_synthetic_prompts(tmp_path: Path) -> None:
-    fake = FakeClient()
-    fake.respond_with(["wound"], reasoning="clinical wound")
+def test_isolation_source_request_uses_rendered_synthetic_prompts(
+    tmp_path: Path, fake_llm_client
+) -> None:
+    fake_llm_client.respond_with(["wound"], reasoning="clinical wound")
     config_path = _isolation_source_config(
         tmp_path,
         overrides={
@@ -2083,7 +1953,7 @@ def test_isolation_source_request_uses_rendered_synthetic_prompts(tmp_path: Path
         client=None,
         llm_settings=LLMSettings(None, None, "test-model"),
     )
-    standardizer.pipeline.client = fake
+    standardizer.pipeline.client = fake_llm_client
     try:
         direct = standardizer.standardize(
             {
@@ -2092,7 +1962,7 @@ def test_isolation_source_request_uses_rendered_synthetic_prompts(tmp_path: Path
                 "iso_val_orig": "stool",
             },
         )
-        assert fake.calls == []
+        assert fake_llm_client.calls == []
         outcome = standardizer.standardize(
             {
                 "accession": "REQUEST_FINGERPRINT",
@@ -2105,18 +1975,18 @@ def test_isolation_source_request_uses_rendered_synthetic_prompts(tmp_path: Path
 
     assert isinstance(direct, IsolationSourceOutcome)
     assert direct.diagnostics == (IsolationSourceDiagnostic.EXACT_MATCH,)
-    assert fake.calls[0]["messages"][0]["role"] == "system"
-    system_message = fake.calls[0]["messages"][0]["content"]
-    user_message = fake.calls[0]["messages"][1]
+    assert fake_llm_client.calls[0]["messages"][0]["role"] == "system"
+    system_message = fake_llm_client.calls[0]["messages"][0]["content"]
+    user_message = fake_llm_client.calls[0]["messages"][1]
     assert "Synthetic ontology:" in system_message
     assert "wound" in system_message
     assert user_message["role"] == "user"
     assert '"isolation_source" = "wound patient 739105"' in user_message["content"]
-    assert "Homo sapiens" not in str(fake.calls[0]["messages"])
-    assert fake.calls[0]["model"] == "test-model"
-    assert fake.calls[0]["temperature"] == 0
-    assert fake.calls[0]["seed"] == 100
-    assert fake.calls[0]["response_model"].__name__ == "IsolationSourceClassification"
+    assert "Homo sapiens" not in str(fake_llm_client.calls[0]["messages"])
+    assert fake_llm_client.calls[0]["model"] == "test-model"
+    assert fake_llm_client.calls[0]["temperature"] == 0
+    assert fake_llm_client.calls[0]["seed"] == 100
+    assert fake_llm_client.calls[0]["response_model"].__name__ == "IsolationSourceClassification"
     assert outcome.request_fingerprint
 
 
@@ -2131,12 +2001,11 @@ def test_isolation_source_request_uses_rendered_synthetic_prompts(tmp_path: Path
     ],
 )
 def test_isolation_source_cache_misses_when_canonical_request_changes(
-    tmp_path, monkeypatch, changed_component
+    tmp_path, monkeypatch, changed_component, fake_llm_client
 ):
-    fake = FakeClient()
-    fake.respond_with(["wound"], reasoning="clinical wound")
+    fake_llm_client.respond_with(["wound"], reasoning="clinical wound")
     first_config = _isolation_source_config(tmp_path)
-    _standardize_model_isolation_source(first_config, fake)
+    _standardize_model_isolation_source(first_config, fake_llm_client)
 
     second_config = _isolation_source_config(tmp_path)
     second_model = "test-model"
@@ -2167,12 +2036,12 @@ def test_isolation_source_cache_misses_when_canonical_request_changes(
         )
     second = _standardize_model_isolation_source(
         second_config,
-        fake,
+        fake_llm_client,
         model=second_model,
     )
 
     assert second.diagnostics == (IsolationSourceDiagnostic.LLM_CALL,)
-    assert len(fake.calls) == 2
+    assert len(fake_llm_client.calls) == 2
 
 
 def test_ontology_tree_shows_the_facet_guidance_under_its_heading(tmp_path):
@@ -2183,25 +2052,28 @@ def test_ontology_tree_shows_the_facet_guidance_under_its_heading(tmp_path):
     assert re.search(rf"## food_type\n[^\n]+ {re.escape(guidance)}\n- ", system_prompt)
 
 
-def test_underscores_become_spaces_only_in_the_model_request(tmp_path):
-    fake = FakeClient()
-    fake.respond_with(["wound"])
+def test_underscores_become_spaces_only_in_the_model_request(tmp_path, fake_llm_client):
+    fake_llm_client.respond_with(["wound"])
     config = _isolation_source_config(tmp_path)
-    outcome = _standardize_model_isolation_source(config, fake, value="wound_swab_739105")
+    outcome = _standardize_model_isolation_source(
+        config, fake_llm_client, value="wound_swab_739105"
+    )
 
-    assert '"isolation_source" = "wound swab 739105"' in fake.calls[0]["messages"][1]["content"]
+    assert (
+        '"isolation_source" = "wound swab 739105"'
+        in fake_llm_client.calls[0]["messages"][1]["content"]
+    )
     assert outcome.supporting_pairs[0].value == "wound_swab_739105"
 
 
-def test_model_request_shows_the_host_as_context_only(tmp_path):
-    fake = FakeClient()
-    fake.respond_with(["wound"])
+def test_model_request_shows_the_host_as_context_only(tmp_path, fake_llm_client):
+    fake_llm_client.respond_with(["wound"])
     standardizer = IsolationSourceStandardizer(
         IsolationSourcePromptPolicy.load(_isolation_source_config(tmp_path)),
         client=None,
         llm_settings=LLMSettings(None, None, "test-model"),
     )
-    standardizer.pipeline.client = fake
+    standardizer.pipeline.client = fake_llm_client
     try:
         outcome = standardizer.standardize(
             {"accession": "A", "iso_attr_orig": "isolation_source", "iso_val_orig": "carcass swab"},
@@ -2210,7 +2082,7 @@ def test_model_request_shows_the_host_as_context_only(tmp_path):
     finally:
         standardizer.close()
 
-    assert '"host" = "feces"' in fake.calls[0]["messages"][1]["content"]
+    assert '"host" = "feces"' in fake_llm_client.calls[0]["messages"][1]["content"]
     assert FECES not in {term.term_id for term in outcome.selected_terms}
     assert [pair.value for pair in outcome.supporting_pairs] == ["carcass swab"]
 
@@ -2243,16 +2115,17 @@ def test_a_diagnosis_resolves_next_to_a_direct_match(tmp_path, value, disease_id
     }
 
 
-def test_food_excludes_host_terms(tmp_path):
-    fake = FakeClient()
-    fake.respond_with_facets(
+def test_food_excludes_host_terms(tmp_path, fake_llm_client):
+    fake_llm_client.respond_with_facets(
         source_type=["animal host"],
         body_product=["blood"],
         body_site=["rectum"],
         food_type=["meat product"],
         host_disease=["cystic fibrosis"],
     )
-    outcome = _standardize_model_isolation_source(_isolation_source_config(tmp_path), fake)
+    outcome = _standardize_model_isolation_source(
+        _isolation_source_config(tmp_path), fake_llm_client
+    )
 
     selected_ids = {term.term_id for term in outcome.selected_terms}
     assert selected_ids == {FOOD_OR_FEED, ANIMAL_FOOD_PRODUCT, MEAT_PRODUCT}
@@ -2274,11 +2147,12 @@ def _body_labels(outcome: IsolationSourceOutcome) -> set[str]:
         ("colibacillosis", set()),
     ],
 )
-def test_a_diagnosis_alone_gets_its_body_term(tmp_path, host_disease, expected_body_labels):
-    fake = FakeClient()
-    fake.respond_with_facets(source_type=["animal host"], host_disease=[host_disease])
+def test_a_diagnosis_alone_gets_its_body_term(
+    tmp_path, host_disease, expected_body_labels, fake_llm_client
+):
+    fake_llm_client.respond_with_facets(source_type=["animal host"], host_disease=[host_disease])
     config = _isolation_source_config(tmp_path, overrides=PRODUCTION_VOCABULARY)
-    outcome = _standardize_model_isolation_source(config, fake)
+    outcome = _standardize_model_isolation_source(config, fake_llm_client)
 
     assert _body_labels(outcome) == expected_body_labels
     assert ("disease_body_term" in {step.node for step in outcome.reasoning}) is bool(
@@ -2322,11 +2196,10 @@ def test_a_direct_diagnosis_gets_its_body_term_without_the_model(
     "sampled",
     [{"lesion": ["abscess"]}, {"sampled_object": ["sink"]}, {"body_site": ["skin"]}],
 )
-def test_a_diagnosis_next_to_a_sampled_part_gets_no_body_term(tmp_path, sampled):
-    fake = FakeClient()
-    fake.respond_with_facets(host_disease=["pneumonia"], **sampled)
+def test_a_diagnosis_next_to_a_sampled_part_gets_no_body_term(tmp_path, sampled, fake_llm_client):
+    fake_llm_client.respond_with_facets(host_disease=["pneumonia"], **sampled)
     config = _isolation_source_config(tmp_path, overrides=PRODUCTION_VOCABULARY)
-    outcome = _standardize_model_isolation_source(config, fake)
+    outcome = _standardize_model_isolation_source(config, fake_llm_client)
 
     assert "lung" not in _body_labels(outcome)
     assert "disease_body_term" not in {step.node for step in outcome.reasoning}
@@ -2347,23 +2220,23 @@ def test_a_diagnosis_next_to_a_sampled_part_gets_no_body_term(tmp_path, sampled)
     ],
 )
 def test_a_diagnosis_next_to_a_body_product_loses_the_model_body_sites_on_its_lineage(
-    tmp_path, body_product, body_sites, host_disease, removed, kept
+    tmp_path, body_product, body_sites, host_disease, removed, kept, fake_llm_client
 ):
-    fake = FakeClient()
-    fake.respond_with_facets(
+    fake_llm_client.respond_with_facets(
         body_product=[body_product], body_site=body_sites, host_disease=[host_disease]
     )
     config = _isolation_source_config(tmp_path, overrides=PRODUCTION_VOCABULARY)
-    outcome = _standardize_model_isolation_source(config, fake)
+    outcome = _standardize_model_isolation_source(config, fake_llm_client)
 
     assert removed not in _body_labels(outcome)
     assert kept in _body_labels(outcome)
     assert "disease_body_site_removal" in {step.node for step in outcome.reasoning}
 
 
-def test_a_diagnosis_next_to_a_body_product_keeps_a_body_site_from_a_direct_match(tmp_path):
-    fake = FakeClient()
-    fake.respond_with_facets(
+def test_a_diagnosis_next_to_a_body_product_keeps_a_body_site_from_a_direct_match(
+    tmp_path, fake_llm_client
+):
+    fake_llm_client.respond_with_facets(
         body_product=["sputum"], body_site=["lung"], host_disease=["pneumonia"]
     )
     standardizer = IsolationSourceStandardizer(
@@ -2373,7 +2246,7 @@ def test_a_diagnosis_next_to_a_body_product_keeps_a_body_site_from_a_direct_matc
         client=None,
         llm_settings=LLMSettings(None, None, "test-model"),
     )
-    standardizer.pipeline.client = fake
+    standardizer.pipeline.client = fake_llm_client
     try:
         outcome = standardizer.standardize(
             {
@@ -2409,15 +2282,14 @@ def test_prompt_policy_rejects_a_wrong_disease_body_term(tmp_path, disease_body_
         ("blood and pus, Veterinary Facility or Diagnostic Laboratory", False),
     ],
 )
-def test_named_alternatives_get_their_common_ancestor(tmp_path, value, replaced):
-    fake = FakeClient()
-    fake.respond_with_facets(
+def test_named_alternatives_get_their_common_ancestor(tmp_path, value, replaced, fake_llm_client):
+    fake_llm_client.respond_with_facets(
         source_type=["animal host", "human host"],
         body_product=["blood", "pus"],
         body_site=["rectum", "liver"],
     )
     config = _isolation_source_config(tmp_path)
-    outcome = _standardize_model_isolation_source(config, fake, value=value)
+    outcome = _standardize_model_isolation_source(config, fake_llm_client, value=value)
 
     selected_ids = {term.term_id for term in outcome.selected_terms}
     common_ids = {HOST_ASSOCIATED, BODY_FLUID, DIGESTIVE_TRACT, INTESTINE, RECTUM, LIVER}
@@ -2458,16 +2330,15 @@ def test_cache_round_trip_preserves_only_the_classifier_answer(cache):
     [("patient 1", "patient 2"), ("Patient 1", "PATIENT   1")],
 )
 def test_records_differing_only_in_digits_case_or_spaces_share_one_model_call(
-    tmp_path: Path, first_value: str, second_value: str
+    tmp_path: Path, first_value: str, second_value: str, fake_llm_client
 ) -> None:
-    fake = FakeClient()
-    fake.respond_with(["wound"], reasoning="clinical wound")
+    fake_llm_client.respond_with(["wound"], reasoning="clinical wound")
     standardizer = IsolationSourceStandardizer(
         IsolationSourcePromptPolicy.load(_isolation_source_config(tmp_path)),
         client=None,
         llm_settings=LLMSettings(None, None, "test-model"),
     )
-    standardizer.pipeline.client = fake
+    standardizer.pipeline.client = fake_llm_client
     try:
         first = standardizer.standardize(
             {
@@ -2491,8 +2362,8 @@ def test_records_differing_only_in_digits_case_or_spaces_share_one_model_call(
     assert first.diagnostics == (IsolationSourceDiagnostic.LLM_CALL,)
     assert second.diagnostics == (IsolationSourceDiagnostic.CACHE_HIT,)
     assert first.request_fingerprint == second.request_fingerprint
-    assert len(fake.calls) == 1
-    assert first_value in fake.calls[0]["messages"][1]["content"]
+    assert len(fake_llm_client.calls) == 1
+    assert first_value in fake_llm_client.calls[0]["messages"][1]["content"]
 
 
 def test_strip_keeps_the_digits_of_an_ontology_identifier() -> None:

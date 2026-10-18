@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 import yaml
 from instructor.core import InstructorRetryException
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from baccurate.adapters.llm.client import LLMSettings
 from baccurate.extraction import (
@@ -595,26 +595,22 @@ def test_equivalent_vocabulary_order_produces_byte_stable_dataset(tmp_path: Path
 
 def test_failed_isolation_source_classification_skips_record_and_continues(
     tmp_path: Path,
+    fake_llm_client,
 ) -> None:
-    calls: list[dict[str, object]] = []
+    invalid_answer = fake_llm_client.answer(
+        reasoning="The sample names an unsupported anatomical site.",
+        evidence_level="sample",
+        source_type="animal host",
+        body_site=["nasal cavity"],
+    )
+    valid_answer = fake_llm_client.answer(
+        reasoning="The second response is valid.",
+        evidence_level="sample",
+        source_type="environmental",
+    )
 
-    def create(**kwargs: object) -> object:
-        calls.append(kwargs)
-        response_model = kwargs["response_model"]
-        invalid_answer = {
-            "reasoning": "The sample names an unsupported anatomical site.",
-            "evidence_level": "sample",
-            "source_type": ["animal host"],
-            "body_product": [],
-            "body_site": ["nasal cavity"],
-            "lesion": [],
-            "environmental_material": [],
-            "facility": [],
-            "sampled_object": [],
-            "food_type": [],
-            "host_disease": [],
-        }
-        if len(calls) == 1:
+    def respond(response_model: type[BaseModel]) -> object:
+        if len(fake_llm_client.calls) == 1:
             for _ in range(3):
                 with pytest.raises(ValidationError):
                     response_model.model_validate(invalid_answer)
@@ -625,26 +621,9 @@ def test_failed_isolation_source_classification_skips_record_and_continues(
             )
         with pytest.raises(ValidationError):
             response_model.model_validate(invalid_answer)
-        return response_model.model_validate(
-            {
-                "reasoning": "The second response is valid.",
-                "evidence_level": "sample",
-                "source_type": ["environmental"],
-                "body_product": [],
-                "body_site": [],
-                "lesion": [],
-                "environmental_material": [],
-                "facility": [],
-                "sampled_object": [],
-                "food_type": [],
-                "host_disease": [],
-            }
-        )
+        return response_model.model_validate(valid_answer)
 
-    client = SimpleNamespace(
-        chat=SimpleNamespace(completions=SimpleNamespace(create=create)),
-        close=lambda: None,
-    )
+    fake_llm_client.behavior = respond
     host_policy, taxonomy_path = _minimal_host_components(tmp_path)
     isolation_source_policy = _isolation_source_policy(tmp_path)
 
@@ -658,7 +637,7 @@ def test_failed_isolation_source_classification_skips_record_and_continues(
             llm_settings=LLMSettings(None, None, "test-model"),
             result_logger=logger,
         )
-        standardizer.pipeline.client = client
+        standardizer.pipeline.client = fake_llm_client
         return standardizer
 
     built = _build_dataset(
@@ -692,7 +671,7 @@ def test_failed_isolation_source_classification_skips_record_and_continues(
     ) == ("",) * len(ISOLATION_SOURCE_COLUMNS)
     assert records["RECOVERED_CLASSIFICATION"]["iso_source_type"] == "environmental"
     assert records["RECOVERED_CLASSIFICATION"]["iso_term_ids"] == "BACC:0000004"
-    assert [call["max_retries"] for call in calls] == [3, 3]
+    assert [call["max_retries"] for call in fake_llm_client.calls] == [3, 3]
     assert built.statistics.isolation_source is not None
     assert built.statistics.isolation_source.aggregate.rejected == 1
     assert built.statistics.isolation_source.aggregate.standardized == 1

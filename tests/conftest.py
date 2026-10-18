@@ -9,6 +9,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -29,6 +30,29 @@ from baccurate.standardization.isolation_source import (
 )
 from baccurate.standardization.location import LocationPolicy
 from baccurate.taxon_registry.registry import TaxonRegistry, load_taxon_registry
+
+CLASSIFIER_FACETS = (
+    "source_type",
+    "body_product",
+    "body_site",
+    "lesion",
+    "environmental_material",
+    "facility",
+    "sampled_object",
+    "food_type",
+    "host_disease",
+)
+
+FACET_BY_LABEL = {
+    "host-associated": "source_type",
+    "animal host": "source_type",
+    "environmental": "source_type",
+    "blood": "body_product",
+    "feces": "body_product",
+    "wound": "lesion",
+    "soil": "environmental_material",
+    "meat product": "food_type",
+}
 
 # --- Fixture data structures ---
 
@@ -107,6 +131,64 @@ class PairedSnapshots:
             snapshot_path=self.bioproject_snapshot_path,
             retrieved_on=date(2026, 7, 19),
         )
+
+
+class FakeLLMClient:
+    """Answer every structured-output request with one scripted behavior and record the request.
+
+    The behavior is a classifier answer, an exception to raise, or a callable that receives the
+    response model.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+        self.behavior: object | None = None
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+    def _create(self, **kwargs):
+        self.calls.append(kwargs)
+        behavior = self.behavior
+        if behavior is None:
+            raise AssertionError("LLM create() was called unexpectedly")
+        if isinstance(behavior, Exception):
+            raise behavior
+        if callable(behavior):
+            return behavior(kwargs["response_model"])
+        return kwargs["response_model"].model_validate(behavior)
+
+    @staticmethod
+    def answer(
+        *,
+        reasoning: str = "because",
+        evidence_level: str = "none",
+        **facets: str | list[str] | None,
+    ) -> dict[str, object]:
+        """Return a classifier answer with an empty list for every facet that is not given."""
+        if unknown := facets.keys() - set(CLASSIFIER_FACETS):
+            raise TypeError(f"unknown classifier facets: {sorted(unknown)}")
+        answer: dict[str, object] = {"reasoning": reasoning, "evidence_level": evidence_level}
+        for facet in CLASSIFIER_FACETS:
+            labels = facets.get(facet) or []
+            answer[facet] = [labels] if isinstance(labels, str) else list(labels)
+        return answer
+
+    def respond_with_facets(self, **answer: object) -> None:
+        self.behavior = self.answer(**answer)
+
+    def respond_with(self, labels: Sequence[str], **answer: object) -> None:
+        facets: dict[str, list[str]] = {}
+        for label in labels:
+            facets.setdefault(FACET_BY_LABEL[label], []).append(label)
+        self.respond_with_facets(**facets, **answer)
+
+    def close(self) -> None:
+        pass
+
+
+@pytest.fixture
+def fake_llm_client() -> FakeLLMClient:
+    """Return a fake LLM client that fails the test if a request reaches it unscripted."""
+    return FakeLLMClient()
 
 
 # --- Reference and policy fixtures ---

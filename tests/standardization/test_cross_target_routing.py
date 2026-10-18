@@ -27,24 +27,13 @@ LABORATORY = "BACC:0000008"
 HEALTHCARE_FACILITY = "BACC:0000079"
 
 
-class ScriptedClient:
-    def __init__(self, answer: dict[str, object]) -> None:
-        self.answer = answer
-        self.calls = 0
-        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
-
-    def create(self, **kwargs: object) -> object:
-        self.calls += 1
-        return kwargs["response_model"].model_validate(self.answer)  # type: ignore[union-attr]
-
-
 @contextmanager
 def _coordinator(
     resources,
     host_policy,
     isolation_source_policy,
     *,
-    client: ScriptedClient | None = None,
+    client=None,
 ) -> Iterator[HostIsolationSourceStandardizer]:
     isolation_source = IsolationSourceStandardizer(
         isolation_source_policy,
@@ -64,22 +53,6 @@ def _coordinator(
         isolation_source.close()
 
 
-def _classifier_answer(source_type: str | None) -> dict[str, object]:
-    return {
-        "reasoning": "scripted classification",
-        "evidence_level": "sample",
-        "source_type": [source_type] if source_type is not None else [],
-        "body_product": [],
-        "body_site": [],
-        "lesion": [],
-        "environmental_material": [],
-        "facility": [],
-        "sampled_object": [],
-        "food_type": [],
-        "host_disease": [],
-    }
-
-
 @pytest.mark.parametrize("model_source_type", ["host-associated", "plant host"])
 @pytest.mark.parametrize(
     ("host", "host_source_type"), [("human", HUMAN_HOST), ("chicken", ANIMAL_HOST)]
@@ -91,13 +64,14 @@ def test_metazoa_lineage_refines_generic_or_conflicting_host_source_type(
     model_source_type: str,
     host: str,
     host_source_type: str,
+    fake_llm_client,
 ) -> None:
-    client = ScriptedClient(_classifier_answer(model_source_type))
+    fake_llm_client.respond_with_facets(source_type=model_source_type, evidence_level="sample")
     with _coordinator(
         standardization_fixture_resources,
         fixture_host_policy,
         fixture_isolation_source_prompt_policy,
-        client=client,
+        client=fake_llm_client,
     ) as coordinator:
         result = coordinator.standardize(
             {
@@ -123,13 +97,14 @@ def test_host_only_metazoa_lineage_is_deterministic_without_classification(
     standardization_fixture_resources,
     fixture_host_policy,
     fixture_isolation_source_prompt_policy,
+    fake_llm_client,
 ) -> None:
-    client = ScriptedClient(_classifier_answer("environmental"))
+    fake_llm_client.respond_with_facets(source_type="environmental", evidence_level="sample")
     with _coordinator(
         standardization_fixture_resources,
         fixture_host_policy,
         fixture_isolation_source_prompt_policy,
-        client=client,
+        client=fake_llm_client,
     ) as coordinator:
         result = coordinator.standardize(
             {
@@ -143,15 +118,16 @@ def test_host_only_metazoa_lineage_is_deterministic_without_classification(
     assert result.isolation_source.reasoning[-1].node == "host_lineage_derivation"
     assert result.isolation_source.evidence_level.value == "sample"
     assert result.isolation_source.cache_hits == 0
-    assert client.calls == 0
+    assert fake_llm_client.calls == []
 
 
 def test_host_lineage_refinement_applies_after_cache_hit(
     standardization_fixture_resources,
     fixture_host_policy,
     fixture_isolation_source_prompt_policy,
+    fake_llm_client,
 ) -> None:
-    client = ScriptedClient(_classifier_answer("host-associated"))
+    fake_llm_client.respond_with_facets(source_type="host-associated", evidence_level="sample")
     record = {
         "host_attr_orig": "host",
         "host_val_orig": "human",
@@ -162,12 +138,12 @@ def test_host_lineage_refinement_applies_after_cache_hit(
         standardization_fixture_resources,
         fixture_host_policy,
         fixture_isolation_source_prompt_policy,
-        client=client,
+        client=fake_llm_client,
     ) as coordinator:
         first = coordinator.standardize({"accession": "CACHE_FIRST", **record})
         second = coordinator.standardize({"accession": "CACHE_SECOND", **record})
 
-    assert client.calls == 1
+    assert len(fake_llm_client.calls) == 1
     assert second.isolation_source.cache_hits
     assert second.isolation_source.selected_terms[-1].term_id == HUMAN_HOST
     assert (
@@ -181,6 +157,7 @@ def test_recovered_host_lineage_preserves_food_source(
     standardization_fixture_resources,
     fixture_host_policy,
     fixture_isolation_source_prompt_policy,
+    fake_llm_client,
 ) -> None:
     with _coordinator(
         standardization_fixture_resources,
@@ -195,14 +172,12 @@ def test_recovered_host_lineage_preserves_food_source(
             }
         )
 
-    food_client = ScriptedClient(
-        {**_classifier_answer("food or feed"), "source_type": [], "food_type": ["meat product"]}
-    )
+    fake_llm_client.respond_with_facets(food_type=["meat product"], evidence_level="sample")
     with _coordinator(
         standardization_fixture_resources,
         fixture_host_policy,
         fixture_isolation_source_prompt_policy,
-        client=food_client,
+        client=fake_llm_client,
     ) as food_coordinator:
         food_result = food_coordinator.standardize(
             {
@@ -226,13 +201,14 @@ def test_host_lineage_adds_the_host_source_type_to_a_non_source_value(
     standardization_fixture_resources,
     fixture_host_policy,
     fixture_isolation_source_prompt_policy,
+    fake_llm_client,
 ) -> None:
-    client = ScriptedClient(_classifier_answer("laboratory strain"))
+    fake_llm_client.respond_with_facets(source_type="laboratory strain", evidence_level="sample")
     with _coordinator(
         standardization_fixture_resources,
         fixture_host_policy,
         fixture_isolation_source_prompt_policy,
-        client=client,
+        client=fake_llm_client,
     ) as coordinator:
         result = coordinator.standardize(
             {
@@ -244,7 +220,7 @@ def test_host_lineage_adds_the_host_source_type_to_a_non_source_value(
             }
         )
 
-    assert client.calls == 0
+    assert fake_llm_client.calls == []
     assert {term.term_id for term in result.isolation_source.selected_terms} == {
         HOST_ASSOCIATED,
         ANIMAL_HOST,
@@ -255,13 +231,14 @@ def test_host_lineage_adds_no_host_source_type_to_food(
     standardization_fixture_resources,
     fixture_host_policy,
     fixture_isolation_source_prompt_policy,
+    fake_llm_client,
 ) -> None:
-    client = ScriptedClient({**_classifier_answer(None), "food_type": ["meat product"]})
+    fake_llm_client.respond_with_facets(food_type=["meat product"], evidence_level="sample")
     with _coordinator(
         standardization_fixture_resources,
         fixture_host_policy,
         fixture_isolation_source_prompt_policy,
-        client=client,
+        client=fake_llm_client,
     ) as coordinator:
         result = coordinator.standardize(
             {
@@ -283,13 +260,14 @@ def test_laboratory_strain_in_organism_name_adds_laboratory(
     standardization_fixture_resources,
     fixture_host_policy,
     fixture_isolation_source_prompt_policy,
+    fake_llm_client,
 ) -> None:
-    client = ScriptedClient(_classifier_answer(None))
+    fake_llm_client.respond_with_facets(evidence_level="sample")
     with _coordinator(
         standardization_fixture_resources,
         fixture_host_policy,
         fixture_isolation_source_prompt_policy,
-        client=client,
+        client=fake_llm_client,
     ) as coordinator:
         result = coordinator.standardize(
             {
@@ -314,13 +292,14 @@ def test_laboratory_strain_needs_no_isolation_source_value(
     fixture_isolation_source_prompt_policy,
     host: str,
     expected: set[str],
+    fake_llm_client,
 ) -> None:
-    client = ScriptedClient(_classifier_answer("environmental"))
+    fake_llm_client.respond_with_facets(source_type="environmental", evidence_level="sample")
     with _coordinator(
         standardization_fixture_resources,
         fixture_host_policy,
         fixture_isolation_source_prompt_policy,
-        client=client,
+        client=fake_llm_client,
     ) as coordinator:
         result = coordinator.standardize(
             {
@@ -334,7 +313,7 @@ def test_laboratory_strain_needs_no_isolation_source_value(
     assert {term.term_id for term in result.isolation_source.selected_terms} == expected
     assert result.isolation_source.cache_hits == 0
     assert result.isolation_source.evidence_level.value == "sample"
-    assert client.calls == 0
+    assert fake_llm_client.calls == []
 
 
 def test_other_strain_gets_no_laboratory(

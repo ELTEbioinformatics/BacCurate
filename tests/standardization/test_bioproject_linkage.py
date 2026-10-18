@@ -25,73 +25,12 @@ from baccurate.standardization_target.specifications import StandardizationTarge
 FECES = "BACC:0000025"
 SOIL = "BACC:0000064"
 
-FACET_BY_LABEL = {
-    "host-associated": "source_type",
-    "soil": "environmental_material",
-    "wound": "lesion",
-}
-
-
-class _ScriptedCompletions:
-    def __init__(self, parent: ScriptedClient) -> None:
-        self._parent = parent
-
-    def create(self, **kwargs):
-        self._parent.calls.append(kwargs)
-        if not self._parent.responses:
-            raise AssertionError("LLM create() was called unexpectedly")
-        response_index = min(len(self._parent.calls) - 1, len(self._parent.responses) - 1)
-        response = self._parent.responses[response_index]
-        if isinstance(response, Exception):
-            raise response
-        return kwargs["response_model"].model_validate(response)
-
-
-class ScriptedClient:
-    """Return deterministic typed responses while retaining rendered model requests."""
-
-    def __init__(self) -> None:
-        self.calls: list[dict] = []
-        self.responses: list[object] = []
-        self.chat = SimpleNamespace(completions=_ScriptedCompletions(self))
-
-    def respond_with(
-        self,
-        terms: list[str],
-        *,
-        evidence_level: str,
-        reasoning: str = "fixture classification",
-    ) -> None:
-        answer: dict[str, object] = {
-            "reasoning": reasoning,
-            "evidence_level": evidence_level,
-            "source_type": [],
-            "body_product": [],
-            "body_site": [],
-            "lesion": [],
-            "environmental_material": [],
-            "facility": [],
-            "sampled_object": [],
-            "food_type": [],
-            "host_disease": [],
-        }
-        for term in terms:
-            facet = FACET_BY_LABEL[term]
-            if facet == "source_type":
-                answer[facet].append(term)
-            else:
-                answer[facet].append(term)
-        self.responses.append(answer)
-
-    def close(self) -> None:
-        pass
-
 
 def _build_isolation_source_run(
     tmp_path: Path,
     *,
     rows: list[dict[str, str]],
-    client: ScriptedClient,
+    client,
     make_extracted_metadata_files,
     fixture_dataset_builder_factory,
     fixture_host_policy: HostPolicy,
@@ -158,9 +97,9 @@ def test_dataset_build_limits_evidence_to_biosample_pairs(
     fixture_isolation_source_prompt_policy,
     fixture_taxon_registry,
     standardization_fixture_resources,
+    fake_llm_client,
 ) -> None:
-    client = ScriptedClient()
-    client.respond_with(["soil"], evidence_level="sample")
+    fake_llm_client.respond_with(["soil"], evidence_level="sample")
     run = _build_isolation_source_run(
         tmp_path,
         rows=[
@@ -200,7 +139,7 @@ def test_dataset_build_limits_evidence_to_biosample_pairs(
                 "bioproject_accession": "",
             },
         ],
-        client=client,
+        client=fake_llm_client,
         make_extracted_metadata_files=make_extracted_metadata_files,
         fixture_dataset_builder_factory=fixture_dataset_builder_factory,
         fixture_host_policy=fixture_host_policy,
@@ -211,7 +150,7 @@ def test_dataset_build_limits_evidence_to_biosample_pairs(
 
     rows = _dataset_rows(run.dataset)
     reasoning = _reasoning_rows(run.reasoning)
-    assert len(client.calls) == 1
+    assert len(fake_llm_client.calls) == 1
     assert rows["SAMPLE_ONLY"]["iso_body_product"] == "feces"
     assert rows["SAMPLE_ONLY"]["iso_term_ids"] == (f"BACC:0000001||{FECES}")
     assert rows["HOST_ONLY"]["iso_source_type"] == "host-associated||human host"
@@ -246,9 +185,9 @@ def test_dataset_build_request_identity_uses_only_biosample_pairs(
     fixture_isolation_source_prompt_policy,
     fixture_taxon_registry,
     standardization_fixture_resources,
+    fake_llm_client,
 ) -> None:
-    client = ScriptedClient()
-    client.respond_with(["wound"], evidence_level="sample")
+    fake_llm_client.respond_with(["wound"], evidence_level="sample")
     run = _build_isolation_source_run(
         tmp_path,
         rows=[
@@ -267,7 +206,7 @@ def test_dataset_build_request_identity_uses_only_biosample_pairs(
                 "iso_val_orig": "wound patient 161803",
             },
         ],
-        client=client,
+        client=fake_llm_client,
         make_extracted_metadata_files=make_extracted_metadata_files,
         fixture_dataset_builder_factory=fixture_dataset_builder_factory,
         fixture_host_policy=fixture_host_policy,
@@ -276,8 +215,8 @@ def test_dataset_build_request_identity_uses_only_biosample_pairs(
         standardization_fixture_resources=standardization_fixture_resources,
     )
 
-    assert len(client.calls) == 1
-    messages = json.dumps(client.calls[0]["messages"])
+    assert len(fake_llm_client.calls) == 1
+    messages = json.dumps(fake_llm_client.calls[0]["messages"])
     assert "BioProject" not in messages
     assert "PRJNA" not in messages
     assert "Veterinary" not in messages
@@ -292,8 +231,8 @@ def test_dataset_build_rejects_bioproject_only_record_without_model_call(
     fixture_isolation_source_prompt_policy,
     fixture_taxon_registry,
     standardization_fixture_resources,
+    fake_llm_client,
 ) -> None:
-    client = ScriptedClient()
     run = _build_isolation_source_run(
         tmp_path,
         rows=[
@@ -303,7 +242,7 @@ def test_dataset_build_rejects_bioproject_only_record_without_model_call(
                 "bioproject_accession": "PRJNA1",
             }
         ],
-        client=client,
+        client=fake_llm_client,
         make_extracted_metadata_files=make_extracted_metadata_files,
         fixture_dataset_builder_factory=fixture_dataset_builder_factory,
         fixture_host_policy=fixture_host_policy,
@@ -313,7 +252,7 @@ def test_dataset_build_rejects_bioproject_only_record_without_model_call(
     )
 
     assert _dataset_rows(run.dataset) == {}
-    assert client.calls == []
+    assert fake_llm_client.calls == []
     assert run.statistics.isolation_source.aggregate.rejected == 1
     assert run.statistics.isolation_source.aggregate.diagnostics == {
         IsolationSourceDiagnostic.NO_CLASSIFICATION_INPUT: 1
