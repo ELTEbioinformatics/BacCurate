@@ -1761,7 +1761,7 @@ def _body_labels(outcome: IsolationSourceOutcome) -> set[str]:
     [
         ("mastitis", {"mammary gland"}),
         ("bacteremia", {"body fluid", "blood", "circulatory system"}),
-        ("bone and joint infection", {"skeletal system"}),
+        ("pneumonia", set()),
         ("colibacillosis", set()),
     ],
 )
@@ -1776,6 +1776,17 @@ def test_a_diagnosis_alone_gets_its_body_term(
     assert ("disease_body_term" in {step.node for step in outcome.reasoning}) is bool(
         expected_body_labels
     )
+
+
+def test_diagnoses_with_different_body_terms_get_no_body_term(tmp_path, fake_llm_client):
+    fake_llm_client.respond_with_facets(
+        source_type=["animal host"], host_disease=["mastitis", "bacteremia"]
+    )
+    config = _isolation_source_config(tmp_path, overrides=PRODUCTION_VOCABULARY)
+    outcome = _standardize_model_isolation_source(config, fake_llm_client)
+
+    assert _body_labels(outcome) == set()
+    assert "disease_body_term" not in {step.node for step in outcome.reasoning}
 
 
 @pytest.mark.parametrize(
@@ -1815,22 +1826,22 @@ def test_a_direct_diagnosis_gets_its_body_term_without_the_model(
     [{"lesion": ["abscess"]}, {"sampled_object": ["sink"]}, {"body_site": ["skin"]}],
 )
 def test_a_diagnosis_next_to_a_sampled_part_gets_no_body_term(tmp_path, sampled, fake_llm_client):
-    fake_llm_client.respond_with_facets(host_disease=["pneumonia"], **sampled)
+    fake_llm_client.respond_with_facets(host_disease=["bronchiectasis"], **sampled)
     config = _isolation_source_config(tmp_path, overrides=PRODUCTION_VOCABULARY)
     outcome = _standardize_model_isolation_source(config, fake_llm_client)
 
-    assert "lung" not in _body_labels(outcome)
+    assert "lower respiratory tract" not in _body_labels(outcome)
     assert "disease_body_term" not in {step.node for step in outcome.reasoning}
 
 
 @pytest.mark.parametrize(
     ("body_product", "body_sites", "host_disease", "removed", "kept"),
     [
-        ("sputum", ["lung", "nasal cavity"], "pneumonia", "lung", "nasal cavity"),
+        ("sputum", ["lung", "nasal cavity"], "bronchiectasis", "lung", "nasal cavity"),
         (
             "pus",
             ["lower respiratory tract", "skin"],
-            "pneumonia",
+            "bronchiectasis",
             "lower respiratory tract",
             "skin",
         ),
@@ -1855,7 +1866,7 @@ def test_a_diagnosis_next_to_a_body_product_keeps_a_body_site_from_a_direct_matc
     tmp_path, fake_llm_client
 ):
     fake_llm_client.respond_with_facets(
-        body_product=["sputum"], body_site=["lung"], host_disease=["pneumonia"]
+        body_product=["sputum"], body_site=["lung"], host_disease=["bronchiectasis"]
     )
     standardizer = IsolationSourceStandardizer(
         IsolationSourceConfig.load(
@@ -1870,7 +1881,7 @@ def test_a_diagnosis_next_to_a_body_product_keeps_a_body_site_from_a_direct_matc
             {
                 "accession": "A",
                 "iso_attr_orig": "isolation_source||host_disease",
-                "iso_val_orig": "lung||sputum of a pneumonia patient",
+                "iso_val_orig": "lung||sputum of a bronchiectasis patient",
             }
         )
     finally:

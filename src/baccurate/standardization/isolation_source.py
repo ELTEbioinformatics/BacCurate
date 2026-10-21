@@ -747,7 +747,7 @@ class LLMClassifier:
             if term_id in self.config.disease_body_terms
         }
         explicit_facets = {self.ont.terms[term_id].facet for term_id in explicit_ids}
-        if disease_body_ids and explicit_facets.isdisjoint(SAMPLED_FACETS):
+        if len(disease_body_ids) == 1 and explicit_facets.isdisjoint(SAMPLED_FACETS):
             explicit_ids |= disease_body_ids
             reasoning.append(
                 {
