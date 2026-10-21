@@ -1,5 +1,5 @@
 schema_version: 1
-vocabulary_version: "1.0.0rc1"
+vocabulary_version: "1.0.0rc2"
 
 facets:
   source_type:

@@ -579,7 +579,7 @@ bacc:0000058 a skos:Concept ;
 bacc:0000060 a skos:Concept ;
     iso-thes:broaderGeneric bacc:0000117 ;
     skos:broader bacc:0000117 ;
-    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0000014> ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0002097> ;
     skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
     skos:notation "BACC:0000060" ;
     skos:prefLabel "skin"@en .
@@ -625,10 +625,12 @@ bacc:0000065 a skos:Concept ;
 bacc:0000067 a skos:Concept ;
     iso-thes:broaderGeneric bacc:0000066 ;
     oboInOwl:hasExactSynonym "freshwater"@en ;
+    oboInOwl:hasNarrowSynonym "river water"@en ;
     skos:altLabel "freshwater"@en ;
     skos:broader bacc:0000066 ;
     skos:exactMatch <http://purl.obolibrary.org/obo/ENVO_00002011> ;
     skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrowMatch <http://purl.obolibrary.org/obo/ENVO_01000599> ;
     skos:notation "BACC:0000067" ;
     skos:prefLabel "fresh water"@en .
 
@@ -674,12 +676,11 @@ bacc:0000072 a skos:Concept ;
     skos:prefLabel "animal manure"@en .
 
 bacc:0000073 a skos:Concept ;
-    iso-thes:broaderGeneric bacc:0000071 ;
-    skos:broader bacc:0000071 ;
     skos:exactMatch <http://purl.obolibrary.org/obo/ENVO_00002170> ;
     skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
     skos:notation "BACC:0000073" ;
-    skos:prefLabel "compost"@en .
+    skos:prefLabel "compost"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
 
 bacc:0000075 a skos:Concept ;
     iso-thes:broaderGeneric bacc:0000074 ;
@@ -787,7 +788,6 @@ bacc:0000092 a skos:Concept ;
 
 bacc:0000093 a skos:Concept ;
     oboInOwl:hasNarrowSynonym "environmental surface"@en ;
-    skos:closeMatch <http://purl.obolibrary.org/obo/ENVO_00010504> ;
     skos:definition "The outer boundary of an object or structure in a built environment, such as a floor, a wall, or a bench."@en ;
     skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
     skos:notation "BACC:0000093" ;
@@ -1045,7 +1045,7 @@ bacc:0000119 a skos:Concept ;
     skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
     skos:notation "BACC:0000119" ;
     skos:prefLabel "drainage fluid"@en ;
-    skos:scopeNote "Use when the metadata does not name the fluid. If the metadata names the fluid, or names a lesion that implies it, use that instead."@en .
+    skos:scopeNote "Use when the metadata names no fluid that has its own label. If it names such a fluid, or a lesion that implies one, use that label instead."@en .
 
 bacc:0000120 a skos:Concept ;
     oboInOwl:hasExactSynonym "cysts"@en ;
@@ -1129,16 +1129,17 @@ bacc:0000131 a skos:Concept ;
     iso-thes:broaderGeneric bacc:0000129 ;
     oboInOwl:hasRelatedSynonym "septicemia"@en ;
     skos:broader bacc:0000129 ;
-    skos:closeMatch <http://purl.obolibrary.org/obo/MONDO_0005229> ;
     skos:definition "A life-threatening response of the body to an infection, including septicemia and neonatal sepsis."@en ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/MONDO_0005229> ;
     skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
     skos:notation "BACC:0000131" ;
     skos:prefLabel "sepsis"@en .
 
 bacc:0000133 a skos:Concept ;
     iso-thes:broaderGeneric bacc:0000132 ;
+    skos:broadMatch <http://purl.obolibrary.org/obo/MONDO_0005249> ;
     skos:broader bacc:0000132 ;
-    skos:exactMatch <http://purl.obolibrary.org/obo/MONDO_0005249> ;
+    skos:definition "An infection of the lungs with fluid or pus in the air sacs."@en ;
     skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
     skos:notation "BACC:0000133" ;
     skos:prefLabel "pneumonia"@en .
@@ -1149,8 +1150,9 @@ bacc:0000134 a skos:Concept ;
     oboInOwl:hasNarrowSynonym "cystitis"@en,
         "pyelonephritis"@en ;
     skos:altLabel "UTI"@en ;
+    skos:broadMatch <http://purl.obolibrary.org/obo/MONDO_0100338> ;
     skos:broader bacc:0000129 ;
-    skos:exactMatch <http://purl.obolibrary.org/obo/MONDO_0100338> ;
+    skos:definition "An infection of the kidneys, the bladder, or another part of the urinary tract, such as cystitis or pyelonephritis."@en ;
     skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
     skos:notation "BACC:0000134" ;
     skos:prefLabel "urinary tract infection"@en ;
@@ -1166,9 +1168,9 @@ bacc:0000135 a skos:Concept ;
     skos:broader bacc:0000129 ;
     skos:definition "An infection of the stomach or the intestine, such as gastroenteritis, diarrheal disease, dysentery, shigellosis, or an STEC infection."@en ;
     skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
-    skos:narrowMatch <http://purl.obolibrary.org/obo/MONDO_0000916> ;
     skos:notation "BACC:0000135" ;
-    skos:prefLabel "gastrointestinal infection"@en .
+    skos:prefLabel "gastrointestinal infection"@en ;
+    skos:relatedMatch <http://purl.obolibrary.org/obo/MONDO_0000916> .
 
 bacc:0000136 a skos:Concept ;
     iso-thes:broaderGeneric bacc:0000129 ;
@@ -1190,9 +1192,9 @@ bacc:0000137 a skos:Concept ;
     skos:broader bacc:0000129 ;
     skos:definition "An infection of the skin or the tissue under it, such as cellulitis, impetigo, a furuncle, or an infected wound or burn."@en ;
     skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
-    skos:narrowMatch <http://purl.obolibrary.org/obo/MONDO_0021201> ;
     skos:notation "BACC:0000137" ;
     skos:prefLabel "skin and soft tissue infection"@en ;
+    skos:relatedMatch <http://purl.obolibrary.org/obo/MONDO_0021201> ;
     skos:scopeNote "A sampled wound or abscess alone is a lesion, not this diagnosis."@en .
 
 bacc:0000138 a skos:Concept ;
@@ -1244,8 +1246,9 @@ bacc:0000143 a skos:Concept ;
     iso-thes:broaderGeneric bacc:0000129 ;
     oboInOwl:hasExactSynonym "infective endocarditis"@en ;
     skos:altLabel "infective endocarditis"@en ;
+    skos:broadMatch <http://purl.obolibrary.org/obo/MONDO_0000565> ;
     skos:broader bacc:0000129 ;
-    skos:exactMatch <http://purl.obolibrary.org/obo/MONDO_0000565> ;
+    skos:definition "An infection of the inner lining of the heart or of the heart valves."@en ;
     skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
     skos:notation "BACC:0000143" ;
     skos:prefLabel "endocarditis"@en .
@@ -1255,8 +1258,9 @@ bacc:0000144 a skos:Concept ;
     oboInOwl:hasNarrowSynonym "conjunctivitis"@en,
         "endophthalmitis"@en,
         "keratitis"@en ;
+    skos:broadMatch <http://purl.obolibrary.org/obo/MONDO_0043885> ;
     skos:broader bacc:0000129 ;
-    skos:exactMatch <http://purl.obolibrary.org/obo/MONDO_0043885> ;
+    skos:definition "An infection of the eye or the tissue around it, such as conjunctivitis, keratitis, or endophthalmitis."@en ;
     skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
     skos:notation "BACC:0000144" ;
     skos:prefLabel "eye infection"@en .
@@ -1270,10 +1274,10 @@ bacc:0000145 a skos:Concept ;
     skos:broader bacc:0000129 ;
     skos:definition "An infection of the ear, such as otitis externa or otitis media."@en ;
     skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
-    skos:narrowMatch <http://purl.obolibrary.org/obo/MONDO_0004795>,
-        <http://purl.obolibrary.org/obo/MONDO_0024330> ;
     skos:notation "BACC:0000145" ;
-    skos:prefLabel "ear infection"@en .
+    skos:prefLabel "ear infection"@en ;
+    skos:relatedMatch <http://purl.obolibrary.org/obo/MONDO_0004795>,
+        <http://purl.obolibrary.org/obo/MONDO_0024330> .
 
 bacc:0000146 a skos:Concept ;
     iso-thes:broaderGeneric bacc:0000129 ;
@@ -1291,8 +1295,9 @@ bacc:0000147 a skos:Concept ;
     iso-thes:broaderGeneric bacc:0000129 ;
     oboInOwl:hasExactSynonym "intramammary infection"@en ;
     skos:altLabel "intramammary infection"@en ;
+    skos:broadMatch <http://purl.obolibrary.org/obo/MONDO_0006849> ;
     skos:broader bacc:0000129 ;
-    skos:exactMatch <http://purl.obolibrary.org/obo/MONDO_0006849> ;
+    skos:definition "Inflammation of the mammary gland caused by an infection."@en ;
     skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
     skos:notation "BACC:0000147" ;
     skos:prefLabel "mastitis"@en .
@@ -1379,8 +1384,8 @@ bacc:0000155 a skos:Concept ;
 bacc:0000156 a skos:Concept ;
     oboInOwl:hasExactSynonym "chest"@en ;
     skos:altLabel "chest"@en ;
+    skos:broadMatch <http://purl.obolibrary.org/obo/UBERON_0001443> ;
     skos:definition "The front and the sides of the trunk between the neck and the abdomen."@en ;
-    skos:exactMatch <http://purl.obolibrary.org/obo/UBERON_0001443> ;
     skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
     skos:notation "BACC:0000156" ;
     skos:prefLabel "thorax"@en ;
@@ -1520,6 +1525,14 @@ bacc:0000064 a skos:Concept ;
     skos:prefLabel "soil"@en ;
     skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
 
+bacc:0000071 a skos:Concept ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/ENVO_03501300> ;
+    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
+    skos:narrower bacc:0000072 ;
+    skos:notation "BACC:0000071" ;
+    skos:prefLabel "manure"@en ;
+    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
+
 bacc:0000076 a skos:Concept ;
     iso-thes:broaderGeneric bacc:0000074 ;
     skos:broadMatch <http://purl.obolibrary.org/obo/ENVO_00002044> ;
@@ -1571,16 +1584,17 @@ bacc:0000124 a skos:Concept ;
     skos:broader bacc:0000079 ;
     skos:exactMatch <http://purl.obolibrary.org/obo/ENVO_00002173> ;
     skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
-    skos:narrowMatch <http://purl.obolibrary.org/obo/ENVO_03501137>,
-        <http://purl.obolibrary.org/obo/ENVO_03501158> ;
+    skos:narrowMatch <http://purl.obolibrary.org/obo/ENVO_03501137> ;
     skos:narrower bacc:0000080 ;
     skos:notation "BACC:0000124" ;
-    skos:prefLabel "hospital"@en .
+    skos:prefLabel "hospital"@en ;
+    skos:relatedMatch <http://purl.obolibrary.org/obo/ENVO_03501158> .
 
 bacc:0000132 a skos:Concept ;
     iso-thes:broaderGeneric bacc:0000129 ;
+    skos:broadMatch <http://purl.obolibrary.org/obo/MONDO_0024355> ;
     skos:broader bacc:0000129 ;
-    skos:exactMatch <http://purl.obolibrary.org/obo/MONDO_0024355> ;
+    skos:definition "An infection of the upper or the lower respiratory tract, such as pharyngitis, sinusitis, bronchitis, or pneumonia."@en ;
     skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
     skos:narrower bacc:0000133 ;
     skos:notation "BACC:0000132" ;
@@ -1589,8 +1603,9 @@ bacc:0000132 a skos:Concept ;
 bacc:0000141 a skos:Concept ;
     iso-thes:broaderGeneric bacc:0000129 ;
     oboInOwl:hasNarrowSynonym "brain abscess"@en ;
+    skos:broadMatch <http://purl.obolibrary.org/obo/MONDO_0024619> ;
     skos:broader bacc:0000129 ;
-    skos:exactMatch <http://purl.obolibrary.org/obo/MONDO_0024619> ;
+    skos:definition "An infection of the brain, the spinal cord, or the meninges, such as meningitis, encephalitis, or a brain abscess."@en ;
     skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
     skos:narrower bacc:0000142 ;
     skos:notation "BACC:0000141" ;
@@ -1662,15 +1677,6 @@ bacc:0000053 a skos:Concept ;
         bacc:0000056 ;
     skos:notation "BACC:0000053" ;
     skos:prefLabel "sense organ"@en ;
-    skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
-
-bacc:0000071 a skos:Concept ;
-    skos:exactMatch <http://purl.obolibrary.org/obo/ENVO_03501300> ;
-    skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
-    skos:narrower bacc:0000072,
-        bacc:0000073 ;
-    skos:notation "BACC:0000071" ;
-    skos:prefLabel "manure"@en ;
     skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
 
 bacc:0000074 a skos:Concept ;
@@ -1776,12 +1782,10 @@ bacc:0000018 a skos:Concept ;
     baccv:produced_by bacc:0000026 .
 
 bacc:0000066 a skos:Concept ;
-    oboInOwl:hasNarrowSynonym "river water"@en,
-        "surface water"@en ;
+    oboInOwl:hasNarrowSynonym "surface water"@en ;
     skos:exactMatch <http://purl.obolibrary.org/obo/ENVO_00002006> ;
     skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
     skos:narrowMatch <http://purl.obolibrary.org/obo/ENVO_00002042>,
-        <http://purl.obolibrary.org/obo/ENVO_01000599>,
         <http://purl.obolibrary.org/obo/ENVO_01001018>,
         <http://purl.obolibrary.org/obo/ENVO_01001268> ;
     skos:narrower bacc:0000067,
@@ -1884,7 +1888,7 @@ bacc:0000128 a skos:Concept ;
         bacc:0000152 ;
     skos:notation "BACC:0000128" ;
     skos:prefLabel "disease"@en ;
-    skos:scopeNote "Use only when the metadata states that the host is ill without naming the disease, such as \"diseased\" or \"ill\"."@en ;
+    skos:scopeNote "Use when the metadata states that the host is ill without naming the disease, such as \"diseased\" or \"ill\", or names a disease that no more specific label covers, such as cancer or COVID-19."@en ;
     skos:topConceptOf <https://w3id.org/baccurate/vocabulary> .
 
 bacc:0000009 a skos:Concept ;
@@ -1932,8 +1936,10 @@ bacc:0000129 a skos:Concept ;
     oboInOwl:hasExactSynonym "infectious disease"@en ;
     oboInOwl:hasNarrowSynonym "bacterial infection"@en ;
     skos:altLabel "infectious disease"@en ;
+    skos:broadMatch <http://purl.obolibrary.org/obo/MONDO_0005550> ;
     skos:broader bacc:0000128 ;
-    skos:exactMatch <http://purl.obolibrary.org/obo/MONDO_0005550> ;
+    skos:definition "An infectious disease caused by bacteria."@en ;
+    skos:exactMatch <http://purl.obolibrary.org/obo/MONDO_0005113> ;
     skos:inScheme <https://w3id.org/baccurate/vocabulary> ;
     skos:narrower bacc:0000130,
         bacc:0000131,
@@ -1954,13 +1960,13 @@ bacc:0000129 a skos:Concept ;
         bacc:0000148 ;
     skos:notation "BACC:0000129" ;
     skos:prefLabel "infection"@en ;
-    skos:scopeNote "Use only when the metadata names an infection without its site or kind, such as \"infection\" or \"invasive disease\"."@en .
+    skos:scopeNote "Use when the metadata names an infection that no more specific label covers, such as \"infection\", \"invasive disease\", or periodontitis."@en .
 
 <https://w3id.org/baccurate/vocabulary> a skos:ConceptScheme ;
     dcterms:description "The BacCurate isolation-source vocabulary describes the sources of bacterial isolates in NCBI BioSample metadata." ;
     dcterms:license <https://creativecommons.org/licenses/by/4.0/> ;
     dcterms:title "BacCurate isolation-source vocabulary" ;
-    owl:versionInfo "1.0.0rc1" ;
+    owl:versionInfo "1.0.0rc2" ;
     skos:hasTopConcept bacc:0000001,
         bacc:0000004,
         bacc:0000007,
@@ -1982,6 +1988,7 @@ bacc:0000129 a skos:Concept ;
         bacc:0000066,
         bacc:0000070,
         bacc:0000071,
+        bacc:0000073,
         bacc:0000074,
         bacc:0000079,
         bacc:0000082,

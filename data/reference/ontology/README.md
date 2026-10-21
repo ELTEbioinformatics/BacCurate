@@ -114,10 +114,10 @@ For example: "Respiratory secretion collected from the trachea by suction."
 note acts as guidance for the indexer (or in our case, guidance for the model). For example, the term `drainage fluid` 
 uses the following definition and scope note:
 
-| Column       | Text                                                                                                                                 |
-|--------------|--------------------------------------------------------------------------------------------------------------------------------------|
-| `definition` | Body fluid drained from a wound, a body cavity, or a fluid collection.                                                               |
-| `scope_note` | Use when the metadata does not name the fluid. If the metadata names the fluid, or names a lesion that implies it, use that instead. |
+| Column       | Text                                                                                                                                         |
+|--------------|----------------------------------------------------------------------------------------------------------------------------------------------|
+| `definition` | Body fluid drained from a wound, a body cavity, or a fluid collection.                                                                       |
+| `scope_note` | Use when the metadata names no fluid that has its own label. If it names such a fluid, or a lesion that implies one, use that label instead. |
 
 ## Kinds of terms
 

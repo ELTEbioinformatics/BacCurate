@@ -1386,3 +1386,4 @@ value_rejections:
     - Klebsiella pneumoniae strain Kp2162_pvir_249_R2
     - Klebsiella pneumoniae strain Kp2162_pvir_325_R1
     - Klebsiella pneumoniae strain Kp2162_pvir_325_R2
+    - "human, animal or environmental"

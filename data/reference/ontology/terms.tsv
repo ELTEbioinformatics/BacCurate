@@ -16,7 +16,7 @@ BACC:0000014	urine	body_product	BACC:0000009	kind_of		Cystocentesis urine also n
 BACC:0000015	peritoneal fluid	body_product	BACC:0000009	kind_of		
 BACC:0000016	bile	body_product	BACC:0000009	kind_of		
 BACC:0000017	pus	body_product	BACC:0000009	kind_of		
-BACC:0000119	drainage fluid	body_product	BACC:0000009	kind_of	Body fluid drained from a wound, a body cavity, or a fluid collection.	Use when the metadata does not name the fluid. If the metadata names the fluid, or names a lesion that implies it, use that instead.
+BACC:0000119	drainage fluid	body_product	BACC:0000009	kind_of	Body fluid drained from a wound, a body cavity, or a fluid collection.	Use when the metadata names no fluid that has its own label. If it names such a fluid, or a lesion that implies one, use that label instead.
 BACC:0000018	respiratory secretion	body_product			A substance secreted by the respiratory system into the airways.	
 BACC:0000019	sputum	body_product	BACC:0000018	kind_of		
 BACC:0000020	tracheal aspirate	body_product	BACC:0000018	kind_of	Respiratory secretion collected from the trachea by suction.	
@@ -93,7 +93,7 @@ BACC:0000069	sea water	environmental_material	BACC:0000066	kind_of
 BACC:0000070	sediment	environmental_material				
 BACC:0000071	manure	environmental_material				
 BACC:0000072	animal manure	environmental_material	BACC:0000071	kind_of		
-BACC:0000073	compost	environmental_material	BACC:0000071	kind_of		
+BACC:0000073	compost	environmental_material				
 BACC:0000074	wastewater	environmental_material			Water discharged after domestic, industrial, or other human use, including the sludge from wastewater treatment.	
 BACC:0000075	sewage	environmental_material	BACC:0000074	kind_of		
 BACC:0000076	sludge	environmental_material	BACC:0000074	kind_of	Semisolid residue separated from wastewater during its treatment.	
@@ -125,26 +125,26 @@ BACC:0000097	meat product	food_type	BACC:0000095	kind_of	An animal food product 
 BACC:0000098	seafood product	food_type	BACC:0000095	kind_of	An animal food product made from fish, shellfish, or other aquatic animals.	
 BACC:0000099	fermented food	food_type			A food product made by microbial fermentation, such as sauerkraut, kimchi, or tempeh.	
 BACC:0000100	animal feed	food_type				An organism named in feed is not the bacterial host.
-BACC:0000128	disease	host_disease				Use only when the metadata states that the host is ill without naming the disease, such as "diseased" or "ill".
-BACC:0000129	infection	host_disease	BACC:0000128	kind_of		Use only when the metadata names an infection without its site or kind, such as "infection" or "invasive disease".
+BACC:0000128	disease	host_disease				Use when the metadata states that the host is ill without naming the disease, such as "diseased" or "ill", or names a disease that no more specific label covers, such as cancer or COVID-19.
+BACC:0000129	infection	host_disease	BACC:0000128	kind_of	An infectious disease caused by bacteria.	Use when the metadata names an infection that no more specific label covers, such as "infection", "invasive disease", or periodontitis.
 BACC:0000130	bacteremia	host_disease	BACC:0000129	kind_of	Bacteria in the blood, also called a bloodstream infection.	
 BACC:0000131	sepsis	host_disease	BACC:0000129	kind_of	A life-threatening response of the body to an infection, including septicemia and neonatal sepsis.	
-BACC:0000132	respiratory tract infection	host_disease	BACC:0000129	kind_of		
-BACC:0000133	pneumonia	host_disease	BACC:0000132	kind_of		
-BACC:0000134	urinary tract infection	host_disease	BACC:0000129	kind_of		Asymptomatic bacteriuria is colonization.
+BACC:0000132	respiratory tract infection	host_disease	BACC:0000129	kind_of	An infection of the upper or the lower respiratory tract, such as pharyngitis, sinusitis, bronchitis, or pneumonia.	
+BACC:0000133	pneumonia	host_disease	BACC:0000132	kind_of	An infection of the lungs with fluid or pus in the air sacs.	
+BACC:0000134	urinary tract infection	host_disease	BACC:0000129	kind_of	An infection of the kidneys, the bladder, or another part of the urinary tract, such as cystitis or pyelonephritis.	Asymptomatic bacteriuria is colonization.
 BACC:0000135	gastrointestinal infection	host_disease	BACC:0000129	kind_of	An infection of the stomach or the intestine, such as gastroenteritis, diarrheal disease, dysentery, shigellosis, or an STEC infection.	
 BACC:0000136	intra-abdominal infection	host_disease	BACC:0000129	kind_of	An infection in the abdomen outside the intestine, such as peritonitis, a liver abscess, or cholangitis.	
 BACC:0000137	skin and soft tissue infection	host_disease	BACC:0000129	kind_of	An infection of the skin or the tissue under it, such as cellulitis, impetigo, a furuncle, or an infected wound or burn.	A sampled wound or abscess alone is a lesion, not this diagnosis.
 BACC:0000138	surgical site infection	host_disease	BACC:0000129	kind_of	An infection of the incision or of the operated organ after surgery.	
 BACC:0000139	device-associated infection	host_disease	BACC:0000129	kind_of	An infection of a device placed in a patient, such as a catheter, a prosthetic joint, or a cardiac device.	
 BACC:0000140	bone and joint infection	host_disease	BACC:0000129	kind_of	An infection of a bone or a joint, such as osteomyelitis or septic arthritis.	
-BACC:0000141	central nervous system infection	host_disease	BACC:0000129	kind_of		
+BACC:0000141	central nervous system infection	host_disease	BACC:0000129	kind_of	An infection of the brain, the spinal cord, or the meninges, such as meningitis, encephalitis, or a brain abscess.	
 BACC:0000142	meningitis	host_disease	BACC:0000141	kind_of	Inflammation of the meninges caused by an infection.	
-BACC:0000143	endocarditis	host_disease	BACC:0000129	kind_of		
-BACC:0000144	eye infection	host_disease	BACC:0000129	kind_of		
+BACC:0000143	endocarditis	host_disease	BACC:0000129	kind_of	An infection of the inner lining of the heart or of the heart valves.	
+BACC:0000144	eye infection	host_disease	BACC:0000129	kind_of	An infection of the eye or the tissue around it, such as conjunctivitis, keratitis, or endophthalmitis.	
 BACC:0000145	ear infection	host_disease	BACC:0000129	kind_of	An infection of the ear, such as otitis externa or otitis media.	
 BACC:0000146	reproductive tract infection	host_disease	BACC:0000129	kind_of	An infection of the reproductive organs, such as endometritis, metritis, pyometra, or vaginitis.	
-BACC:0000147	mastitis	host_disease	BACC:0000129	kind_of		
+BACC:0000147	mastitis	host_disease	BACC:0000129	kind_of	Inflammation of the mammary gland caused by an infection.	
 BACC:0000148	colibacillosis	host_disease	BACC:0000129	kind_of		
 BACC:0000149	cystic fibrosis	host_disease	BACC:0000128	kind_of		Do not use for "non-CF" values.
 BACC:0000150	bronchiectasis	host_disease	BACC:0000128	kind_of		Non-CF bronchiectasis is bronchiectasis without cystic fibrosis.

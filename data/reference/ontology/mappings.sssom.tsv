@@ -57,7 +57,7 @@ BACC:0000056	ear	skos:exactMatch	UBERON:0001690	semapv:ManualMappingCuration	obo
 BACC:0000057	liver	skos:exactMatch	UBERON:0002107	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
 BACC:0000058	bone	skos:closeMatch	UBERON:0001474	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	For a body site, bone element is the better semantic fit. UBERON marks bone as related because it can also mean bone tissue.
 BACC:0000059	synovial joint	skos:exactMatch	UBERON:0002217	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
-BACC:0000060	skin	skos:exactMatch	UBERON:0000014	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
+BACC:0000060	skin	skos:exactMatch	UBERON:0002097	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-10-18	""
 BACC:0000061	wound	skos:relatedMatch	MONDO:0021178	semapv:ManualMappingCuration	obo:mondo.owl	2026-07-06	MONDO injury is a disease class. The BacCurate term is a sampled lesion.
 BACC:0000062	ulcer	skos:closeMatch	MONDO:0043839	semapv:ManualMappingCuration	obo:mondo.owl	2026-07-06	MONDO describes the same surface lesion but classifies it as ulcer disease rather than the sampled structure.
 BACC:0000063	abscess	skos:closeMatch	MONDO:0005227	semapv:ManualMappingCuration	obo:mondo.owl	2026-07-06	MONDO classifies an abscess as an infectious disease or inflammatory process characterized by a pus-filled cavity rather than the sampled structure.
@@ -66,10 +66,10 @@ BACC:0000064	soil	skos:narrowMatch	ENVO:00005767	semapv:ManualMappingCuration	ob
 BACC:0000065	rhizosphere soil	skos:closeMatch	ENVO:00005801	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	ENVO defines the root-influenced soil region but classifies it as an ecosystem and part of an astronomical body rather than as soil material.
 BACC:0000066	water	skos:exactMatch	ENVO:00002006	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
 BACC:0000066	water	skos:narrowMatch	ENVO:00002042	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	Surface water is a subtype of liquid water.
-BACC:0000066	water	skos:narrowMatch	ENVO:01000599	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	River water is a subtype of stream water and liquid water, but it does not require fresh-water salinity.
 BACC:0000066	water	skos:narrowMatch	ENVO:01001018	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	Hypereutrophic water is a subtype of liquid water.
 BACC:0000066	water	skos:narrowMatch	ENVO:01001268	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	Urban stormwater is a subtype of stormwater and liquid water.
 BACC:0000067	fresh water	skos:exactMatch	ENVO:00002011	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
+BACC:0000067	fresh water	skos:narrowMatch	ENVO:01000599	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	River water is a kind of fresh water.
 BACC:0000068	groundwater	skos:exactMatch	ENVO:01001004	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
 BACC:0000069	sea water	skos:exactMatch	ENVO:00002149	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
 BACC:0000070	sediment	skos:exactMatch	ENVO:00002007	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
@@ -95,7 +95,6 @@ BACC:0000087	inanimate object	skos:closeMatch	ENVO:00010358	semapv:ManualMapping
 BACC:0000088	sink	skos:exactMatch	ENVO:01000990	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
 BACC:0000089	plumbing drain	skos:exactMatch	ENVO:01000924	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
 BACC:0000092	catheter	skos:exactMatch	OBI:0002830	semapv:ManualMappingCuration	obo:obi.owl	2026-05-08	""
-BACC:0000093	surface	skos:closeMatch	ENVO:00010504	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	ENVO defines a material surface layer, while a swabbed surface may refer to a boundary or location instead.
 BACC:0000094	plant food product	skos:exactMatch	FOODON:00001015	semapv:ManualMappingCuration	obo:foodon.owl	2025-07-31	""
 BACC:0000094	plant food product	skos:narrowMatch	FOODON:03309861	semapv:ManualMappingCuration	obo:foodon.owl	2025-07-31	Coconut whole or pieces is a subtype of plant food product.
 BACC:0000095	animal food product	skos:exactMatch	FOODON:00004242	semapv:ManualMappingCuration	obo:foodon.owl	2025-07-31	""
@@ -129,37 +128,38 @@ BACC:0000120	cyst	skos:exactMatch	NCIT:C2978	semapv:ManualMappingCuration	obo:nc
 BACC:0000121	perineum	skos:exactMatch	UBERON:0002356	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
 BACC:0000154	head	skos:exactMatch	UBERON:0000033	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-10-12	""
 BACC:0000155	neck	skos:exactMatch	UBERON:0000974	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-10-12	""
-BACC:0000156	thorax	skos:exactMatch	UBERON:0001443	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-10-12	""
+BACC:0000156	thorax	skos:broadMatch	UBERON:0001443	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-10-18	UBERON chest also includes the back.
 BACC:0000157	back	skos:exactMatch	UBERON:0001137	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-10-12	""
 BACC:0000158	skeletal system	skos:exactMatch	UBERON:0001434	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-10-12	""
 BACC:0000123	veterinary facility	skos:exactMatch	ENVO:03501348	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	ENVO places veterinary facility under healthcare facility. BacCurate keeps it apart, because its healthcare facility is a facility of human care.
 BACC:0000124	hospital	skos:exactMatch	ENVO:00002173	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
 BACC:0000124	hospital	skos:narrowMatch	ENVO:03501137	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	A hospital unit facility is part of a hospital.
-BACC:0000124	hospital	skos:narrowMatch	ENVO:03501158	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	A microbiology hospital unit is part of a hospital.
+BACC:0000124	hospital	skos:relatedMatch	ENVO:03501158	semapv:ManualMappingCuration	obo:envo.owl	2026-10-18	A microbiology hospital unit is usually the laboratory that handled the isolate, not the place where the sample was taken.
 BACC:0000125	primary care facility	skos:narrowMatch	ENVO:03501186	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	A family practice clinic is a kind of primary care facility.
 BACC:0000125	primary care facility	skos:narrowMatch	ENVO:03501341	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	A community health centre is a primary care facility of general practitioners and nurses.
 BACC:0000126	long-term care facility	skos:exactMatch	ENVO:03501194	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	""
 BACC:0000126	long-term care facility	skos:narrowMatch	ENVO:01000932	semapv:ManualMappingCuration	obo:envo.owl	2026-06-26	A nursing home is a kind of long-term care facility.
 BACC:0000127	mammary gland	skos:exactMatch	UBERON:0001911	semapv:ManualMappingCuration	obo:uberon/uberon-basic.owl	2026-06-23	""
 BACC:0000128	disease	skos:exactMatch	MONDO:0000001	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-06	""
-BACC:0000129	infection	skos:exactMatch	MONDO:0005550	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-06	""
-BACC:0000131	sepsis	skos:closeMatch	MONDO:0005229	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-06	MONDO limits the class to sepsis from a bacterial infection. BacCurate isolates are bacteria, so the classes agree in practice.
-BACC:0000132	respiratory tract infection	skos:exactMatch	MONDO:0024355	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-06	""
-BACC:0000133	pneumonia	skos:exactMatch	MONDO:0005249	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-06	""
-BACC:0000134	urinary tract infection	skos:exactMatch	MONDO:0100338	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-06	""
-BACC:0000135	gastrointestinal infection	skos:narrowMatch	MONDO:0000916	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-06	An intestinal infectious disease is a gastrointestinal infection. An infection of the stomach is not an intestinal infectious disease.
-BACC:0000137	skin and soft tissue infection	skos:narrowMatch	MONDO:0021201	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-06	A skin infection is a kind of skin and soft tissue infection.
+BACC:0000129	infection	skos:broadMatch	MONDO:0005550	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-18	The MONDO class also includes infections that are not bacterial.
+BACC:0000129	infection	skos:exactMatch	MONDO:0005113	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-18	""
+BACC:0000131	sepsis	skos:exactMatch	MONDO:0005229	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-18	""
+BACC:0000132	respiratory tract infection	skos:broadMatch	MONDO:0024355	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-18	The MONDO class also includes infections that are not bacterial.
+BACC:0000133	pneumonia	skos:broadMatch	MONDO:0005249	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-18	MONDO pneumonia also includes pneumonia that is not a bacterial infection.
+BACC:0000134	urinary tract infection	skos:broadMatch	MONDO:0100338	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-18	The MONDO class also includes infections that are not bacterial.
+BACC:0000135	gastrointestinal infection	skos:relatedMatch	MONDO:0000916	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-18	The MONDO class overlaps the BacCurate term but does not contain it. It also includes infections that are not bacterial.
+BACC:0000137	skin and soft tissue infection	skos:relatedMatch	MONDO:0021201	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-18	The MONDO class overlaps the BacCurate term but does not contain it. It also includes infections that are not bacterial.
 BACC:0000139	device-associated infection	skos:narrowMatch	MONDO:0043892	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-06	A prosthesis-related infection is a device-associated infection. A catheter infection is not prosthesis-related.
 BACC:0000140	bone and joint infection	skos:narrowMatch	MONDO:0005246	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-06	Osteomyelitis is a kind of bone and joint infection.
 BACC:0000140	bone and joint infection	skos:narrowMatch	MONDO:0004471	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-06	Bacterial arthritis is a kind of bone and joint infection.
-BACC:0000141	central nervous system infection	skos:exactMatch	MONDO:0024619	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-06	""
+BACC:0000141	central nervous system infection	skos:broadMatch	MONDO:0024619	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-18	The MONDO class also includes infections that are not bacterial.
 BACC:0000142	meningitis	skos:broadMatch	MONDO:0021108	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-06	MONDO meningitis includes inflammation of the meninges without an infection.
 BACC:0000142	meningitis	skos:narrowMatch	MONDO:0006670	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-06	Bacterial meningitis is meningitis caused by an infection.
-BACC:0000143	endocarditis	skos:exactMatch	MONDO:0000565	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-06	""
-BACC:0000144	eye infection	skos:exactMatch	MONDO:0043885	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-06	""
-BACC:0000145	ear infection	skos:narrowMatch	MONDO:0004795	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-06	Otitis externa is a kind of ear infection.
-BACC:0000145	ear infection	skos:narrowMatch	MONDO:0024330	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-06	Infectious otitis media is a kind of ear infection.
-BACC:0000147	mastitis	skos:exactMatch	MONDO:0006849	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-06	""
+BACC:0000143	endocarditis	skos:broadMatch	MONDO:0000565	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-18	The MONDO class also includes infections that are not bacterial.
+BACC:0000144	eye infection	skos:broadMatch	MONDO:0043885	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-18	The MONDO class also includes infections that are not bacterial.
+BACC:0000145	ear infection	skos:relatedMatch	MONDO:0004795	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-18	The MONDO class overlaps the BacCurate term but does not contain it. It also includes infections that are not bacterial.
+BACC:0000145	ear infection	skos:relatedMatch	MONDO:0024330	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-18	The MONDO class overlaps the BacCurate term but does not contain it. It also includes infections that are not bacterial.
+BACC:0000147	mastitis	skos:broadMatch	MONDO:0006849	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-18	MONDO mastitis also includes inflammation that is not an infection.
 BACC:0000148	colibacillosis	skos:exactMatch	MONDO:1014888	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-06	""
 BACC:0000149	cystic fibrosis	skos:exactMatch	MONDO:0009061	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-06	""
 BACC:0000150	bronchiectasis	skos:exactMatch	MONDO:0004822	semapv:ManualMappingCuration	obo:mondo.owl	2026-10-06	""

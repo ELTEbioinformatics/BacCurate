@@ -60,9 +60,9 @@ BACC:0000047	genital tract	exact
 BACC:0000057	iecur	exact
 BACC:0000057	jecur	exact
 BACC:0000065	rhizosphere	related
-BACC:0000066	river water	narrow
 BACC:0000066	surface water	narrow
 BACC:0000067	freshwater	exact
+BACC:0000067	river water	narrow
 BACC:0000068	ground water	exact
 BACC:0000069	seawater	exact
 BACC:0000072	cattle manure	narrow

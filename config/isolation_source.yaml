@@ -1,5 +1,5 @@
 schema_version: 3
-prompt_version: "17"
+prompt_version: "18"
 
 facets:
   source_type:
@@ -57,9 +57,10 @@ facets:
     classifier_guidance: >-
       Set this facet for a diagnosis or a health state of the host that any attribute names, also
       when a specimen is named or rule 8 sets a body site from the diagnosis. A patient, a clinical
-      sample, a hospital, or a sampled lesion such as `wound swab` names no diagnosis. Carriage, a
-      screening sample, and a healthy host give `colonization`. A disease without a label, such as
-      cancer, leaves the facet empty.
+      sample, a hospital, a transplant, a treatment, or a sampled lesion such as `wound swab` names
+      no diagnosis. Carriage, a screening sample, and a healthy host give `colonization`. Treat an
+      infection as bacterial unless the metadata names another cause. A disease with no label of its
+      own, such as cancer or COVID-19, gives `disease`.
 
 host_recovery_term_ids:
   - BACC:0000001
@@ -77,23 +78,19 @@ host_recovery_term_ids:
 #
 # Rules for application:
 # - Applied to records that do not specify a sampled location.
+# - Applied only when all diagnoses of the record give the same body term.
 # - Clears any inherited body sites if the record specifies a body product.
 disease_body_terms:
   BACC:0000130: BACC:0000010 # bacteremia: blood
-  BACC:0000132: BACC:0000026 # respiratory tract infection: respiratory system
-  BACC:0000133: BACC:0000034 # pneumonia: lung
   BACC:0000134: BACC:0000104 # urinary tract infection: urinary system
   BACC:0000135: BACC:0000035 # gastrointestinal infection: digestive tract
   BACC:0000137: BACC:0000117 # skin and soft tissue infection: skin and soft tissue
-  BACC:0000140: BACC:0000158 # bone and joint infection: skeletal system
-  BACC:0000141: BACC:0000052 # central nervous system infection: nervous system
-  BACC:0000142: BACC:0000052 # meningitis: nervous system
   BACC:0000143: BACC:0000050 # endocarditis: circulatory system
   BACC:0000144: BACC:0000054 # eye infection: eye
   BACC:0000145: BACC:0000056 # ear infection: ear
   BACC:0000146: BACC:0000047 # reproductive tract infection: reproductive tract
   BACC:0000147: BACC:0000127 # mastitis: mammary gland
-  BACC:0000150: BACC:0000033 # bronchiectasis: bronchus
+  BACC:0000150: BACC:0000031 # bronchiectasis: lower respiratory tract
 
 direct_match_values:
   abdominal: BACC:0000109
@@ -266,7 +263,6 @@ direct_match_values:
   human rectal swab: [BACC:0000041, BACC:0000122]
   human sample: BACC:0000122
   human sputum: [BACC:0000019, BACC:0000122]
-  "human, animal or environmental": [BACC:0000001, BACC:0000004]
   "human, stool": [BACC:0000025, BACC:0000122]
   "human, urine": [BACC:0000014, BACC:0000122]
   icu: BACC:0000080
@@ -312,7 +308,7 @@ direct_match_values:
   mouse stool sample: [BACC:0000025, BACC:0000002]
   mrsa infection: BACC:0000129
   mrsa screen: BACC:0000153
-  mrsa screen - nose/throat/perineum: [BACC:0000028, BACC:0000121, BACC:0000153]
+  mrsa screen - nose/throat/perineum: [BACC:0000001, BACC:0000153]
   nare: BACC:0000029
   nasal: BACC:0000029
   nasal carriage: [BACC:0000029, BACC:0000153]
@@ -367,8 +363,8 @@ direct_match_values:
   rectal swab: BACC:0000041
   rectal swab culture: BACC:0000041
   rectal swab isolate: BACC:0000041
-  rectal swab or faeces: [BACC:0000025, BACC:0000041]
-  rectal swab/stool: [BACC:0000025, BACC:0000041]
+  rectal swab or faeces: BACC:0000035
+  rectal swab/stool: BACC:0000035
   rectal swabs: BACC:0000041
   rectum swab: BACC:0000041
   resp: BACC:0000026
@@ -390,13 +386,13 @@ direct_match_values:
   staphylococcal infection: BACC:0000129
   staphylococcus aureus infection: BACC:0000129
   stool sample: BACC:0000025
-  stool/rectal swab: [BACC:0000025, BACC:0000041]
+  stool/rectal swab: BACC:0000035
   stream: BACC:0000067
   surveillance sample: BACC:0000153
   surveillance swab: BACC:0000153
   surveillance swabs: BACC:0000153
   swab (wound): BACC:0000061
-  swab nose/throat/perineum: [BACC:0000028, BACC:0000121]
+  swab nose/throat/perineum: BACC:0000001
   swab rectum: BACC:0000041
   swab_wound: BACC:0000061
   swine: BACC:0000002
@@ -443,7 +439,6 @@ non_source_values:
   - biofilms
   - body site
   - brain-heart-infusion
-  - cancer
   - cantabria
   - cells
   - colony biofilm
@@ -462,6 +457,7 @@ non_source_values:
   - escherichia coli
   - guyana
   - high lung function
+  - "human, animal or environmental"
   - in vitro biofilm
   - island
   - klebsiella
@@ -482,6 +478,7 @@ non_source_values:
   - other
   - "other (specify:)"
   - others
+  - patient or hospital wastewater site
   - physical
   - planktonic cells
   - planktonic culture
@@ -501,8 +498,8 @@ non_source_values:
   - whole cell
   - whole organism
 
-# Values to assign the the "laboratory strain" label to, based
-# the `ncbi_organism` field or `strain` attribute.
+# Values to assign the "laboratory strain" label to, based
+# on the `ncbi_organism` field or `strain` attribute.
 #
 # Notes:
 # - Species must match because strain names overlap (e.g., "Escherichia coli PA14").
@@ -569,13 +566,13 @@ system_prompt: |
 
   # Output rules
   1. Each facet's label list is closed. Copy each label VERBATIM from the list under that facet's heading. A label belongs to exactly one facet.
-  2. If the metadata names a real source but the applicable facet has no matching label, leave only that facet empty and fill every other facet that has a supported label. Never write the metadata's own wording as a label, and never substitute an ancestor label for the missing label.
-  3. Within a facet, choose the most specific label the metadata fully supports, and do not return both a label and one of its ancestors. Return several labels when the metadata names each of them. Alternatives joined by "or" or by a slash each get their own label. Never return a label that the metadata only makes possible.
+  2. If the metadata names a real source but no label of the applicable facet covers it, leave only that facet empty and fill every other facet that has a supported label. A label covers a thing that is a kind of the label, or a part of something that the label covers. Never write the metadata's own wording as a label.
+  3. Within a facet, choose the most specific label the metadata fully supports, and do not return both a label and one of its ancestors. Return several labels when the metadata names each of them, as in a list joined by "and" or a pooled sample. Alternatives joined inside one value by "or", "and/or", or a slash are each only possible. A comma list takes the meaning of its last joiner. For alternatives, return only the labels that every alternative would get alone. If the alternatives share no label in a facet, leave that facet empty. Never return a label that the metadata only makes possible.
   4. Preserve every independently supported source type. A word that names a setting outside a host, such as "urban", "aquatic", "terrestrial", or "environment", supports environmental even when no sampled material is named. It does not when only a MIxS environment field names it, such as env_broad_scale, env_local_scale, env_medium, or an environmental package, because every MIxS sample fills these fields. A facility, "home", and "household" do not either, because they can name where a sampled host was. An explicit environmental source type and a named host support both environmental and host-associated. A host name alone does not support food or feed.
   5. Food or feed is material intended for human consumption or animal feed when it was sampled: retail products, meat cuts, carcasses, giblets, and bulk tank or retail milk. It needs no explicit food word. Live animals, digestive tract content or feces at slaughter, and milk sampled from one animal are not food.
   6. A food sample gets food or feed and its food type, but no host-associated, animal host, human host, or plant host, and no body_product, body_site, or host_disease label, even when the metadata names the animal or the cut. Milk is mammalian milk. It is food only with a food signal such as "bulk tank", "retail", "raw milk", "dairy", or "source_type" = "food".
   7. The "facility" facet records where the isolate was collected. Select it for a named hospital, ward, ICU, clinic, farm, or plant, whether a host or the built environment was sampled there. These words also name a facility: a ward, "hospitalized", "inpatient", and "hospital-acquired" give hospital; general practice ("GP", "primary care") gives primary care facility; long-term care ("LTCF", "nursing home", "care home") gives long-term care facility. Only "outpatient", "nosocomial", and a bare "clinic" give healthcare facility, because they can mean a hospital or another place of care. A veterinary clinic or veterinary hospital gives veterinary facility, never a healthcare facility label. A facility never states what was sampled, so it neither fills nor blocks any other facet. A patient, a clinical sample, or a community-acquired infection names no facility, so the facet stays empty.
-  8. A diagnosis of an infection of one organ or body system names where the isolate came from. If the metadata names no specimen and no body site, select the body_site or body_product label of the infected organ or system, but no lesion. A named specimen or body site wins over the diagnosis, which then adds no body term. A disease that is not an infection of one site, such as a genetic disease or a systemic response to infection, sets no body term, and neither do a treatment and a transplant. The diagnosis itself always goes to host_disease.
+  8. A diagnosis goes only to host_disease. It never selects a body_product, body_site, or lesion label, even when its name contains an organ.
   9. When nothing in the metadata describes where the isolate came from, leave every facet empty except host_disease. This includes values that describe the organism or the sequenced material rather than its origin, such as "tissue" = "bacterial cell", "host" = "bacterium", "plasmid DNA", a culture, a laboratory biofilm, or a strain identifier in an isolation-source BioSample attribute. It also includes a homonym such as a bare "swab" or "litter" when surrounding metadata does not resolve it.
   10. After selecting all facets, give one short evidence statement in reasoning; but do not paraphrase the metadata.
 
@@ -595,9 +592,17 @@ system_prompt: |
   {"source_type": ["human host"], "body_product": [], "body_site": [], "lesion": ["wound"], "environmental_material": [], "facility": [], "sampled_object": [], "food_type": [], "host_disease": [], "reasoning": "The wound is the sampled lesion. Its name places it on no body region, so that facet stays empty."}
 
   Metadata:
+  "isolation_source" = "feces or cecal swab"
+  {"source_type": [], "body_product": [], "body_site": ["digestive tract"], "lesion": [], "environmental_material": [], "facility": [], "sampled_object": [], "food_type": [], "host_disease": [], "reasoning": "The caecum is part of the digestive tract, and feces is produced by it, so digestive tract is the only label both share."}
+
+  Metadata:
+  "isolation_source" = "ulcer or abscess"
+  {"source_type": ["host-associated"], "body_product": [], "body_site": [], "lesion": [], "environmental_material": [], "facility": [], "sampled_object": [], "food_type": [], "host_disease": [], "reasoning": "Both come from a host, but no lesion label covers both."}
+
+  Metadata:
   "isolation_source" = "patient with endometritis"
   "host" = "Homo sapiens"
-  {"source_type": ["human host"], "body_product": [], "body_site": ["uterus"], "lesion": [], "environmental_material": [], "facility": [], "sampled_object": [], "food_type": [], "host_disease": ["reproductive tract infection"], "reasoning": "Endometritis is an infection of the uterus, and no specimen is named, so the infected organ is the body site."}
+  {"source_type": ["human host"], "body_product": [], "body_site": [], "lesion": [], "environmental_material": [], "facility": [], "sampled_object": [], "food_type": [], "host_disease": ["reproductive tract infection"], "reasoning": "Endometritis is a reproductive tract infection. No specimen or body site is named."}
 
   Metadata:
   "isolation_source" = "urine from liver transplant patient with cystitis"
@@ -609,10 +614,6 @@ system_prompt: |
   "host_disease" = "Cystic fibrosis"
   "host" = "Homo sapiens"
   {"source_type": ["human host"], "body_product": ["sputum"], "body_site": [], "lesion": [], "environmental_material": [], "facility": [], "sampled_object": [], "food_type": [], "host_disease": ["cystic fibrosis"], "reasoning": "Sputum is the specimen. The host disease is cystic fibrosis, which sets no body site."}
-
-  Metadata:
-  "isolation_source" = "Non-CF Bronchiectasis"
-  {"source_type": [], "body_product": [], "body_site": ["bronchus"], "lesion": [], "environmental_material": [], "facility": [], "sampled_object": [], "food_type": [], "host_disease": ["bronchiectasis"], "reasoning": "Bronchiectasis is an infection of the bronchi, and no specimen is named. 'Non-CF' excludes cystic fibrosis."}
 
   Metadata:
   "isolation_source" = "feces"
@@ -659,8 +660,8 @@ system_prompt: |
   {"source_type": [], "body_product": [], "body_site": [], "lesion": [], "environmental_material": [], "facility": ["hospital"], "sampled_object": ["sink"], "food_type": [], "host_disease": [], "reasoning": "The sink was sampled; the hospital is the collection setting."}
 
   Metadata:
-  "isolation_source" = "dust from hospital elevator button"
-  {"source_type": [], "body_product": [], "body_site": [], "lesion": [], "environmental_material": ["dust"], "facility": ["hospital"], "sampled_object": [], "food_type": [], "host_disease": [], "reasoning": "The hospital and dust have labels; elevator button has no sampled-object label, so that facet stays empty."}
+  "isolation_source" = "dust from hospital privacy curtain"
+  {"source_type": [], "body_product": [], "body_site": [], "lesion": [], "environmental_material": ["dust"], "facility": ["hospital"], "sampled_object": ["inanimate object"], "food_type": [], "host_disease": [], "reasoning": "The hospital and dust have labels. No narrower label covers a curtain, so inanimate object is the most specific label."}
 
   Metadata:
   "isolation_source" = "hospital intensive care unit"
