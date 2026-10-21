@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from baccurate.paths import DEFAULT_ISOLATION_SOURCE_ONTOLOGY_DIRECTORY
 from baccurate.standardization.isolation_source_ontology import (
     IsolationSourceOntology,
     IsolationSourceOntologyError,
@@ -14,6 +15,7 @@ from baccurate.standardization.isolation_source_ontology import (
     Synonym,
     SynonymType,
     TermRelation,
+    render_ontology,
 )
 
 FIXTURE_DIRECTORY = Path(__file__).parents[1] / "fixtures" / "standardization" / "ontology"
@@ -276,6 +278,23 @@ def test_only_implies_source_type_relations_apply_to_descendants() -> None:
             tested_inheritance.add(inherited)
 
     assert tested_inheritance == {True, False}
+
+
+def test_prompt_writes_one_term_note_for_each_relation() -> None:
+    ontology = IsolationSourceOntology.load(DEFAULT_ISOLATION_SOURCE_ONTOLOGY_DIRECTORY)
+    sections = {
+        facet_key: render_ontology(ontology, {facet_key: ""}).splitlines()
+        for facet_key in ontology.facets
+    }
+
+    assert ontology.relations
+    for relation in ontology.relations:
+        subject = ontology.terms[relation.subject_id]
+        relation_name = relation.relation.value.replace("_", " ")
+        note = f'- "{subject.label}": {relation_name} {ontology.terms[relation.object_id].label}'
+        section = sections[subject.facet]
+        assert section.count(note) == 1, relation
+        assert section.index(note) > section.index("### Term notes"), relation
 
 
 def _ancestor_ids(ontology: IsolationSourceOntology, term_id: str) -> set[str]:

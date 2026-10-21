@@ -866,6 +866,9 @@ def _render_facet(ontology: IsolationSourceOntology, facet_key: str, guidance: s
             children[term.parent_id].append(term)
     for siblings in children.values():
         siblings.sort(key=lambda term: term.term_id)
+    relations_by_subject: dict[str, list[TermRelation]] = defaultdict(list)
+    for relation in ontology.relations:
+        relations_by_subject[relation.subject_id].append(relation)
 
     lines = [f"## {facet_key}", guidance]
     notes: list[str] = []
@@ -875,6 +878,10 @@ def _render_facet(ontology: IsolationSourceOntology, facet_key: str, guidance: s
             lines.append(f"{'  ' * depth}- {term.label}")
             if term.note:
                 notes.append(f'- "{term.label}": {term.note}')
+            for relation in relations_by_subject[term.term_id]:
+                relation_name = relation.relation.value.replace("_", " ")
+                object_label = ontology.terms[relation.object_id].label
+                notes.append(f'- "{term.label}": {relation_name} {object_label}')
             walk(term.term_id, depth + 1)
 
     walk(None, 0)

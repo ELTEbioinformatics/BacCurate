@@ -1124,7 +1124,7 @@ def test_partial_deterministic_result_uses_sample_evidence_when_llm_is_disabled(
     assert result.evidence_level is IsolationSourceEvidenceLevel.SAMPLE
 
 
-def test_warm_cache_uses_current_relations(tmp_path: Path, fake_llm_client) -> None:
+def test_relation_change_misses_the_cache(tmp_path: Path, fake_llm_client) -> None:
     ontology_directory = tmp_path / "ontology"
     shutil.copytree(FIXTURE_ROOT / "ontology", ontology_directory)
     config_path = _isolation_source_config(
@@ -1150,7 +1150,7 @@ def test_warm_cache_uses_current_relations(tmp_path: Path, fake_llm_client) -> N
     assert SelectedTerm(PUS, "body_product", "pus") in first.selected_terms
     assert SelectedTerm(BLOOD, "body_product", "blood") in second.selected_terms
     assert SelectedTerm(PUS, "body_product", "pus") not in second.selected_terms
-    assert second.diagnostics == (IsolationSourceDiagnostic.CACHE_HIT,)
+    assert second.diagnostics == (IsolationSourceDiagnostic.LLM_CALL,)
 
 
 def test_response_that_failed_validation_is_not_cached(tmp_path: Path, fake_llm_client) -> None:
