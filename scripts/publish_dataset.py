@@ -1,8 +1,9 @@
 """Write the files to be published on BacCurate.
 
-Takes a run directory under output/ and writes 3 files named
+1. Takes a run directory under output/ and writes 3 files named
 baccurate_metadata_v<version>.<format>: gzip TSV, gzip JSONL, and Parquet.
-Output is in the same directory.
+2. Copies data/reference/ontology/terms.tsv, which the site
+reads to nest the terms, to the same run directory.
 
 Usage:
     uv run python scripts/publish_dataset.py output/<run_dir>
@@ -22,8 +23,9 @@ from pathlib import Path
 import duckdb
 
 from baccurate.extraction import SEQUENCE_ACCESSION_COLUMNS
-from baccurate.paths import REPO_ROOT
+from baccurate.paths import DEFAULT_ISOLATION_SOURCE_ONTOLOGY_DIRECTORY, REPO_ROOT
 from baccurate.provenance.sha256 import sha256_file
+from baccurate.standardization.isolation_source_ontology import TERMS_FILENAME
 
 log = logging.getLogger("publish_dataset")
 
@@ -168,8 +170,11 @@ def publish(run_dir: Path) -> None:
     connection.execute(f"COPY published TO '{jsonl}' (FORMAT json, COMPRESSION gzip)")
     connection.execute(f"COPY published TO '{parquet}' (FORMAT parquet, COMPRESSION zstd)")
     connection.close()
+    terms = Path(
+        shutil.copy2(DEFAULT_ISOLATION_SOURCE_ONTOLOGY_DIRECTORY / TERMS_FILENAME, run_dir)
+    )
 
-    for path in (tsv, jsonl, parquet):
+    for path in (tsv, jsonl, parquet, terms):
         _report(path)
 
 

@@ -55,7 +55,7 @@ def test_publish_writes_and_logs_only_the_served_files(
         publish_dataset.publish(run_dir)
 
     stem = f"baccurate_metadata_v{publish_dataset.package_version('baccurate')}"
-    served = {f"{stem}.tsv.gz", f"{stem}.jsonl.gz", f"{stem}.parquet"}
+    served = {f"{stem}.tsv.gz", f"{stem}.jsonl.gz", f"{stem}.parquet", "terms.tsv"}
     assert {path.name for path in run_dir.iterdir()} == {"run.tsv", *served}
     assert served <= {message.split()[0] for message in caplog.messages}
     parquet = run_dir / f"{stem}.parquet"
