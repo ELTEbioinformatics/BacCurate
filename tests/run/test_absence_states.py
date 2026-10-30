@@ -842,7 +842,7 @@ def test_classified_source_with_no_applicable_facet_serializes_as_na(
     assert (
         tuple(built.records[0][column] for column in ISOLATION_SOURCE_COLUMNS[2:-2]) == ("NA",) * 9
     )
-    assert built.records[0]["iso_term_ids"] == ""
+    assert built.records[0]["iso_term_ids"] == "NA"
     assert built.records[0]["iso_external_ids"] == "NA"
     assert built.statistics.isolation_source is not None
     assert built.statistics.isolation_source.aggregate.diagnostics == {

@@ -274,7 +274,8 @@ class _FinalRowAssembler:
                         "||".join(labels_by_facet[facet.key]) or "NA"
                         for facet in self._isolation_source_facets
                     ),
-                    "||".join(term.term_id for term in final_row.isolation_source.selected_terms),
+                    "||".join(term.term_id for term in final_row.isolation_source.selected_terms)
+                    or "NA",
                     "||".join(
                         self._exact_match_ids[term.term_id]
                         for term in final_row.isolation_source.selected_terms
