@@ -296,9 +296,11 @@ class _FinalRowAssembler:
                     "||".join(pair.value for pair in pairs),
                     final_row.host.standardized.taxid,
                     final_row.host.standardized.scientific_name,
+                    lineage.rank,
                     lineage.common_names,
                     lineage.lineage_names,
                     lineage.lineage_taxids,
+                    lineage.lineage_ranks,
                     final_row.host.route,
                     "||".join(final_row.host.record_diagnostics),
                 )

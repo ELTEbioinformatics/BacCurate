@@ -344,14 +344,18 @@ def fixture_dataset_builder_factory(
     """Build DatasetBuilder instances with compact defaults and optional collaborators."""
     lineage_by_taxid = {
         9606: HostLineage(
-            "human",
-            "Eukaryota||Metazoa||Homo sapiens",
-            "2759||33208||9606",
+            common_names="human",
+            lineage_names="Eukaryota||Metazoa||Homo sapiens",
+            lineage_taxids="2759||33208||9606",
+            lineage_ranks="domain||kingdom||species",
+            rank="species",
         ),
         9031: HostLineage(
-            "chicken",
-            "Eukaryota||Metazoa||Gallus gallus",
-            "2759||33208||9031",
+            common_names="chicken",
+            lineage_names="Eukaryota||Metazoa||Gallus gallus",
+            lineage_taxids="2759||33208||9031",
+            lineage_ranks="domain||kingdom||species",
+            rank="species",
         ),
     }
 

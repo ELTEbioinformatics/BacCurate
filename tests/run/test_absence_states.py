@@ -94,9 +94,11 @@ HOST_COLUMNS = (
     "host_val_orig",
     "host_taxid",
     "host_scientific_name",
+    "host_rank",
     "host_common_names",
     "host_lineage_names",
     "host_lineage_taxids",
+    "host_lineage_ranks",
     "host_match_route",
     "host_diagnostics",
 )
@@ -138,7 +140,13 @@ def build_dataset(
             location_standardizer_factory=location_standardizer_factory,
             host_standardizer_factory=host_standardizer_factory,
             host_lineage_factory=lambda *_paths: SimpleNamespace(
-                enrich=lambda _taxid: HostLineage("", "", ""),
+                enrich=lambda _taxid: HostLineage(
+                    common_names="",
+                    lineage_names="",
+                    lineage_taxids="",
+                    lineage_ranks="",
+                    rank="",
+                ),
                 is_descendant_or_self=lambda _taxid, _ancestor: False,
             ),
             isolation_source_standardizer_factory=isolation_source_standardizer_factory,

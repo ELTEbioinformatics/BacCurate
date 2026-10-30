@@ -356,6 +356,48 @@ def test_lineage_membership_uses_taxonomy_parents_and_stops_on_broken_cycles(
     assert not lineage.is_descendant_or_self(10, 33208)
 
 
+def test_lineage_carries_ranks_and_the_host_rank_even_when_the_lineage_drops_it(
+    tmp_path: Path,
+) -> None:
+    names = tmp_path / "names.dmp"
+    names.write_text(
+        "2759 | Eukaryota | | scientific name |\n"
+        "33208 | Metazoa | | scientific name |\n"
+        "9605 | Homo | | scientific name |\n"
+        "9606 | Homo sapiens | | scientific name |\n"
+        "2 | Bacteria | | scientific name |\n"
+        "562 | Escherichia coli | | scientific name |\n"
+        "83333 | Escherichia coli K-12 | | scientific name |\n",
+        encoding="utf-8",
+    )
+    nodes = tmp_path / "nodes.dmp"
+    nodes.write_text(
+        "1 | 1 | no rank |\n"
+        "2759 | 1 | domain |\n"
+        "33208 | 2759 | kingdom |\n"
+        "9605 | 33208 | genus |\n"
+        "9606 | 9605 | species |\n"
+        "2 | 1 | superkingdom |\n"
+        "562 | 2 | species |\n"
+        "83333 | 562 | strain |\n",
+        encoding="utf-8",
+    )
+    lineage = HostLineageEnricher(names, nodes)
+
+    def ranks(taxid: int) -> tuple[str, str, str]:
+        result = lineage.enrich(taxid)
+        return result.lineage_names, result.lineage_ranks, result.rank
+
+    assert ranks(9606) == (
+        "Eukaryota||Metazoa||Homo||Homo sapiens",
+        "domain||kingdom||genus||species",
+        "species",
+    )
+    assert ranks(9605) == ("Eukaryota||Metazoa||Homo", "domain||kingdom||genus", "genus")
+    assert ranks(83333) == ("Bacteria||Escherichia coli", "superkingdom||species", "strain")
+    assert ranks(999999) == ("", "", "")
+
+
 def test_record_diagnostics_name_every_review_reason(standardizer: HostStandardizer) -> None:
     scenarios = (
         ("host", "Homo sapiens sample", (HostDiagnostic.SUBSET_MATCH,)),

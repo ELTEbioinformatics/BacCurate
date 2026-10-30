@@ -1,6 +1,6 @@
 """
-Builds host_common_names, host_lineage_names, and host_lineage_taxids columns
-by walking NCBI taxonomy (names.dmp / nodes.dmp) for each host taxid.
+Builds host_rank, host_common_names, host_lineage_names, host_lineage_taxids, and
+host_lineage_ranks columns by walking NCBI taxonomy (names.dmp / nodes.dmp) for each host taxid.
 """
 
 import logging
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 # --- Constants ---
 
-# Ranks to include in host_lineage_names / host_lineage_taxids, root-to-tip.
+# Ranks to include in the host_lineage_* columns. Older dumps use superkingdom for domain.
 RANK_ORDER = [
     "subspecies",
     "species",
@@ -33,6 +33,8 @@ RANK_ORDER = [
     "clade",
     "phylum",
     "kingdom",
+    "domain",
+    "superkingdom",
     "no rank",
 ]
 
@@ -99,9 +101,9 @@ def _walk_lineage(
     taxid: int,
     parent_rank: dict[int, tuple[int, str]],
     sciname: dict[int, str],
-) -> tuple[list[int], list[str]]:
-    """Walk from taxid up to the root and return (taxids, names) in root-to-tip order."""
-    chain: list[tuple[int, str, str]] = []  # (taxid, rank, sciname)
+) -> list[tuple[int, str, str]]:
+    """Walk from taxid up to the root and return (taxid, rank, name) in root-to-tip order."""
+    chain: list[tuple[int, str, str]] = []
     current = taxid
     seen: set[int] = set()
     while current and current != 1 and current not in seen:  # drop root
@@ -113,13 +115,8 @@ def _walk_lineage(
         chain.append((current, rank, sciname.get(current, "")))
         current = parent
 
-    chain.reverse()  # root-to-tip
-    taxids: list[int] = []
-    names: list[str] = []
-    for tid, _rank, name in chain:
-        taxids.append(tid)
-        names.append(name)
-    return taxids, names
+    chain.reverse()
+    return chain
 
 
 # --- Column generation ---
@@ -127,11 +124,13 @@ def _walk_lineage(
 
 @dataclass(frozen=True, slots=True)
 class HostLineage:
-    """The common names and lineage strings emitted as output columns for one host."""
+    """The rank, common names, and lineage strings emitted as output columns for one host."""
 
     common_names: str
     lineage_names: str
     lineage_taxids: str
+    lineage_ranks: str
+    rank: str
 
 
 class HostLineageEnricher:
@@ -149,16 +148,17 @@ class HostLineageEnricher:
         cached = self._cache.get(taxid)
         if cached is not None:
             return cached
-        taxids, names = _walk_lineage(taxid, self._parent_rank, self._sciname)
         filtered = [
-            (lineage_taxid, name)
-            for lineage_taxid, name in zip(taxids, names, strict=True)
-            if self._parent_rank.get(lineage_taxid, (0, ""))[1] in self._allowed_ranks
+            (lineage_taxid, rank, name)
+            for lineage_taxid, rank, name in _walk_lineage(taxid, self._parent_rank, self._sciname)
+            if rank in self._allowed_ranks
         ]
         result = HostLineage(
             common_names="||".join(self._common.get(taxid, [])),
-            lineage_names="||".join(name for _, name in filtered),
-            lineage_taxids="||".join(str(lineage_taxid) for lineage_taxid, _ in filtered),
+            lineage_names="||".join(name for _, _, name in filtered),
+            lineage_taxids="||".join(str(lineage_taxid) for lineage_taxid, _, _ in filtered),
+            lineage_ranks="||".join(rank for _, rank, _ in filtered),
+            rank=self._parent_rank.get(taxid, (0, ""))[1],
         )
         self._cache[taxid] = result
         return result

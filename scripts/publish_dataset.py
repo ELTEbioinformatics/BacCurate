@@ -46,6 +46,7 @@ LIST_COLUMNS = frozenset(
         "host_common_names",
         "host_lineage_names",
         "host_lineage_taxids",
+        "host_lineage_ranks",
         "host_diagnostics",
     }
 )
