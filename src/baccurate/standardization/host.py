@@ -509,6 +509,9 @@ class HostStandardizer:
         self.multiword_term_to_info: dict[str, TaxonInfo] = {}
         self.singleword_term_to_info: dict[str, TaxonInfo] = {}
         self.multiword_inverted_index: dict[str, set[str]] = {}
+        self.subset_rejections = frozenset(
+            _normalize_text(term) for term in self.config.value_rejections
+        )
 
         # Higher-precision sources fill each lookup first via setdefault,
         # so collisions resolve in favor of the more authoritative source.
@@ -660,15 +663,12 @@ class HostStandardizer:
         include_subspecies: bool = False,
     ) -> None:
         """
-        Add a normalized term to the subset-matching index.
-
-        Subspecies are excluded - their trinomial names produce false
-        positives when bag-of-words matching ignores order (e.g. 'Gallus
-        gallus gallus' matching the input 'Gallus gallus'). They remain
-        in the exact-match lookups, so a value typed as the full
-        trinomial still resolves correctly.
+        Index normalized terms for subset matching. Subspecies and rejected values
+        are excluded to prevent unordered bag-of-words false positives.
         """
-        if not norm_term or (info.rank == "subspecies" and not include_subspecies):
+        if not norm_term or norm_term in self.subset_rejections:
+            return
+        if info.rank == "subspecies" and not include_subspecies:
             return
         words = norm_term.split()
         if len(words) >= 2:

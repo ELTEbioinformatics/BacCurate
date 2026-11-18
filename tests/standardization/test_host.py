@@ -277,6 +277,13 @@ def test_force_terms_and_value_rejections_preempt_default_matching(
     assert classify(standardizer, "cancer") is None
 
 
+def test_value_rejections_never_match_as_a_word_inside_a_value(
+    standardizer: HostStandardizer,
+) -> None:
+    assert classify(standardizer, "colorectal cancer") is None
+    assert classify(standardizer, "chicken cancer").info.taxid == 9031
+
+
 def test_multi_attribute_disagreement_tie_breaking_and_review_flags_are_preserved(
     standardizer: HostStandardizer,
 ) -> None:

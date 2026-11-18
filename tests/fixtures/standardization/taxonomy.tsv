@@ -9,3 +9,4 @@ taxid	rank	scientific_name	synonym	genbank_common_name	common_name	comments
 9823	species	Sus scrofa		pig	pigs;swine;wild boar
 9913	species	Bos taurus	Bos bovis	domestic cattle	bovine;cow;dairy cow;domestic cow;ox
 9520	genus	Saimiri		squirrel monkeys
+6754	genus	Cancer			
