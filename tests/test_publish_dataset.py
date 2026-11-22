@@ -31,12 +31,13 @@ def test_publish_writes_and_logs_only_the_served_files(
 ) -> None:
     run_dir = tmp_path / "run"
     run_dir.mkdir()
-    columns = ["acc", "text", "iso_val_orig", *publish_dataset.SCALAR_TYPES]
+    columns = ["acc", "text", "iso_val_orig", "iso_match_route", *publish_dataset.SCALAR_TYPES]
     rows = [
         [
             "SAMN1",
             "Homo sapiens",
             "blood||serum",
+            "llm",
             "2020-01-02",
             "2020-01-03",
             "2019-06-01",
@@ -44,7 +45,7 @@ def test_publish_writes_and_logs_only_the_served_files(
             "2.5",
             "9606",
         ],
-        ["SAMN2", "NA", "NA", "", "", "", "", "", ""],
+        ["SAMN2", "NA", "NA", "NA", "", "", "", "", "", ""],
     ]
     (run_dir / "run.tsv").write_text(
         "\n".join("\t".join(record) for record in (columns, *rows)) + "\n",
@@ -68,6 +69,8 @@ def test_publish_writes_and_logs_only_the_served_files(
     jsonl = gzip.decompress((run_dir / f"{stem}.jsonl.gz").read_bytes()).decode().splitlines()
     assert '"iso_val_orig":["blood","serum"]' in jsonl[0].replace(" ", "")
     assert '"iso_val_orig":[]' in jsonl[1].replace(" ", "")
+    assert '"iso_match_route":"llm"' in jsonl[0].replace(" ", "")
+    assert '"iso_match_route":null' in jsonl[1].replace(" ", "")
     assert '"text":"Homosapiens"' in jsonl[0].replace(" ", "")
     assert '"text":null' in jsonl[1].replace(" ", "")
 

@@ -150,19 +150,21 @@ class _FinalRowAssembler:
         self._taxon_registry = taxon_registry
         self._selected_targets = tuple(targets)
         self._isolation_source_facets = tuple(isolation_source_facets)
+        self._isolation_source_columns = (
+            "iso_attr_orig",
+            "iso_val_orig",
+            *(facet.output_column for facet in self._isolation_source_facets),
+            "iso_term_ids",
+            "iso_external_ids",
+            "iso_match_route",
+        )
         self._exact_match_ids = exact_match_ids or {}
         selected = set(targets)
         self.columns = self.base_columns
         for target in DATASET_COLUMN_ORDER:
             if target in selected:
                 if target is StandardizationTarget.ISOLATION_SOURCE:
-                    self.columns += (
-                        "iso_attr_orig",
-                        "iso_val_orig",
-                        *(facet.output_column for facet in self._isolation_source_facets),
-                        "iso_term_ids",
-                        "iso_external_ids",
-                    )
+                    self.columns += self._isolation_source_columns
                 else:
                     self.columns += TARGET_SPECS[target].output_columns
 
@@ -258,7 +260,7 @@ class _FinalRowAssembler:
             )
         if StandardizationTarget.ISOLATION_SOURCE in self._selected_targets:
             if final_row.isolation_source is None:
-                values += ("",) * (len(self._isolation_source_facets) + 4)
+                values += ("",) * len(self._isolation_source_columns)
             else:
                 labels_by_facet: dict[str, list[str]] = {
                     facet.key: [] for facet in self._isolation_source_facets
@@ -282,6 +284,9 @@ class _FinalRowAssembler:
                         if term.term_id in self._exact_match_ids
                     )
                     or "NA",
+                    final_row.isolation_source.match_route
+                    if final_row.isolation_source.selected_terms
+                    else "NA",
                 )
         if StandardizationTarget.HOST in self._selected_targets:
             if final_row.host is None or final_row.host.standardized is None:

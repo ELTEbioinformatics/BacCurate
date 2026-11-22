@@ -66,9 +66,12 @@ PUBLISHED_NAMES = {
 }
 
 
+SCALAR_ISOLATION_COLUMNS = frozenset({"iso_match_route"})
+
+
 def _is_list(column: str) -> bool:
-    # Every isolation-source column is a list, including the facet columns
-    # between iso_val_orig and iso_term_ids, which the ontology names at runtime.
+    if column in SCALAR_ISOLATION_COLUMNS:
+        return False
     return column in LIST_COLUMNS or column.startswith("iso_")
 
 

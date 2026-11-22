@@ -9,7 +9,7 @@ import json
 import logging
 import re
 import sqlite3
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from enum import StrEnum
@@ -102,12 +102,43 @@ SAMPLED_FACETS = frozenset(
 )
 
 
+def _diagnosis_body_term_ids(
+    term_ids: Iterable[str],
+    disease_body_terms: Mapping[str, str],
+    ontology: IsolationSourceOntology,
+) -> frozenset[str]:
+    term_ids = set(term_ids)
+    body_ids = {
+        disease_body_terms[term_id] for term_id in term_ids if term_id in disease_body_terms
+    }
+    facets = {ontology.terms[term_id].facet for term_id in term_ids}
+    if len(body_ids) == 1 and facets.isdisjoint(SAMPLED_FACETS):
+        return frozenset(body_ids)
+    return frozenset()
+
+
 def _is_host_source_type(ontology: IsolationSourceOntology, term_id: str) -> bool:
     return HOST_ASSOCIATED_TERM_ID in (term_id, *_ancestor_ids(ontology.terms, term_id))
 
 
 def _strain_key(text: str) -> str:
     return text.casefold().replace("\N{GREEK SMALL LETTER ALPHA}", "alpha")
+
+
+def _laboratory_strain_reasoning(
+    config: IsolationSourceConfig, organism: str, strain: str
+) -> str | None:
+    """Return why the organism or its strain is a laboratory strain, or None."""
+    patterns = [
+        (species, pattern)
+        for species, pattern in config.laboratory_strain_patterns
+        if organism.startswith(species)
+    ]
+    if any(pattern.search(_strain_key(organism[len(species) :])) for species, pattern in patterns):
+        return f"Organism {organism!r} is a laboratory strain."
+    if any(pattern.search(_strain_key(strain)) for _, pattern in patterns):
+        return f"Strain {strain!r} of {organism!r} is a laboratory strain."
+    return None
 
 
 # --- Data structures ---
@@ -170,6 +201,12 @@ class IsolationSourceDiagnostic(StrEnum):
     CLASSIFICATION_FAILURE = "classification_failure"
     IDENTIFIER_DISAGREEMENT = "identifier_disagreement"
     UNSPECIFIED = "unspecified"
+
+
+class IsolationSourceMatchRoute(StrEnum):
+    DIRECT_MATCH = "direct_match"
+    LLM = "llm"
+    DERIVED = "derived"
 
 
 class _IsolationSourceClassificationError(RuntimeError):
@@ -258,6 +295,20 @@ class IsolationSourceOutcome:
     host_recovery_eligible: bool = False
     request_fingerprint: str | None = None
     ontology_gap_diagnostics: tuple[IsolationSourceOntologyGapDiagnostic, ...] = ()
+
+    @property
+    def match_route(self) -> IsolationSourceMatchRoute:
+        """
+        Return the classification route.
+
+        Cached LLM results count as LLM matches. Terms that derivation rules add on top
+        leave the route unchanged.
+        """
+        if self.cache_hits or self.llm_calls:
+            return IsolationSourceMatchRoute.LLM
+        if self.exact_matches:
+            return IsolationSourceMatchRoute.DIRECT_MATCH
+        return IsolationSourceMatchRoute.DERIVED
 
 
 @dataclass(frozen=True, slots=True)
@@ -462,7 +513,8 @@ def _resolve_evidence_level(
 class LLMClassifier:
     """Resolve one record's values to ontology terms.
 
-    Calls the model only when deterministic matching falls short.
+    Calls the model only when deterministic matching falls short. Without `direct_match`, every
+    value goes to the model.
     """
 
     def __init__(
@@ -473,9 +525,12 @@ class LLMClassifier:
         result_logger: logging.Logger | None = None,
         client: object = _LOAD_CONFIGURED_CLIENT,
         llm_settings: LLMSettings | None = None,
+        *,
+        direct_match: bool = True,
     ) -> None:
         self.logger = result_logger or logger
         self.config = config
+        self.direct_match = direct_match
         self.ont = ontology
         self.cache = cache_manager
         self.stats = {"cache_hits": 0, "exact_matches": 0, "llm_calls": 0}
@@ -747,14 +802,16 @@ class LLMClassifier:
             if term_id in self.config.disease_body_terms
         }
         explicit_facets = {self.ont.terms[term_id].facet for term_id in explicit_ids}
-        if len(disease_body_ids) == 1 and explicit_facets.isdisjoint(SAMPLED_FACETS):
-            explicit_ids |= disease_body_ids
+        if added_body_ids := _diagnosis_body_term_ids(
+            explicit_ids, self.config.disease_body_terms, self.ont
+        ):
+            explicit_ids |= added_body_ids
             reasoning.append(
                 {
                     "node": "disease_body_term",
                     "reasoning": "The record names nothing that was sampled, so the diagnosis "
                     "sets its body term.",
-                    "selected_terms": self._reasoning_selection(disease_body_ids),
+                    "selected_terms": self._reasoning_selection(added_body_ids),
                 }
             )
         elif disease_body_ids and "body_product" in explicit_facets:
@@ -900,7 +957,7 @@ class LLMClassifier:
         direct_term_ids: set[str] = set()
         consumed_value_count = 0
         identifier_disagreement = False
-        for v in valid_vals:
+        for v in valid_vals if self.direct_match else ():
             terms, value_disagreement = self._direct_match(v)
             identifier_disagreement |= value_disagreement
             if terms:
@@ -1049,6 +1106,8 @@ class IsolationSourceStandardizer:
         result_logger: logging.Logger | None = None,
         client: object = _LOAD_CONFIGURED_CLIENT,
         llm_settings: LLMSettings | None = None,
+        *,
+        direct_match: bool = True,
     ) -> None:
         self.logger = result_logger or logger
         self.config = config
@@ -1063,6 +1122,7 @@ class IsolationSourceStandardizer:
                 result_logger=self.logger,
                 client=client,
                 llm_settings=llm_settings,
+                direct_match=direct_match,
             )
         except BaseException:
             self.cache.close()
@@ -1214,18 +1274,8 @@ class IsolationSourceStandardizer:
         strain: str,
     ) -> IsolationSourceOutcome | IsolationSourceRejection:
         """Add `laboratory` when the organism name or the strain is a known laboratory strain."""
-        patterns = [
-            (species, pattern)
-            for species, pattern in self.config.laboratory_strain_patterns
-            if organism.startswith(species)
-        ]
-        if any(
-            pattern.search(_strain_key(organism[len(species) :])) for species, pattern in patterns
-        ):
-            reasoning = f"Organism {organism!r} is a laboratory strain."
-        elif any(pattern.search(_strain_key(strain)) for _, pattern in patterns):
-            reasoning = f"Strain {strain!r} of {organism!r} is a laboratory strain."
-        else:
+        reasoning = _laboratory_strain_reasoning(self.config, organism, strain)
+        if reasoning is None:
             return result
         if isinstance(result, IsolationSourceRejection):
             result = IsolationSourceOutcome(

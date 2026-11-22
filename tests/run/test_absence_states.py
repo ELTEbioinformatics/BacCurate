@@ -88,7 +88,9 @@ ISOLATION_SOURCE_COLUMNS = (
     "iso_host_disease",
     "iso_term_ids",
     "iso_external_ids",
+    "iso_match_route",
 )
+ISOLATION_SOURCE_FACET_COLUMNS = ISOLATION_SOURCE_COLUMNS[2:-3]
 HOST_COLUMNS = (
     "host_attr_orig",
     "host_val_orig",
@@ -370,7 +372,7 @@ def _build_isolation_source_dataset(
     )
 
 
-def test_isolation_source_outcome_projects_thirteen_columns_in_facet_order(
+def test_isolation_source_outcome_projects_every_column_in_facet_order(
     tmp_path: Path,
     build_dataset,
 ) -> None:
@@ -418,8 +420,9 @@ def test_isolation_source_outcome_projects_thirteen_columns_in_facet_order(
         "iso_host_disease",
         "iso_term_ids",
         "iso_external_ids",
+        "iso_match_route",
     )
-    assert tuple(built.records[0][column] for column in ISOLATION_SOURCE_COLUMNS[:-1]) == (
+    assert tuple(built.records[0][column] for column in ISOLATION_SOURCE_COLUMNS[:-2]) == (
         "material||site||lesion",
         "pus||liver||abscess",
         "host-associated",
@@ -433,9 +436,10 @@ def test_isolation_source_outcome_projects_thirteen_columns_in_facet_order(
         "NA",
         ("BACC:0000001||BACC:0000009||BACC:0000017||BACC:0000113||BACC:0000057||BACC:0000063"),
     )
+    assert built.records[0]["iso_match_route"] == "direct_match"
     facet_labels = tuple(
         label
-        for column in ISOLATION_SOURCE_COLUMNS[2:-2]
+        for column in ISOLATION_SOURCE_FACET_COLUMNS
         for label in built.records[0][column].split("||")
         if label != "NA"
     )
@@ -826,7 +830,8 @@ def test_unfilled_isolation_source_facets_serialize_as_na_not_empty(
 
     assert built.records[0]["iso_source_type"] == "environmental"
     assert (
-        tuple(built.records[0][column] for column in ISOLATION_SOURCE_COLUMNS[3:-2]) == ("NA",) * 8
+        tuple(built.records[0][column] for column in ISOLATION_SOURCE_FACET_COLUMNS[1:])
+        == ("NA",) * 8
     )
     assert built.records[0]["iso_term_ids"] == "BACC:0000004"
 
@@ -847,11 +852,12 @@ def test_classified_source_with_no_applicable_facet_serializes_as_na(
         ],
     )
 
-    assert (
-        tuple(built.records[0][column] for column in ISOLATION_SOURCE_COLUMNS[2:-2]) == ("NA",) * 9
-    )
+    assert tuple(built.records[0][column] for column in ISOLATION_SOURCE_FACET_COLUMNS) == (
+        "NA",
+    ) * len(ISOLATION_SOURCE_FACET_COLUMNS)
     assert built.records[0]["iso_term_ids"] == "NA"
     assert built.records[0]["iso_external_ids"] == "NA"
+    assert built.records[0]["iso_match_route"] == "NA"
     assert built.statistics.isolation_source is not None
     assert built.statistics.isolation_source.aggregate.diagnostics == {
         IsolationSourceDiagnostic.UNSPECIFIED: 1,
